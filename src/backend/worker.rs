@@ -4627,6 +4627,9 @@ impl Worker {
                 message,
                 emoji,
             } => self.react(chat, message, emoji),
+            Command::LeaveGroup { chat, archive } => {
+                self.leave_group(chat, archive).await;
+            }
             Command::SetArchived(chat, archived) => {
                 let _ = self.archive.set_archived(&chat, archived);
                 self.emit_chat(&chat);
@@ -4918,6 +4921,84 @@ impl Worker {
                 self.emit_chat(&chat);
             }
         }
+    }
+
+    /// Tells the phone we are leaving, then keeps the local history.
+    ///
+    /// A group goes through the group API and a channel through the newsletter
+    /// API. Leaving does not delete anything here: the chat stays with its
+    /// messages, and only stops accepting new ones.
+    async fn leave_group(&self, chat: ChatId, archive: bool) {
+        let channel = chat.ends_with("@newsletter");
+        if !channel && ChatKind::from_id(&chat) != ChatKind::Group {
+            return;
+        }
+        // Leaving is a phone action. Without a connection nothing is changed
+        // here, so a later reconnect does not leave a chat that still counts
+        // us as a member.
+        let (Some(client), Some(jid)) = (self.client.clone(), Self::jid_of(&chat)) else {
+            self.emit(Event::Error(if channel {
+                "Could not leave the channel.".into()
+            } else {
+                "Could not leave the group.".into()
+            }));
+            self.emit_chat(&chat);
+            return;
+        };
+        let result = if channel {
+            client
+                .newsletter()
+                .leave(&jid)
+                .await
+                .map_err(|error| error.to_string())
+        } else {
+            client
+                .groups()
+                .leave(jid)
+                .await
+                .map_err(|error| error.to_string())
+        };
+        if let Err(error) = result {
+            if channel {
+                log::warn!("could not leave channel: {error}");
+            } else {
+                log::warn!("could not leave group: {error}");
+            }
+            self.emit(Event::Error(if channel {
+                "Could not leave the channel.".into()
+            } else {
+                "Could not leave the group.".into()
+            }));
+            // The chat goes back to what the archive says, which rolls back
+            // the optimistic mark the interface made when the menu was used.
+            self.emit_chat(&chat);
+            return;
+        }
+        self.finish_leave(&chat, archive);
+    }
+
+    /// Marks the chat as one we can no longer post in, once the phone agreed.
+    fn finish_leave(&self, chat: &str, archive: bool) {
+        let Ok(Some(row)) = self.archive.chat(chat) else {
+            return;
+        };
+        let participants: Vec<_> = row
+            .participants
+            .into_iter()
+            .filter(|id| !self.is_me(id))
+            .collect();
+        let _ = self.archive.set_group_info(chat, None, &participants, true);
+        if archive {
+            let _ = self.archive.set_archived(chat, true);
+            self.tell_phone(chat, move |client, jid| async move {
+                client
+                    .chat_actions()
+                    .archive_chat(&jid, None)
+                    .await
+                    .map_err(|error| error.to_string())
+            });
+        }
+        self.emit_chat(chat);
     }
 
     /// Save the same audience the protocol library uses to encrypt the send.

@@ -176,6 +176,23 @@ impl Chat {
         self.unread > 0 || self.marked_unread
     }
 
+    /// Whether Leave is offered. An empty group member list means the
+    /// membership is not known yet, so the group still offers it. A channel
+    /// stays leaveable until leaving marks it read-only.
+    pub fn can_leave(&self, me: Option<&str>) -> bool {
+        if self.is_channel() {
+            return !self.read_only;
+        }
+        if !self.is_group() {
+            return false;
+        }
+        match me {
+            None => true,
+            Some(_) if self.participants.is_empty() => true,
+            Some(me) => self.participants.iter().any(|id| id == me),
+        }
+    }
+
     pub fn muted(&self, now: i64) -> bool {
         matches!(self.muted_until, Some(0)) || self.muted_until.is_some_and(|until| until > now)
     }
@@ -894,6 +911,8 @@ pub enum Dialog {
     Labels,
     /// Confirms deleting a chat, which cannot be undone.
     ConfirmDeleteChat(ChatId),
+    /// Leaves a group or channel, optionally archiving the chat.
+    ConfirmLeaveGroup(ChatId),
     /// Chooses a destination for an archived message.
     Forward {
         chat: ChatId,
@@ -1278,6 +1297,11 @@ pub enum Action {
         emoji: String,
     },
     SetArchived(ChatId, bool),
+    /// Leaves a group or a channel. `archive` also hides the chat in Archived.
+    LeaveGroup {
+        chat: ChatId,
+        archive: bool,
+    },
     /// Deletes a chat here and on the phone.
     DeleteChat(ChatId),
     SetPinned(ChatId, bool),
@@ -1580,6 +1604,38 @@ mod tests {
         assert_eq!(ChatKind::from_id("1@lid"), ChatKind::Direct);
         assert_eq!(ChatKind::from_id("1-2@g.us"), ChatKind::Group);
         assert_eq!(ChatKind::from_id("1@newsletter"), ChatKind::Broadcast);
+    }
+
+    #[test]
+    fn a_group_can_be_left_until_we_are_no_longer_a_member() {
+        let me = "me@s.whatsapp.net";
+        let mut chat = Chat::new("1-2@g.us".into(), "Rust".into());
+        assert!(
+            chat.can_leave(Some(me)),
+            "unknown membership still offers leave"
+        );
+        chat.participants = vec![me.into(), "other@s.whatsapp.net".into()];
+        assert!(chat.can_leave(Some(me)));
+        chat.participants.retain(|id| id != me);
+        assert!(!chat.can_leave(Some(me)));
+        assert!(!Chat::new("1@s.whatsapp.net".into(), "Ada".into()).can_leave(Some(me)));
+        assert!(!Chat::new("1@broadcast".into(), "List".into()).can_leave(Some(me)));
+    }
+
+    #[test]
+    fn a_channel_can_be_left_until_it_is_read_only() {
+        let me = "me@s.whatsapp.net";
+        let mut chat = Chat::new("1@newsletter".into(), "News".into());
+        assert!(chat.is_channel());
+        assert!(chat.can_leave(Some(me)));
+        chat.read_only = true;
+        assert!(!chat.can_leave(Some(me)));
+    }
+
+    #[test]
+    fn a_broadcast_list_is_not_a_channel() {
+        assert!(!Chat::new("1@broadcast".into(), "List".into()).is_channel());
+        assert!(Chat::new("1@newsletter".into(), "News".into()).is_channel());
     }
 
     #[test]

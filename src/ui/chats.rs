@@ -991,6 +991,8 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
             "Mark as unread",
             "Pin to top",
             "Unarchive",
+            "Leave group",
+            "Leave channel",
             "Mute for 8 hours",
             "Mute for a week",
             "Mute indefinitely",
@@ -1293,6 +1295,23 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
     ) {
         app.actions
             .push(Action::SetArchived(chat.id.clone(), !chat.archived));
+    }
+    if chat.can_leave(app.me.as_deref())
+        && widgets::menu_item(
+            ui,
+            palette,
+            Some(Icon::LogOut),
+            if chat.is_channel() {
+                "Leave channel"
+            } else {
+                "Leave group"
+            },
+        )
+    {
+        app.actions
+            .push(Action::ShowDialog(Dialog::ConfirmLeaveGroup(
+                chat.id.clone(),
+            )));
     }
     let now = crate::util::now();
     if chat.muted(now) {

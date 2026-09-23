@@ -597,6 +597,50 @@ mod tests {
     }
 
     #[test]
+    fn leaving_is_offered_for_a_group_and_for_a_channel() {
+        for (index, leave, title) in [
+            (1usize, "Leave group", "Leave this group?"),
+            (9usize, "Leave channel", "Leave this channel?"),
+        ] {
+            let mut app = super::super::tests::app();
+            prepare(&mut app);
+            let ctx = egui::Context::default();
+            app.attach(&ctx);
+            let mut tour = Tour::new(None, None);
+            let id = super::super::sample_ids()[index].to_owned();
+            app.open_chat = Some(id.clone());
+            app.dialog = Some(crate::model::Dialog::ChatInfo(id.clone()));
+            for _ in 0..3 {
+                frame(&mut app, &mut tour, &ctx, Vec::new());
+            }
+            assert!(tour.labels.contains_key(leave), "chat info offers {leave}");
+            click(&mut app, &mut tour, &ctx, leave);
+            assert!(
+                matches!(
+                    app.dialog,
+                    Some(crate::model::Dialog::ConfirmLeaveGroup(ref open)) if *open == id
+                ),
+                "the button opens the confirm dialog for {id}"
+            );
+            for _ in 0..3 {
+                frame(&mut app, &mut tour, &ctx, Vec::new());
+            }
+            assert!(tour.labels.contains_key(title), "the dialog asks {title}");
+            assert!(tour.labels.contains_key(leave), "the dialog offers {leave}");
+            assert!(
+                tour.labels.contains_key(&format!("{leave} and archive")),
+                "the dialog offers archiving in the same step"
+            );
+            // Cancelling leaves the chat alone.
+            click(&mut app, &mut tour, &ctx, "Cancel");
+            assert!(app.dialog.is_none(), "cancel closes the dialog");
+            let chat = app.chat(&id).expect("chat");
+            assert!(!chat.read_only, "cancelling does not leave the chat");
+            assert!(chat.can_leave(app.me.as_deref()), "and it stays leaveable");
+        }
+    }
+
+    #[test]
     fn polls_are_created_and_voted_through_real_controls() {
         let mut app = super::super::tests::app();
         app.backend.record_demo_commands();

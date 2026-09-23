@@ -3732,6 +3732,25 @@ impl App {
                     emoji,
                 });
             }
+            Action::LeaveGroup { chat, archive } => {
+                self.dialog = None;
+                let me = self.me.clone();
+                if let Some(known) = self.chat_mut(&chat) {
+                    known.read_only = true;
+                    if let Some(me) = me.as_deref() {
+                        known.participants.retain(|id| id != me);
+                    }
+                }
+                if archive {
+                    if let Some(known) = self.chat_mut(&chat) {
+                        known.archived = true;
+                    }
+                    if self.open_chat.as_deref() == Some(chat.as_str()) {
+                        self.apply(Action::CloseChat, ctx);
+                    }
+                }
+                self.backend.send(Command::LeaveGroup { chat, archive });
+            }
             Action::SetArchived(chat, archived) => {
                 if let Some(known) = self.chat_mut(&chat) {
                     known.archived = archived;
@@ -5407,6 +5426,112 @@ mod tests {
         let chat = app.chat(&id).expect("chat");
         assert_eq!(chat.unread, 3);
         assert!(!chat.marked_unread);
+    }
+
+    #[test]
+    fn leaving_a_group_marks_it_read_only_and_can_archive() {
+        let mut app = app();
+        let me = "me@s.whatsapp.net";
+        app.me = Some(me.into());
+        let id = "1-2@g.us".to_owned();
+        let mut chat = Chat::new(id.clone(), "Rust".into());
+        chat.participants = vec![me.into(), "other@s.whatsapp.net".into()];
+        app.chats.push(chat);
+        app.open_chat = Some(id.clone());
+        app.dialog = Some(Dialog::ConfirmLeaveGroup(id.clone()));
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::LeaveGroup {
+                chat: id.clone(),
+                archive: false,
+            },
+            &ctx,
+        );
+        let chat = app.chat(&id).expect("chat");
+        assert!(chat.read_only);
+        assert!(!chat.participants.iter().any(|id| id == me));
+        assert!(!chat.archived);
+        assert_eq!(app.open_chat.as_deref(), Some(id.as_str()));
+        assert!(app.dialog.is_none());
+        // The chat no longer offers leave once we are out of it.
+        assert!(!chat.can_leave(app.me.as_deref()));
+        app.apply(
+            Action::LeaveGroup {
+                chat: id.clone(),
+                archive: true,
+            },
+            &ctx,
+        );
+        let chat = app.chat(&id).expect("chat");
+        assert!(chat.archived);
+        assert!(app.open_chat.is_none());
+    }
+
+    #[test]
+    fn a_refused_leave_rolls_back_the_local_mark() {
+        let mut app = app();
+        let me = "me@s.whatsapp.net";
+        app.me = Some(me.into());
+        let id = "1-2@g.us".to_owned();
+        let mut chat = Chat::new(id.clone(), "Rust".into());
+        chat.participants = vec![me.into(), "other@s.whatsapp.net".into()];
+        app.chats.push(chat.clone());
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::LeaveGroup {
+                chat: id.clone(),
+                archive: false,
+            },
+            &ctx,
+        );
+        assert!(
+            app.chat(&id).expect("chat").read_only,
+            "the menu marks the chat at once"
+        );
+        // The worker could not reach the phone, so it sends the archive row
+        // back untouched. The mark has to go with it.
+        app.handle_chat_updated(chat);
+        let chat = app.chat(&id).expect("chat");
+        assert!(!chat.read_only, "the refused leave is rolled back");
+        assert!(chat.participants.iter().any(|id| id == me));
+        assert!(
+            chat.can_leave(app.me.as_deref()),
+            "and it can be tried again"
+        );
+    }
+
+    #[test]
+    fn leaving_a_channel_marks_it_read_only_and_can_archive() {
+        let mut app = app();
+        let id = "1@newsletter".to_owned();
+        let chat = Chat::new(id.clone(), "News".into());
+        app.chats.push(chat);
+        app.open_chat = Some(id.clone());
+        app.dialog = Some(Dialog::ConfirmLeaveGroup(id.clone()));
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::LeaveGroup {
+                chat: id.clone(),
+                archive: false,
+            },
+            &ctx,
+        );
+        let chat = app.chat(&id).expect("chat");
+        assert!(chat.read_only);
+        assert!(!chat.archived);
+        assert_eq!(app.open_chat.as_deref(), Some(id.as_str()));
+        assert!(app.dialog.is_none());
+        assert!(!chat.can_leave(app.me.as_deref()));
+        app.apply(
+            Action::LeaveGroup {
+                chat: id.clone(),
+                archive: true,
+            },
+            &ctx,
+        );
+        let chat = app.chat(&id).expect("chat");
+        assert!(chat.archived);
+        assert!(app.open_chat.is_none());
     }
 
     #[test]

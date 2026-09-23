@@ -502,6 +502,11 @@ pub enum Command {
         emoji: String,
     },
     SetArchived(ChatId, bool),
+    /// Leaves a group or channel. `archive` also hides the chat in Archived.
+    LeaveGroup {
+        chat: ChatId,
+        archive: bool,
+    },
     /// Deletes a chat on the phone, then here once the phone agreed.
     DeleteChat(ChatId),
     /// Whether the phone deleted a chat requested through `DeleteChat`.

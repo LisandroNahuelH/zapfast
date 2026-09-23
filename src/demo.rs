@@ -218,6 +218,17 @@ const SAMPLES: &[Sample] = &[
         locked: false,
         lines: &[(false, "Reminder: your appointment is on Tuesday at 9:30.")],
     },
+    Sample {
+        id: "120363055566677788@newsletter",
+        name: "WhatsApp Engineering",
+        minutes_ago: 60 * 8,
+        unread: 0,
+        pinned: false,
+        muted: false,
+        archived: false,
+        locked: false,
+        lines: &[(false, "A new client build is out.")],
+    },
 ];
 
 fn media(mime: &str, size: u64, width: Option<u32>, height: Option<u32>) -> Media {
@@ -1866,6 +1877,21 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 });
             }
             "unlink" => app.dialog = Some(Dialog::ConfirmUnlink),
+            "leave-group" => {
+                let group = SAMPLES[1].id.to_owned();
+                app.open_chat = Some(group.clone());
+                app.dialog = Some(Dialog::ConfirmLeaveGroup(group));
+            }
+            "leave-channel" => {
+                let channel = SAMPLES
+                    .iter()
+                    .find(|sample| sample.id.ends_with("@newsletter"))
+                    .expect("channel sample")
+                    .id
+                    .to_owned();
+                app.open_chat = Some(channel.clone());
+                app.dialog = Some(Dialog::ConfirmLeaveGroup(channel));
+            }
             "toasts" => {
                 app.toast("History loaded");
                 app.toast_error(
@@ -3397,6 +3423,7 @@ mod tests {
         let app = app();
         assert!(app.chats.len() >= 5);
         assert!(app.chats.iter().any(|chat| chat.is_group()));
+        assert!(app.chats.iter().any(|chat| chat.is_channel()));
         assert!(app.chats.iter().any(|chat| chat.archived));
         assert!(app.chats.iter().any(|chat| chat.pinned));
         let ada = app.conversations.get(sample_ids()[0]).expect("first chat");
@@ -3582,6 +3609,8 @@ mod tests {
             "info",
             "forward",
             "unlink",
+            "leave-group",
+            "leave-channel",
             "toasts",
             "delete-chat",
             "invite",

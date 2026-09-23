@@ -308,6 +308,8 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                             "Info",
                             "Pin to top",
                             "Unarchive",
+                            "Leave group",
+                            "Leave channel",
                             "Copy number",
                             "Close chat",
                         ],
@@ -344,6 +346,23 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                                     .push(Action::SetArchived(chat.id.clone(), !chat.archived));
                             }
                             widgets::menu_separator(ui, &palette);
+                            if chat.can_leave(app.me.as_deref())
+                                && widgets::menu_item(
+                                    ui,
+                                    &palette,
+                                    Some(Icon::LogOut),
+                                    if chat.is_channel() {
+                                        "Leave channel"
+                                    } else {
+                                        "Leave group"
+                                    },
+                                )
+                            {
+                                app.actions
+                                    .push(Action::ShowDialog(Dialog::ConfirmLeaveGroup(
+                                        chat.id.clone(),
+                                    )));
+                            }
                             if let Some(phone) = chat.phone()
                                 && widgets::menu_item(ui, &palette, Some(Icon::Copy), "Copy number")
                             {
@@ -811,8 +830,18 @@ fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
             }
             if !chat.can_send() {
                 if chat.kind == crate::model::ChatKind::Broadcast {
+                    // A channel we left says so; the rest are only read-only.
                     ui.vertical_centered(|ui| {
-                        theme::text(ui, "Channels are read-only in ZapFast", theme::regular(13.5), palette.secondary);
+                        theme::text(
+                            ui,
+                            if chat.read_only {
+                                "You left this channel"
+                            } else {
+                                "Channels are read-only in ZapFast"
+                            },
+                            theme::regular(13.5),
+                            palette.secondary,
+                        );
                     });
                     return;
                 }
@@ -824,18 +853,33 @@ fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                 }
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        let width = 230.0;
-                        ui.add_space((ui.available_width() - width).max(0.0) / 2.0);
-                        theme::text(ui, "Only", theme::regular(13.5), palette.secondary);
-                        theme::text(ui, "admins", theme::semibold(13.5), palette.accent);
+                    // A group we left says so instead of blaming the admins.
+                    let left = app
+                        .me
+                        .as_deref()
+                        .is_some_and(|me| !chat.participants.iter().any(|id| id == me))
+                        && !chat.participants.is_empty();
+                    if left {
                         theme::text(
                             ui,
-                            "can send messages",
+                            "You left this group",
                             theme::regular(13.5),
                             palette.secondary,
                         );
-                    });
+                    } else {
+                        ui.horizontal(|ui| {
+                            let width = 230.0;
+                            ui.add_space((ui.available_width() - width).max(0.0) / 2.0);
+                            theme::text(ui, "Only", theme::regular(13.5), palette.secondary);
+                            theme::text(ui, "admins", theme::semibold(13.5), palette.accent);
+                            theme::text(
+                                ui,
+                                "can send messages",
+                                theme::regular(13.5),
+                                palette.secondary,
+                            );
+                        });
+                    }
                     ui.add_space(8.0);
                 });
                 return;
