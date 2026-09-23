@@ -2104,6 +2104,9 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 );
             }
             "nosidebar" => app.sidebar_visible = false,
+            // A list wide enough for the whole chip row, which scrolls out of
+            // sight at the default width.
+            "wide" => app.settings.sidebar_width = 560.0,
             // The chat list collapsed to avatars with unread badges.
             "rail" => {
                 app.settings.collapse_chat_list = true;
@@ -2207,6 +2210,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "unread" => app.chat_filter = crate::model::ChatFilter::Unread,
             "private" => app.chat_filter = crate::model::ChatFilter::Private,
             "favorites" => app.chat_filter = crate::model::ChatFilter::Favorites,
+            // The same chip with one of its chats pinned in it, the state the
+            // screenshots show.
+            "favorites-pinned" => {
+                app.chat_filter = crate::model::ChatFilter::Favorites;
+                let chip = crate::model::ChatFilter::Favorites.key();
+                if let Some(chat) = app.chats.iter().find(|chat| chat.favorite) {
+                    app.chip_pins
+                        .entry(chip.to_owned())
+                        .or_default()
+                        .insert(chat.id.clone(), jiff::Timestamp::now().as_millisecond());
+                }
+            }
             "groups" => app.chat_filter = crate::model::ChatFilter::Groups,
             "picker" => app.picker = Some(crate::model::PickerTab::Emoji),
             "stickers" => sticker_sample(app, crate::model::StickerShelf::Recent, ""),
@@ -3597,6 +3612,7 @@ mod tests {
             "unread",
             "private",
             "favorites",
+            "favorites-pinned",
             "groups",
             "offline",
             "syncing",
@@ -3615,6 +3631,7 @@ mod tests {
             "emoji-complete",
             "typers",
             "nosidebar",
+            "wide",
             "rail",
             "search",
             "staged",
