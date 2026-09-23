@@ -4599,7 +4599,12 @@ impl Worker {
                     }
                     Err(_error) => log::warn!("could not fetch a sticker"),
                 }
-                self.emit_stickers();
+                // Recent is sorted by use, so each arrival lands mid-grid and
+                // shifts every tile after it. Publish the batch once, instead
+                // of reshuffling the open picker under the reader (#165).
+                if self.sticker_fetches.is_empty() {
+                    self.emit_stickers();
+                }
             }
             Command::MeInfo { about } => {
                 self.me_about = about;
@@ -5566,11 +5571,12 @@ impl Worker {
             let dir = dir.clone();
             let hash = sticker.hash;
             tokio::spawn(async move {
-                let result = async {
+                // The shelf waits for the whole batch, so none may hang.
+                let result = with_attachment_deadline(ATTACHMENT_TIMEOUT, async {
                     let path = dir.join(format!("{hash}.webp"));
                     let sticker = PhoneSticker(meta);
                     download_attachment(&client, &sticker, &dir, &path).await
-                }
+                })
                 .await;
                 let _ = commands.send(Command::StickerFetched { hash, result });
             });
@@ -6923,6 +6929,21 @@ async fn prepare_voice(
     })
 }
 
+/// The mimetype an attached audio file is sent under as an audio message,
+/// or `None` when phones cannot play it inline (WAV, FLAC, AIFF, WMA and the
+/// like), so it goes as a document and arrives as the original file (#162).
+/// WhatsApp's audio messages are MP3, AAC, M4A, AMR and OGG.
+fn whatsapp_audio_mime(mime: &str) -> Option<&'static str> {
+    match mime {
+        "audio/mpeg" | "audio/mp3" => Some("audio/mpeg"),
+        "audio/mp4" | "audio/m4a" | "audio/x-m4a" => Some("audio/mp4"),
+        "audio/aac" => Some("audio/aac"),
+        "audio/amr" => Some("audio/amr"),
+        "audio/ogg" => Some("audio/ogg"),
+        _ => None,
+    }
+}
+
 /// Uploads a file and builds its message. Images are encoded as JPEG.
 async fn prepare_media(
     client: &Client,
@@ -7014,7 +7035,8 @@ async fn prepare_media(
             file_name: file_name.map(str::to_owned),
         });
     }
-    if kind == "audio" {
+    if let Some(audio_mime) = whatsapp_audio_mime(mime) {
+        let mime_owned = audio_mime.to_owned();
         let upload = client
             .upload(bytes.clone(), MediaType::Audio, UploadOptions::default())
             .await
@@ -7660,6 +7682,26 @@ fn ensure_message_secret(raw: Vec<u8>, secret: Option<&[u8]>) -> Vec<u8> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn only_phone_playable_audio_is_sent_as_an_audio_message() {
+        let sent_as = |name: &str| {
+            let mime = mime_guess2::from_path(name)
+                .first_or_octet_stream()
+                .to_string();
+            whatsapp_audio_mime(&mime)
+        };
+        assert_eq!(sent_as("song.mp3"), Some("audio/mpeg"));
+        assert_eq!(sent_as("memo.m4a"), Some("audio/mp4"));
+        assert_eq!(sent_as("clip.aac"), Some("audio/aac"));
+        assert_eq!(sent_as("note.ogg"), Some("audio/ogg"));
+        assert_eq!(sent_as("note.opus"), Some("audio/ogg"));
+        // These would arrive as an unplayable audio message converted on the
+        // phone, not as the file that was attached (#162).
+        for document in ["take.wav", "album.flac", "loop.aiff", "old.wma", "x.weba"] {
+            assert_eq!(sent_as(document), None, "{document}");
+        }
+    }
 
     #[tokio::test]
     async fn stalled_attachments_finish_with_a_retryable_error() {

@@ -118,6 +118,8 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   file picker. They stay in the composer until you send them or press Escape.
   Pasting a picture uses its image data without adding the source URL or HTML
   to your caption. Text-only clipboard contents still paste as text.
+  MP3, M4A, AAC, and OGG files go as audio messages; other audio, such as
+  WAV or FLAC, goes as a document so the recipient gets the original file.
 - **Mute chats** for eight hours, one week, or indefinitely. The setting also
   applies on your phone and to desktop notifications. Mute changes from your
   phone survive history arriving later, including during initial linking.
@@ -131,8 +133,10 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
 - **Voice messages.** Play, seek, record, reply with, and send voice messages
   in the chat. The speed chip cycles between 1x, 1.5x, and 2x, and the
   message menu offers 1x, 1.25x, 1.5x, 1.75x, and 2x, keeping the speaker's
-  pitch; the last choice applies to later messages. The app normalizes quiet
-  recordings and handles OGG/Opus without external tools. On Linux and
+  pitch; the last choice applies to later messages. When one ends, playback
+  carries on through the voice messages right after it that you have not
+  heard yet, as on the phone; any other message ends the run. The app
+  normalizes quiet recordings and handles OGG/Opus without external tools. On Linux and
   Windows, music and other media playing in other apps pause while you record
   or play a voice message, or watch a video with sound, and resume afterwards;
   only players that were
@@ -152,7 +156,10 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   stickers, or GIFs. A reply never goes out without its quote: if the
   original is no longer available on this computer, nothing is sent, the text
   or attachments return to the composer, and a voice message waits above it
-  to be sent again or discarded. Cancel the reply to send without a quote. The same right-click menu copies a message's ID, which
+  to be sent again or discarded. Cancel the reply to send without a quote.
+  Quotes carry a bar and name in the quoted person's colour; clicking one
+  scrolls back to the original, which flashes briefly, as a search result
+  does. The same right-click menu copies a message's ID, which
   helps when looking one up for a bug report.
   Opening a message's context menu outlines that message until the menu closes.
   The full reaction picker stays beside the menu and adds a target preview.
@@ -249,9 +256,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   chats stay quiet until you unarchive them. Windows notifications
   identify ZapFast as the sender and show chat pictures as small circular icons;
   installed and portable builds register this identity in the current user's registry.
-  On Linux,
-  clicking a notification opens the chat, and reading the chat here or on another
-  device dismisses its outstanding notifications. On macOS, notifications use
+  On Linux and Windows, clicking a notification opens the chat at the message
+  it announced. On Linux, reading the chat here or on another device dismisses
+  its outstanding notifications. On macOS, notifications use
   the installed ZapFast application's identity without an application chooser;
   unregistered development builds skip notifications if that identity is unavailable.
   **Message sound** and **Group sound** in Settings choose Pidgin's classic
