@@ -1421,25 +1421,34 @@ impl App {
         chats
     }
 
+    /// The chip the sidebar is on, for the pin order. A label chip keeps its
+    /// own pins like any other chip; `None` is the WhatsApp pin `All` uses.
+    pub fn pin_chip(&self) -> Option<String> {
+        match &self.label_filter {
+            Some(label) => Some(format!("label:{label}")),
+            None => self.chat_filter.pin_key().map(str::to_owned),
+        }
+    }
+
     /// Whether the chat is pinned in the chip the sidebar has selected. `All`
     /// keeps the WhatsApp pin; every other chip has its own local order.
     pub fn is_pinned_here(&self, chat: &Chat) -> bool {
-        match self.chat_filter.pin_key() {
+        match self.pin_chip() {
             None => chat.pinned,
             Some(chip) => self
                 .chip_pins
-                .get(chip)
+                .get(&chip)
                 .is_some_and(|pins| pins.contains_key(&chat.id)),
         }
     }
 
     /// Pin time inside the selected chip, for the order in the list.
     pub fn pinned_at_here(&self, chat: &Chat) -> i64 {
-        match self.chat_filter.pin_key() {
+        match self.pin_chip() {
             None => chat.pinned_at,
             Some(chip) => self
                 .chip_pins
-                .get(chip)
+                .get(&chip)
                 .and_then(|pins| pins.get(&chat.id))
                 .copied()
                 .unwrap_or(0),
@@ -1449,10 +1458,10 @@ impl App {
     /// Pins or unpins the chat in the selected chip.
     pub fn toggle_pin_action(&self, chat: &Chat) -> Action {
         let pinned = !self.is_pinned_here(chat);
-        match self.chat_filter.pin_key() {
+        match self.pin_chip() {
             None => Action::SetPinned(chat.id.clone(), pinned),
             Some(chip) => Action::SetChipPinned {
-                chip: chip.to_owned(),
+                chip,
                 chat: chat.id.clone(),
                 pinned,
             },
@@ -5619,6 +5628,43 @@ mod tests {
             app.chat_filter,
             ChatFilter::All,
             "a label replaces what the chips were filtering"
+        );
+    }
+
+    #[test]
+    fn a_label_chip_keeps_its_own_pins() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        let mut chat = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
+        chat.labels = vec!["label-1".into()];
+        app.chats = vec![chat];
+        app.labels = vec![Label {
+            id: "label-1".into(),
+            name: "Work".into(),
+            color_hex: "#3b82f6".into(),
+            created_at: 1,
+        }];
+        app.apply(Action::SelectLabel(Some("label-1".into())), &ctx);
+        // Choosing a label leaves the filter chip on All, so the pin order has
+        // to follow the label or the pin would go to the phone.
+        assert_eq!(app.pin_chip().as_deref(), Some("label:label-1"));
+        let chat = app.chats[0].clone();
+        assert!(!app.is_pinned_here(&chat));
+        let action = app.toggle_pin_action(&chat);
+        app.apply(action, &ctx);
+        assert!(
+            app.is_pinned_here(&chat),
+            "the chat is pinned in the label chip"
+        );
+        assert!(
+            app.chip_pins
+                .get("label:label-1")
+                .is_some_and(|pins| pins.contains_key(&chat.id)),
+            "the pin lives in the label chip"
+        );
+        assert!(
+            !app.chat(&chat.id).expect("chat").pinned,
+            "the WhatsApp pin the phone keeps is left alone"
         );
     }
 
