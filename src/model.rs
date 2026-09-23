@@ -97,7 +97,8 @@ pub struct Chat {
     /// Latest-message Unix timestamp used for ordering.
     pub last_activity: i64,
     pub unread: u32,
-    /// Local reminder: show the empty unread dot with no pending count.
+    /// Marked unread here or on another device: the empty unread dot, with no
+    /// pending count. Synced with the phone.
     pub marked_unread: bool,
     pub archived: bool,
     pub pinned: bool,
@@ -170,7 +171,7 @@ impl Chat {
         self.kind == ChatKind::Group
     }
 
-    /// Counted unread, or a local empty-dot reminder with nothing pending.
+    /// Counted unread, or marked unread with nothing pending.
     pub fn looks_unread(&self) -> bool {
         self.unread > 0 || self.marked_unread
     }
@@ -1090,7 +1091,8 @@ pub enum Action {
         composing: bool,
     },
     MarkRead(ChatId),
-    /// Local empty unread mark; does not invent a pending count.
+    /// Marks a read chat unread, here and on the phone; does not invent a
+    /// pending count.
     MarkUnread(ChatId),
     LoadOlder(ChatId),
     /// Requests messages older than the local archive.

@@ -147,6 +147,7 @@ const MIGRATIONS: &[(&str, &str, &str)] = &[
     ("chats", "notification_sound", "TEXT"),
     ("chats", "group_subject_known", "INTEGER NOT NULL DEFAULT 0"),
     ("chats", "marked_unread", "INTEGER NOT NULL DEFAULT 0"),
+    ("chats", "pending_unread", "INTEGER"),
 ];
 const CHAT_JOIN: &str = "FROM chats c
              LEFT JOIN messages m ON m.chat = c.id AND m.rowid = (
@@ -462,7 +463,7 @@ impl Archive {
 
     pub fn mark_read(&self, id: &str) -> Result<()> {
         self.connection.execute(
-            "UPDATE chats SET unread = 0, marked_unread = 0,
+            "UPDATE chats SET unread = 0, marked_unread = 0, pending_unread = NULL,
              read_through = MAX(COALESCE(read_through, 0), last_activity) WHERE id = ?1",
             params![id],
         )?;
@@ -547,8 +548,8 @@ impl Archive {
         Ok(unread.min(remaining))
     }
 
-    /// A count from the phone clears the local reminder when it is above zero.
-    /// A zero snapshot leaves it alone: the phone does not know about it.
+    /// A count above zero replaces the empty unread mark. A zero count leaves
+    /// it alone: the mark is its own sync action.
     pub fn set_unread(&self, id: &str, unread: u32) -> Result<()> {
         self.connection.execute(
             "UPDATE chats SET unread = ?2,
@@ -559,11 +560,60 @@ impl Archive {
         Ok(())
     }
 
-    /// Stores the local empty unread reminder. Nothing goes to WhatsApp.
+    /// Marks a chat with nothing pending as unread, and queues the mark for
+    /// the phone and the other linked devices. A chat that counts unread
+    /// messages already reads as unread and is left alone. Returns whether the
+    /// mark was set.
+    pub fn mark_unread(&self, id: &str) -> Result<bool> {
+        // The queue holds when the mark was made, so a completion for an
+        // earlier mark cannot drop a newer one.
+        let at = jiff::Timestamp::now().as_millisecond();
+        Ok(self.connection.execute(
+            "UPDATE chats SET marked_unread = 1,
+             pending_unread = MAX(COALESCE(pending_unread, 0) + 1, ?2)
+             WHERE id = ?1 AND unread = 0",
+            params![id, at],
+        )? > 0)
+    }
+
+    /// The phone's own unread mark, from a sync action or a history snapshot.
+    /// It replaces a mark still waiting to reach the phone.
     pub fn set_marked_unread(&self, id: &str, marked: bool) -> Result<()> {
         self.connection.execute(
-            "UPDATE chats SET marked_unread = ?2 WHERE id = ?1",
+            "UPDATE chats SET marked_unread = ?2, pending_unread = NULL WHERE id = ?1",
             params![id, marked],
+        )?;
+        Ok(())
+    }
+
+    /// The unread mark in a history snapshot from the phone. A mark made here
+    /// and not sent yet is newer, so it stays.
+    pub fn history_marked_unread(&self, id: &str, marked: bool) -> Result<()> {
+        self.connection.execute(
+            "UPDATE chats SET marked_unread = ?2 WHERE id = ?1 AND pending_unread IS NULL",
+            params![id, marked],
+        )?;
+        Ok(())
+    }
+
+    /// Chats whose unread mark has not reached the phone yet: the chat, when
+    /// the mark was made, and the latest activity the mark covers.
+    pub fn pending_unreads(&self) -> Result<Vec<(String, i64, i64)>> {
+        self.connection
+            .prepare(
+                "SELECT id, pending_unread, last_activity FROM chats
+                 WHERE pending_unread IS NOT NULL",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect()
+    }
+
+    /// The phone has the unread mark. A mark made again since then stays
+    /// queued.
+    pub fn finish_unread_sync(&self, id: &str, through: i64) -> Result<()> {
+        self.connection.execute(
+            "UPDATE chats SET pending_unread = NULL WHERE id = ?1 AND pending_unread <= ?2",
+            params![id, through],
         )?;
         Ok(())
     }
@@ -1200,7 +1250,8 @@ impl Archive {
     pub fn clear_chat(&self, chat: &str) -> Result<Removed> {
         let media = self.chat_media(chat)?;
         let existed = self.connection.execute(
-            "UPDATE chats SET unread = 0, read_through = NULL, pending_read = NULL
+            "UPDATE chats SET unread = 0, read_through = NULL, pending_read = NULL,
+                 marked_unread = 0, pending_unread = NULL
                  WHERE id = ?1",
             params![chat],
         )? > 0;
@@ -2728,6 +2779,13 @@ pub(crate) mod tests {
         assert_eq!(row.unread, 0);
         assert!(!row.marked_unread);
         assert!(!row.looks_unread());
+        // Clearing a chat reads it, so the mark and its queued sync go too.
+        assert!(archive.mark_unread(chat).expect("mark here"));
+        assert_eq!(archive.pending_unreads().expect("queue").len(), 1);
+        archive.clear_chat(chat).expect("clear");
+        let row = archive.chat(chat).expect("chat").expect("exists");
+        assert!(!row.marked_unread);
+        assert!(archive.pending_unreads().expect("queue").is_empty());
     }
 
     #[test]

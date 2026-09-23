@@ -2387,10 +2387,7 @@ impl App {
             return;
         }
         known.marked_unread = true;
-        self.backend.send(Command::SetMarkedUnread {
-            chat: chat.to_owned(),
-            marked: true,
-        });
+        self.backend.send(Command::MarkUnread(chat.to_owned()));
     }
 
     fn open_chat(&mut self, id: ChatId) {

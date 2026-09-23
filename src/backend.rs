@@ -183,11 +183,8 @@ pub enum Command {
         chat: ChatId,
         receipts: bool,
     },
-    /// Stores the local empty unread reminder. Does not send receipts.
-    SetMarkedUnread {
-        chat: ChatId,
-        marked: bool,
-    },
+    /// Marks a chat with nothing pending as unread, here and on the phone.
+    MarkUnread(ChatId),
     /// Follows one of our group messages' receipts while "Message info" is
     /// open, or stops following with `None`.
     WatchReceipts(Option<(ChatId, String)>),
@@ -195,6 +192,13 @@ pub enum Command {
     ReadSyncFinished {
         chat: ChatId,
         through: i64,
+        success: bool,
+    },
+    /// Result of an unread mark sent to the other linked devices, keyed by
+    /// when the mark was made.
+    UnreadSyncFinished {
+        chat: ChatId,
+        marked_at: i64,
         success: bool,
     },
     /// Loads archived chat messages before an optional boundary.
