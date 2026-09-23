@@ -54,7 +54,8 @@ protocol. These notes are for coding agents and new contributors.
 - Pins belong to the chip. `ChatFilter::All` uses `chats.pinned`, which syncs
   with the phone; every other chip stores its own pins in `archive/chip_pins.rs`
   under `ChatFilter::key()`. Never promote a chip pin to the WhatsApp pin, and
-  never read one chip's order while another chip is selected.
+  never read one chip's order while another chip is selected. A chat that leaves
+  the archive, or an account that is unlinked, takes its chip pins with it.
 - Interactive messages are parsed in `backend/worker/interactive.rs`. Views receive
   labels and local capabilities, never protocol option ids. `ReplyInteractive`
   carries only the archived message id and visible button/choice indices;

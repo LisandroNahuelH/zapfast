@@ -933,6 +933,13 @@ impl App {
         self.draft_mentions.remove(id);
         self.typing.remove(id);
         self.unread_kept.remove(id);
+        // The archive drops the chat's chip pins with the rest of its rows, so
+        // the copy in memory goes too. A chat recreated with the same id would
+        // otherwise look pinned in a chip, and hold that chip's pin limit.
+        self.chip_pins.retain(|_, pins| {
+            pins.remove(id);
+            !pins.is_empty()
+        });
         if self.scroll_chat_into_view.as_deref() == Some(id) {
             self.scroll_chat_into_view = None;
         }
@@ -2087,6 +2094,8 @@ impl App {
                 self.notifications.clear_all();
                 self.chats.clear();
                 self.conversations.clear();
+                // The pins belonged to the account that was unlinked.
+                self.chip_pins.clear();
                 self.contacts.clear();
                 self.avatars.clear();
                 self.open_chat = None;
@@ -5665,6 +5674,51 @@ mod tests {
         assert!(
             !app.chat(&chat.id).expect("chat").pinned,
             "the WhatsApp pin the phone keeps is left alone"
+        );
+    }
+
+    #[test]
+    fn forgetting_a_chat_drops_its_chip_pins() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.chats = vec![Chat::new("1@s.whatsapp.net".into(), "Ada".into())];
+        app.apply(
+            Action::SetChipPinned {
+                chip: "favorites".into(),
+                chat: "1@s.whatsapp.net".into(),
+                pinned: true,
+            },
+            &ctx,
+        );
+        assert!(app.chip_pins.contains_key("favorites"));
+        // The archive drops the chat's pins with its other rows, so the copy in
+        // memory cannot outlive it and hold the chip's pin limit.
+        app.forget_chat("1@s.whatsapp.net");
+        assert!(
+            app.chip_pins.is_empty(),
+            "a chat that leaves the archive leaves its chip pins"
+        );
+    }
+
+    #[test]
+    fn unlinking_the_account_drops_the_chip_pins() {
+        let root = std::env::temp_dir().join(format!("zapfast-pins-{}", std::process::id()));
+        let (mut app, events) = App::headless(AppDirs::under(&root), Settings::default());
+        let ctx = egui::Context::default();
+        app.apply(
+            Action::SetChipPinned {
+                chip: "favorites".into(),
+                chat: "1@s.whatsapp.net".into(),
+                pinned: true,
+            },
+            &ctx,
+        );
+        assert!(!app.chip_pins.is_empty());
+        events.send(Event::Link(LinkStatus::LoggedOut)).unwrap();
+        app.background_frame(&ctx);
+        assert!(
+            app.chip_pins.is_empty(),
+            "the pins belonged to the account that was unlinked"
         );
     }
 
