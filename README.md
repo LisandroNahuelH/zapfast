@@ -37,8 +37,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   unread messages scrolls to an "unread messages" divider above the first one.
   Pinned chats stay in pin order (most recently pinned first), regardless of
   new messages. Pins belong to the chip you are on: **All** keeps the WhatsApp
-  pin that your phone and other linked devices share, and every other chip
-  keeps its own order, so pinning a chat in Favorites leaves All alone. Like on
+  pin that your phone and other linked devices share, and every other chip, a
+  label included, keeps its own order, so pinning a chat in Favorites leaves All
+  alone. Like on
   the phone, you can pin up to three chats in a chip. Chat and contact name searches ignore accents, so `Angel`
   finds `Ángel`.
   The filters stay on one row and scroll horizontally in narrow sidebars.
