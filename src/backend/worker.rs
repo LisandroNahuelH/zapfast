@@ -836,6 +836,7 @@ impl Worker {
                     | Event::Contacts(_)
                     | Event::SearchHits { .. }
                     | Event::Labels(_)
+                    | Event::ChipPins(_)
                     | Event::Typing { .. }
             )
         {
@@ -4773,7 +4774,12 @@ impl Worker {
                 Err(error) => log::warn!("could not update label: {error}"),
             },
             Command::DeleteLabel(id) => match self.archive.delete_label(&id) {
-                Ok(true) => self.emit_labels(),
+                // The label's chip pins went with it, so the interface has to
+                // see the shortened map, not only the shorter label list.
+                Ok(true) => {
+                    self.emit_labels();
+                    self.emit_chip_pins();
+                }
                 Ok(false) => {}
                 Err(error) => log::warn!("could not delete label: {error}"),
             },

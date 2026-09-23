@@ -1368,6 +1368,14 @@ impl App {
         self.locked_folder && (self.chat_lock_authenticated() || self.secret_code_matched())
     }
 
+    /// Whether the chips are filtering the list. Search, the archived view and
+    /// the locked folder list every match and leave no chip selected, so a pin
+    /// there is the WhatsApp pin again. `visible_chats` and `pin_chip` share
+    /// this, so the two cannot disagree about which chip is on.
+    pub fn chip_filter_active(&self) -> bool {
+        !self.locked_folder_open() && self.search.trim().is_empty() && !self.show_archived
+    }
+
     pub fn locked_count(&self) -> usize {
         self.chats.iter().filter(|chat| chat.locked).count()
     }
@@ -1384,7 +1392,7 @@ impl App {
     pub fn visible_chats(&self) -> Vec<&Chat> {
         let needle = crate::util::search_key(self.search.trim());
         let locked = self.locked_folder_open();
-        let filtering = !locked && needle.is_empty() && !self.show_archived;
+        let filtering = self.chip_filter_active();
         let mut chats: Vec<&Chat> = self
             .chats
             .iter()
@@ -1429,10 +1437,14 @@ impl App {
     }
 
     /// The chip the sidebar is on, for the pin order. A label chip keeps its
-    /// own pins like any other chip; `None` is the WhatsApp pin `All` uses.
+    /// own pins like any other chip; `None` is the WhatsApp pin `All` uses,
+    /// which is also where every view without active chips falls back.
     pub fn pin_chip(&self) -> Option<String> {
+        if !self.chip_filter_active() {
+            return None;
+        }
         match &self.label_filter {
-            Some(label) => Some(format!("label:{label}")),
+            Some(label) => Some(ChatFilter::label_key(label)),
             None => self.chat_filter.pin_key().map(str::to_owned),
         }
     }
@@ -5675,6 +5687,23 @@ mod tests {
             !app.chat(&chat.id).expect("chat").pinned,
             "the WhatsApp pin the phone keeps is left alone"
         );
+    }
+
+    #[test]
+    fn a_pin_follows_the_chip_only_while_the_chips_filter() {
+        let mut app = app();
+        app.chats = vec![Chat::new("1@s.whatsapp.net".into(), "Ada".into())];
+        app.chat_filter = ChatFilter::Favorites;
+        assert_eq!(app.pin_chip().as_deref(), Some("favorites"));
+        // Search, the archived view and the locked folder list every match and
+        // leave no chip selected, so a pin there is the WhatsApp pin again.
+        app.search = "ada".into();
+        assert_eq!(app.pin_chip(), None, "search");
+        app.search.clear();
+        app.show_archived = true;
+        assert_eq!(app.pin_chip(), None, "archived");
+        app.show_archived = false;
+        assert_eq!(app.pin_chip().as_deref(), Some("favorites"));
     }
 
     #[test]

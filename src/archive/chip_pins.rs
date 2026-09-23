@@ -85,4 +85,28 @@ mod tests {
         archive.clear().expect("clear");
         assert!(archive.chip_pins().expect("pins").is_empty());
     }
+
+    #[test]
+    fn a_deleted_label_takes_its_chip_pins_with_it() {
+        let archive = Archive::in_memory().expect("opens");
+        archive
+            .ensure_chat("a@s.whatsapp.net", "Ada")
+            .expect("chat");
+        let label = archive
+            .create_label("Work", "#3b82f6", 1)
+            .expect("create")
+            .expect("created");
+        let chip = crate::model::ChatFilter::label_key(&label.id);
+        archive
+            .set_chip_pinned(&chip, "a@s.whatsapp.net", true)
+            .expect("pin");
+        assert_eq!(archive.chip_pins().expect("pins").len(), 1);
+        // Label ids come from the clock, so a label recreated in the same
+        // second would inherit whatever this one leaves behind.
+        assert!(archive.delete_label(&label.id).expect("delete"));
+        assert!(
+            archive.chip_pins().expect("pins").is_empty(),
+            "the label's own pins go with the label"
+        );
+    }
 }

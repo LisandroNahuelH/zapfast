@@ -88,6 +88,14 @@ impl ChatFilter {
         }
     }
 
+    /// The key a label chip keeps its pins under. A label is the chip the
+    /// sidebar is on while it is selected, but it is not a `ChatFilter`, so it
+    /// gets its own namespace beside `key()`. One definition, because the
+    /// archive has to delete these rows when the label itself goes.
+    pub fn label_key(label: &str) -> String {
+        format!("label:{label}")
+    }
+
     pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
         use crate::i18n::gettext;
         match self {

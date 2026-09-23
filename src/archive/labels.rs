@@ -113,6 +113,12 @@ impl Archive {
             "DELETE FROM local_chat_labels WHERE label = ?1",
             params![id],
         )?;
+        // The label's own chip pins go with it. Ids come from the clock, so a
+        // label recreated in the same second would otherwise inherit them.
+        transaction.execute(
+            "DELETE FROM chip_pins WHERE chip = ?1",
+            params![crate::model::ChatFilter::label_key(id)],
+        )?;
         let changed = transaction.execute("DELETE FROM local_labels WHERE id = ?1", params![id])?;
         transaction.commit()?;
         Ok(changed > 0)
