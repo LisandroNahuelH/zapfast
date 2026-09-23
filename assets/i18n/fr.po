@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-24 00:50+0200\n"
+"POT-Creation-Date: 2026-09-23 20:13-0300\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: French\n"
@@ -16,23 +16,27 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: src/model.rs:70
+#: src/model.rs:94
 msgid "All"
 msgstr "Tous"
 
-#: src/model.rs:71
+#: src/model.rs:95
 msgid "Unread"
 msgstr "Non lus"
 
-#: src/model.rs:72
+#: src/model.rs:96
 msgid "Private"
 msgstr "Privés"
 
-#: src/model.rs:73
+#: src/model.rs:97 src/ui/picker.rs:1149
+msgid "Favorites"
+msgstr "Favoris"
+
+#: src/model.rs:98
 msgid "Groups"
 msgstr "Groupes"
 
-#: src/model.rs:74
+#: src/model.rs:99
 msgid "Channels"
 msgstr "Chaînes"
 
@@ -143,31 +147,44 @@ msgstr "Discussions"
 msgid "Search"
 msgstr "Rechercher"
 
-#: src/ui/chats.rs:369
+#: src/ui/chats.rs:370
 msgid "Archived"
 msgstr "Archivées"
 
-#: src/ui/chats.rs:386
+#: src/ui/chats.rs:387
 msgid "Locked"
 msgstr "Verrouillés"
 
-#: src/ui/chats.rs:766 src/app.rs:1131
+#: src/ui/chats.rs:437
+msgid "No favorites yet"
+msgstr "Pas encore de favoris"
+
+#: src/ui/chats.rs:774 src/app.rs:1142
 msgid "Message yourself"
 msgstr "Envoyez-vous un message"
+
+#: src/ui/chats.rs:1276 src/ui/picker.rs:1569
+msgid "Remove from favorites"
+msgstr "Retirer des favoris"
+
+#: src/ui/chats.rs:1278 src/ui/conversation.rs:3234 src/ui/dialogs.rs:963
+#: src/ui/picker.rs:1570
+msgid "Add to favorites"
+msgstr "Ajouter aux favoris"
 
 #: src/ui/conversation.rs:161
 msgid "Ctrl+K to search · ? for keyboard shortcuts"
 msgstr "Ctrl+K pour rechercher · ? pour les raccourcis clavier"
 
-#: src/ui/conversation.rs:1010
+#: src/ui/conversation.rs:1012
 msgid "Type a message"
 msgstr "Saisissez un message"
 
-#: src/ui/conversation.rs:1013
+#: src/ui/conversation.rs:1015
 msgid "Add a caption"
 msgstr "Ajouter une légende"
 
-#: src/ui/conversation.rs:1176
+#: src/ui/conversation.rs:1178
 msgid ""
 "Enter sends · Shift+Enter for a new line · *bold* _italic_ ~strike~ · Ctrl+V "
 "pastes a picture"
@@ -175,98 +192,94 @@ msgstr ""
 "Enter envoie · Shift+Enter pour une nouvelle ligne · *gras* _italique_ "
 "~barré~ · Ctrl+V colle une image"
 
-#: src/ui/conversation.rs:1178
+#: src/ui/conversation.rs:1180
 msgid "Ctrl+Enter sends · *bold* _italic_ ~strike~ · Ctrl+V pastes a picture"
 msgstr "Ctrl+Enter envoie · *gras* _italique_ ~barré~ · Ctrl+V colle une image"
 
-#: src/ui/conversation.rs:1189
+#: src/ui/conversation.rs:1191
 msgid "Hide shortcut hints (restore in Settings)"
 msgstr "Masquer les astuces de raccourcis (restaurer dans Paramètres)"
 
-#: src/ui/conversation.rs:1204
+#: src/ui/conversation.rs:1206
 #, rust-format
 msgid "All shortcuts ({})"
 msgstr "Tous les raccourcis ({})"
 
-#: src/ui/conversation.rs:1226
+#: src/ui/conversation.rs:1228
 #, rust-format
 msgid "Voice message ({duration}) not sent"
 msgstr "Message vocal ({duration}) non envoyé"
 
-#: src/ui/conversation.rs:1228
+#: src/ui/conversation.rs:1230
 msgid "Discard voice message"
 msgstr "Supprimer le message vocal"
 
-#: src/ui/conversation.rs:1530
+#: src/ui/conversation.rs:1532
 #, rust-format
 msgid "{} unread message"
 msgid_plural "{} unread messages"
 msgstr[0] "{} message non lu"
 msgstr[1] "{} messages non lus"
 
-#: src/ui/conversation.rs:3232 src/ui/dialogs.rs:963 src/ui/picker.rs:1570
-msgid "Add to favorites"
-msgstr "Ajouter aux favoris"
-
-#: src/ui/conversation.rs:3241
+#: src/ui/conversation.rs:3243
 msgid "Open in system player"
 msgstr "Ouvrir dans le lecteur du système"
 
-#: src/ui/conversation.rs:3309 src/ui/message_info.rs:17
+#: src/ui/conversation.rs:3311 src/ui/message_info.rs:17
 msgid "Message info"
 msgstr "Infos du message"
 
-#: src/ui/conversation.rs:3525
+#: src/ui/conversation.rs:3527
 #, fuzzy
 msgid "Location"
 msgstr "Position en direct"
 
-#: src/ui/conversation.rs:3551
+#: src/ui/conversation.rs:3553
 msgid "Live location ended"
 msgstr "Position en direct terminée"
 
-#: src/ui/conversation.rs:3553 src/ui/conversation.rs:3697
+#: src/ui/conversation.rs:3555 src/ui/conversation.rs:3699
 msgid "Live location"
 msgstr "Position en direct"
 
-#: src/ui/conversation.rs:3563
+#: src/ui/conversation.rs:3565
 #, rust-format
 msgid "Updated {time}"
 msgstr "Mise à jour à {time}"
 
-#: src/ui/conversation.rs:3626
+#: src/ui/conversation.rs:3628
 #, rust-format
 msgid "{} sticker"
 msgid_plural "{} stickers"
 msgstr[0] "{} sticker"
 msgstr[1] "{} stickers"
 
-#: src/ui/conversation.rs:3639
+#: src/ui/conversation.rs:3641
 msgid "View stickers"
 msgstr "Voir les stickers"
 
-#: src/ui/conversation.rs:3705
+#: src/ui/conversation.rs:3707
 msgid "Open WhatsApp on your phone to follow it."
 msgstr "Ouvrez WhatsApp sur votre téléphone pour la suivre."
 
-#: src/ui/conversation.rs:4551
+#: src/ui/conversation.rs:4553
 msgid "Open in a map"
 msgstr "Ouvrir dans une carte"
 
-#: src/ui/conversation.rs:5095
+#: src/ui/conversation.rs:5097
 msgid "Pause"
 msgstr "Pause"
 
-#: src/ui/conversation.rs:5097
+#: src/ui/conversation.rs:5099
 #, fuzzy
 msgid "Play"
 msgstr "Écouté"
 
-#: src/ui/conversation.rs:5120
+#: src/ui/conversation.rs:5122
 msgid "Unmute"
 msgstr "Réactiver le son"
 
-#: src/ui/conversation.rs:5122
+#: src/ui/conversation.rs:5124
 msgid "Mute"
 msgstr "Couper le son"
 
@@ -310,7 +323,7 @@ msgstr "Envoyer"
 msgid "Cancel"
 msgstr "Annuler"
 
-#: src/ui/dialogs.rs:1375
+#: src/ui/dialogs.rs:1388
 #, rust-format
 msgid "{} member"
 msgid_plural "{} members"
@@ -507,25 +520,25 @@ msgstr[1] "{} restants"
 msgid "No one yet"
 msgstr "Personne pour l’instant"
 
-#: src/app.rs:1052
+#: src/app.rs:1063
 #, rust-format
 msgid "A label named “{name}” already exists."
 msgstr "Une étiquette nommée « {name} » existe déjà."
 
-#: src/app.rs:1112
+#: src/app.rs:1123
 #, rust-format
 msgid "{name} (You)"
 msgstr "{name} (Vous)"
 
-#: src/app.rs:1113 src/app.rs:1132
+#: src/app.rs:1124 src/app.rs:1143
 msgid "You"
 msgstr "Vous"
 
-#: src/app.rs:2278
+#: src/app.rs:2348
 msgid "Not sent: ZapFast is not connected to WhatsApp."
 msgstr "Non envoyé : ZapFast n’est pas connecté à WhatsApp."
 
-#: src/app.rs:2282
+#: src/app.rs:2352
 msgid ""
 "Not sent: the message you’re replying to isn’t available on this computer. "
 "Cancel the reply to send without a quote."
@@ -533,20 +546,20 @@ msgstr ""
 "Non envoyé : le message auquel vous répondez n’est pas disponible sur cet "
 "ordinateur. Annulez la réponse pour l’envoyer sans citation."
 
-#: src/app.rs:3558
+#: src/app.rs:3628
 msgid "Added to favorites"
 msgstr "Ajouté aux favoris"
 
-#: src/app.rs:3633
+#: src/app.rs:3703
 msgid "Sending the sticker pack…"
 msgstr "Envoi du pack de stickers…"
 
-#: src/app.rs:3889 src/ui/labels.rs:294
+#: src/app.rs:3979 src/ui/labels.rs:294
 #, rust-format
 msgid "You have {limit} labels, the most ZapFast keeps."
 msgstr "Vous avez {limit} étiquettes, le maximum que ZapFast conserve."
 
-#: src/app.rs:4395
+#: src/app.rs:4485
 msgid "This video opens in your system player"
 msgstr "Cette vidéo s'ouvre dans le lecteur du système"
 
@@ -668,10 +681,6 @@ msgstr "Supprimer cette étiquette. Ses discussions gardent leurs messages."
 msgid "Recent"
 msgstr "Récents"
 
-#: src/ui/picker.rs:1149
-msgid "Favorites"
-msgstr "Favoris"
-
 #: src/ui/picker.rs:1150
 msgid "Add stickers"
 msgstr "Ajouter des stickers"
@@ -768,10 +777,6 @@ msgstr "Parcourir signalstickers.org"
 #: src/ui/picker.rs:1522
 msgid "Importing the pack…"
 msgstr "Importation du pack…"
-
-#: src/ui/picker.rs:1569
-msgid "Remove from favorites"
-msgstr "Retirer des favoris"
 
 #: src/ui/picker.rs:1571
 msgid "Remove from recents"

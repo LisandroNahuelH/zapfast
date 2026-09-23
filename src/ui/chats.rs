@@ -423,6 +423,9 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
     }
     let chats: Vec<Chat> = app.visible_chats().into_iter().cloned().collect();
     if chats.is_empty() {
+        // The favorites title is translated, so it is bound here: the tuple
+        // below borrows it for this frame, and every other arm stays a literal.
+        let favorites_title;
         let (title, body) = if app.show_archived {
             ("Nothing archived", "Archived chats appear here.")
         } else if app.chat_filter != ChatFilter::All {
@@ -430,7 +433,10 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
                 ChatFilter::Unread => "No unread chats",
                 ChatFilter::Private => "No private chats",
                 ChatFilter::Channels => "No channels",
-                ChatFilter::Favorites => "No favorites yet",
+                ChatFilter::Favorites => {
+                    favorites_title = crate::i18n::gettext(app.locale, "No favorites yet");
+                    favorites_title.as_ref()
+                }
                 _ => "No groups",
             };
             (title, "Choose All to see every chat.")
@@ -1265,16 +1271,13 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
     {
         app.actions.push(Action::MarkUnread(chat.id.clone()));
     }
-    if widgets::menu_item(
-        ui,
-        palette,
-        Some(Icon::Heart),
-        if chat.favorite {
-            "Remove from favorites"
-        } else {
-            "Add to favorites"
-        },
-    ) {
+    // Bound before the call so the translated text outlives the borrow.
+    let favorite_label = if chat.favorite {
+        crate::i18n::gettext(app.locale, "Remove from favorites")
+    } else {
+        crate::i18n::gettext(app.locale, "Add to favorites")
+    };
+    if widgets::menu_item(ui, palette, Some(Icon::Heart), favorite_label.as_ref()) {
         app.actions
             .push(Action::SetFavorite(chat.id.clone(), !chat.favorite));
     }
