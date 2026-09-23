@@ -4721,7 +4721,10 @@ impl Worker {
                 }
             }
             Command::SetFavorite(chat, favorite) => {
-                let _ = self.archive.set_favorite(&chat, favorite);
+                if let Err(error) = self.archive.set_favorite(&chat, favorite) {
+                    self.emit(Event::Error(error.to_string()));
+                    return;
+                }
                 self.emit_chat(&chat);
             }
             Command::SetChipPinned { chip, chat, pinned } => {
