@@ -49,6 +49,8 @@ pub enum ChatFilter {
     Unread,
     /// One-to-one chats: neither groups nor broadcasts.
     Private,
+    /// Chats marked as a favorite on this computer.
+    Favorites,
     Groups,
     /// Followed channels (newsletters), kept out of the other filters as in
     /// the official apps.
@@ -56,13 +58,35 @@ pub enum ChatFilter {
 }
 
 impl ChatFilter {
-    pub const EVERY: [Self; 5] = [
+    pub const EVERY: [Self; 6] = [
         Self::All,
         Self::Unread,
         Self::Private,
+        Self::Favorites,
         Self::Groups,
         Self::Channels,
     ];
+
+    /// A stable name for this filter. `All` has no pins of its own: it keeps
+    /// the WhatsApp pin in `chats.pinned`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Unread => "unread",
+            Self::Private => "private",
+            Self::Favorites => "favorites",
+            Self::Groups => "groups",
+            Self::Channels => "channels",
+        }
+    }
+
+    /// Whether this chip keeps its own pins, and under which key.
+    pub fn pin_key(self) -> Option<&'static str> {
+        match self {
+            Self::All => None,
+            _ => Some(self.key()),
+        }
+    }
 
     pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
         use crate::i18n::gettext;
@@ -70,6 +94,7 @@ impl ChatFilter {
             Self::All => gettext(locale, "All"),
             Self::Unread => gettext(locale, "Unread"),
             Self::Private => gettext(locale, "Private"),
+            Self::Favorites => gettext(locale, "Favorites"),
             Self::Groups => gettext(locale, "Groups"),
             Self::Channels => gettext(locale, "Channels"),
         }
@@ -80,6 +105,9 @@ impl ChatFilter {
             Self::All => !chat.is_channel(),
             Self::Unread => chat.looks_unread() && !chat.is_channel(),
             Self::Private => chat.kind == ChatKind::Direct,
+            // A favorite is still a chat, so a channel marked as one stays out
+            // of All and is found here.
+            Self::Favorites => chat.favorite,
             Self::Groups => chat.kind == ChatKind::Group,
             Self::Channels => chat.is_channel(),
         }
@@ -108,6 +136,9 @@ pub struct Chat {
     pub muted_until: Option<i64>,
     /// Latest message shown in the chat list.
     pub last: Option<LastMessage>,
+    /// Local favorite flag. It is not a WhatsApp pin and never leaves this
+    /// computer.
+    pub favorite: bool,
     /// Canonical group-member ids, empty until loaded.
     pub participants: Vec<String>,
     /// Whether this is an announcement group where we cannot post.
@@ -148,6 +179,7 @@ impl Chat {
             pinned_at: 0,
             muted_until: None,
             last: None,
+            favorite: false,
             participants: Vec::new(),
             read_only: false,
             locked: false,
@@ -1281,6 +1313,14 @@ pub enum Action {
     /// Deletes a chat here and on the phone.
     DeleteChat(ChatId),
     SetPinned(ChatId, bool),
+    /// Marks a chat as a favorite, or removes the mark. Local only.
+    SetFavorite(ChatId, bool),
+    /// Pins a chat inside one chip, which keeps its own order.
+    SetChipPinned {
+        chip: String,
+        chat: ChatId,
+        pinned: bool,
+    },
     ShowDialog(Dialog),
     CloseDialog,
     ToggleSidebar,

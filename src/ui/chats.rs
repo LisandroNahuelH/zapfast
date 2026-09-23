@@ -327,6 +327,7 @@ fn filter_chips(app: &mut App, ui: &mut egui::Ui) {
                         ChatFilter::All => Stop::All,
                         ChatFilter::Unread => Stop::Unread,
                         ChatFilter::Private => Stop::Private,
+                        ChatFilter::Favorites => Stop::Favorites,
                         ChatFilter::Groups => Stop::Groups,
                         ChatFilter::Channels => Stop::Channels,
                     });
@@ -429,6 +430,7 @@ fn list(app: &mut App, ui: &mut egui::Ui) {
                 ChatFilter::Unread => "No unread chats",
                 ChatFilter::Private => "No private chats",
                 ChatFilter::Channels => "No channels",
+                ChatFilter::Favorites => "No favorites yet",
                 _ => "No groups",
             };
             (title, "Choose All to see every chat.")
@@ -824,6 +826,8 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
     let palette = app.palette;
     let title = app.chat_title(chat);
     let selected = app.open_chat.as_deref() == Some(chat.id.as_str());
+    // Pins belong to the chip the sidebar shows, not to the chat alone.
+    let pinned_here = app.is_pinned_here(chat);
     let now = crate::util::now();
     let muted = chat.muted(now);
     let (rect, response) = ui.allocate_exact_size(
@@ -913,7 +917,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
                 .paint_at(ui, icon_rect);
             badge_right -= 20.0;
         }
-        if chat.pinned {
+        if pinned_here {
             let icon_rect =
                 Rect::from_center_size(pos2(badge_right - 8.0, line_y + 8.0), Vec2::splat(14.0));
             Icon::Pin.image(palette.dim, 14.0).paint_at(ui, icon_rect);
@@ -1264,11 +1268,26 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
     if widgets::menu_item(
         ui,
         palette,
-        Some(if chat.pinned { Icon::PinOff } else { Icon::Pin }),
-        if chat.pinned { "Unpin" } else { "Pin to top" },
+        Some(Icon::Heart),
+        if chat.favorite {
+            "Remove from favorites"
+        } else {
+            "Add to favorites"
+        },
     ) {
         app.actions
-            .push(Action::SetPinned(chat.id.clone(), !chat.pinned));
+            .push(Action::SetFavorite(chat.id.clone(), !chat.favorite));
+    }
+    // The pin belongs to the chip the sidebar shows: All keeps the WhatsApp
+    // pin, and every other chip has its own local order.
+    let pinned_here = app.is_pinned_here(chat);
+    if widgets::menu_item(
+        ui,
+        palette,
+        Some(if pinned_here { Icon::PinOff } else { Icon::Pin }),
+        if pinned_here { "Unpin" } else { "Pin to top" },
+    ) {
+        app.actions.push(app.toggle_pin_action(chat));
     }
     if widgets::menu_item(
         ui,

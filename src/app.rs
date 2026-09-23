@@ -357,6 +357,9 @@ pub struct App {
     pub show_archived: bool,
     /// Chat-list filter; applies to the main list, not to search or the archive.
     pub chat_filter: ChatFilter,
+    /// Pins inside one chip: chip key, chat id, pin time. `All` is not here; it
+    /// keeps using `chats.pinned`.
+    pub chip_pins: HashMap<String, HashMap<ChatId, i64>>,
     /// Labels known here, in creation order. Local to this computer.
     pub labels: Vec<Label>,
     /// Name typed in the label manager.
@@ -678,6 +681,7 @@ impl App {
             sidebar_visible: true,
             show_archived: false,
             chat_filter: ChatFilter::All,
+            chip_pins: HashMap::new(),
             labels: Vec::new(),
             label_name: String::new(),
             label_color: crate::archive::DEFAULT_COLOR.to_owned(),
@@ -1403,15 +1407,56 @@ impl App {
             })
             .collect();
         chats.sort_by(|a, b| {
-            b.pinned.cmp(&a.pinned).then_with(|| {
-                if a.pinned && b.pinned {
-                    b.pinned_at.cmp(&a.pinned_at).then(a.id.cmp(&b.id))
+            let (a_pinned, b_pinned) = (self.is_pinned_here(a), self.is_pinned_here(b));
+            b_pinned.cmp(&a_pinned).then_with(|| {
+                if a_pinned && b_pinned {
+                    self.pinned_at_here(b)
+                        .cmp(&self.pinned_at_here(a))
+                        .then(a.id.cmp(&b.id))
                 } else {
                     b.last_activity.cmp(&a.last_activity).then(a.id.cmp(&b.id))
                 }
             })
         });
         chats
+    }
+
+    /// Whether the chat is pinned in the chip the sidebar has selected. `All`
+    /// keeps the WhatsApp pin; every other chip has its own local order.
+    pub fn is_pinned_here(&self, chat: &Chat) -> bool {
+        match self.chat_filter.pin_key() {
+            None => chat.pinned,
+            Some(chip) => self
+                .chip_pins
+                .get(chip)
+                .is_some_and(|pins| pins.contains_key(&chat.id)),
+        }
+    }
+
+    /// Pin time inside the selected chip, for the order in the list.
+    pub fn pinned_at_here(&self, chat: &Chat) -> i64 {
+        match self.chat_filter.pin_key() {
+            None => chat.pinned_at,
+            Some(chip) => self
+                .chip_pins
+                .get(chip)
+                .and_then(|pins| pins.get(&chat.id))
+                .copied()
+                .unwrap_or(0),
+        }
+    }
+
+    /// Pins or unpins the chat in the selected chip.
+    pub fn toggle_pin_action(&self, chat: &Chat) -> Action {
+        let pinned = !self.is_pinned_here(chat);
+        match self.chat_filter.pin_key() {
+            None => Action::SetPinned(chat.id.clone(), pinned),
+            Some(chip) => Action::SetChipPinned {
+                chip: chip.to_owned(),
+                chat: chat.id.clone(),
+                pinned,
+            },
+        }
     }
 
     /// Matching individual contacts without an existing chat, sorted by name.
@@ -1571,6 +1616,13 @@ impl App {
                             self.drafts.entry(chat).or_insert(text);
                         }
                     }
+                }
+                Event::ChipPins(pins) => {
+                    let mut map: HashMap<String, HashMap<ChatId, i64>> = HashMap::new();
+                    for (chip, chat, at) in pins {
+                        map.entry(chip).or_default().insert(chat, at);
+                    }
+                    self.chip_pins = map;
                 }
                 Event::Chats(chats) => {
                     for chat in &chats {
@@ -3758,6 +3810,26 @@ impl App {
                     };
                 }
                 self.backend.send(Command::SetPinned(chat, pinned));
+            }
+            Action::SetFavorite(chat, favorite) => {
+                if let Some(known) = self.chat_mut(&chat) {
+                    known.favorite = favorite;
+                }
+                self.backend.send(Command::SetFavorite(chat, favorite));
+            }
+            Action::SetChipPinned { chip, chat, pinned } => {
+                let pins = self.chip_pins.entry(chip.clone()).or_default();
+                if pinned && pins.len() >= self.pin_limit && !pins.contains_key(&chat) {
+                    self.toast(format!("You can only pin {} chats", self.pin_limit));
+                    return;
+                }
+                if pinned {
+                    pins.insert(chat.clone(), jiff::Timestamp::now().as_millisecond());
+                } else {
+                    pins.remove(&chat);
+                }
+                self.backend
+                    .send(Command::SetChipPinned { chip, chat, pinned });
             }
             Action::ShowDialog(dialog) => {
                 self.clear_chat_lock_entry();

@@ -487,6 +487,7 @@ pub fn populate(app: &mut App) {
         chat.unread = sample.unread;
         // One chat carries the empty dot, so the sample shows both marks.
         chat.marked_unread = sample.name == "Grace Hopper";
+        chat.favorite = sample.name == "Ada Lovelace";
         chat.pinned = sample.pinned;
         chat.pinned_at = if sample.pinned {
             (now - sample.minutes_ago * 60) * 1000
@@ -2205,6 +2206,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             "unread" => app.chat_filter = crate::model::ChatFilter::Unread,
             "private" => app.chat_filter = crate::model::ChatFilter::Private,
+            "favorites" => app.chat_filter = crate::model::ChatFilter::Favorites,
             "groups" => app.chat_filter = crate::model::ChatFilter::Groups,
             "picker" => app.picker = Some(crate::model::PickerTab::Emoji),
             "stickers" => sticker_sample(app, crate::model::StickerShelf::Recent, ""),
@@ -3594,6 +3596,7 @@ mod tests {
             "archived",
             "unread",
             "private",
+            "favorites",
             "groups",
             "offline",
             "syncing",
@@ -4726,9 +4729,81 @@ mod tests {
     }
 
     #[test]
+    fn the_favorites_chip_lists_favorites_and_pins_them_on_its_own() {
+        use crate::model::ChatFilter;
+        let mut app = app();
+        // Every chip has to be on screen to be clicked, and the row scrolls
+        // once the sidebar is too narrow for all of them.
+        app.settings.sidebar_width = 520.0;
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        render(&mut app, &ctx);
+        render(&mut app, &ctx);
+        // Clicking the chip's own rect, so a translated label does not matter.
+        let click = |app: &mut App, filter: ChatFilter| {
+            let rect = ctx
+                .data(|data| data.get_temp::<egui::Rect>(crate::ui::chats::filter_chip_id(filter)))
+                .expect("the chip is on screen");
+            let pos = rect.center();
+            let press = |pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            frame_with(app, &ctx, vec![egui::Event::PointerMoved(pos), press(true)]);
+            frame_with(app, &ctx, vec![press(false)]);
+            render(app, &ctx);
+        };
+        click(&mut app, ChatFilter::Favorites);
+        assert_eq!(app.chat_filter, ChatFilter::Favorites);
+        let favorites = app.visible_chats();
+        assert!(!favorites.is_empty(), "the sample has a favorite");
+        assert!(favorites.iter().all(|chat| chat.favorite));
+        // A favorite is pinned inside its own chip, and the WhatsApp pin the
+        // phone keeps is left alone.
+        let favorite = favorites[0].clone();
+        let whatsapp_pin = favorite.pinned;
+        assert!(!app.is_pinned_here(&favorite));
+        let pin = app.toggle_pin_action(&favorite);
+        app.actions.push(pin);
+        render(&mut app, &ctx);
+        assert!(
+            app.is_pinned_here(app.chat(&favorite.id).expect("the chat")),
+            "the chat is pinned in this chip"
+        );
+        assert!(
+            app.chip_pins
+                .get("favorites")
+                .is_some_and(|pins| pins.contains_key(&favorite.id)),
+            "the pin lives in the chip, not in the WhatsApp pin"
+        );
+        assert_eq!(
+            app.chat(&favorite.id).expect("the chat").pinned,
+            whatsapp_pin,
+            "the WhatsApp pin the phone keeps is left alone"
+        );
+        // The mark itself comes off the menu, and the chip follows it.
+        let mark = app.chat(&favorite.id).expect("the chat").favorite;
+        app.actions.push(crate::model::Action::SetFavorite(
+            favorite.id.clone(),
+            !mark,
+        ));
+        render(&mut app, &ctx);
+        assert!(!app.chat(&favorite.id).expect("the chat").favorite);
+        assert!(
+            app.visible_chats().iter().all(|chat| chat.favorite),
+            "an unmarked chat leaves the chip"
+        );
+    }
+
+    #[test]
     fn a_filter_chip_narrows_the_chat_list_and_a_second_click_clears_it() {
         use crate::model::ChatFilter;
         let mut app = app();
+        // Every chip has to be on screen to be clicked, and the row scrolls
+        // once the sidebar is too narrow for all of them.
+        app.settings.sidebar_width = 520.0;
         let ctx = egui::Context::default();
         app.attach(&ctx);
         render(&mut app, &ctx);
@@ -6279,6 +6354,7 @@ mod tests {
                 Stop::All,
                 Stop::Unread,
                 Stop::Private,
+                Stop::Favorites,
                 Stop::Groups,
                 Stop::Channels,
                 Stop::Archived,

@@ -25,16 +25,21 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   Recent history is copied to this computer after linking and stored here.
 - **Chats.** See pinned, unread, muted, and archived chats, typing indicators,
   and message status. Search chats, saved messages, and contacts.
-  Filter the list to unread, private (one-to-one), or group chats with the
-  chips under the search bar; a chip with unread chats shows how many it has.
-  Followed channels have their own **Channels** chip and stay out of the other
-  filters; right-click it to mute or unmute every channel at once. **Archived**
-  opens the archived chats. Right-click a chat and choose **Mark as unread**
-  to put an empty dot on it, as on the phone; the mark syncs with your phone
-  both ways, and opening the chat or a new message clears it. Opening a chat with
+  Filter the list to unread, private (one-to-one), favorites, or group chats
+  with the chips under the search bar; a chip with unread chats shows how many
+  it has. Right-click a chat and choose **Add to favorites** to mark it, which
+  is local to this computer. Followed channels have their own **Channels** chip
+  and stay out of the other filters; right-click it to mute or unmute every
+  channel at once. **Archived** opens the archived chats. Right-click a chat and
+  choose **Mark as unread** to put an empty dot on it, as on the phone; the mark
+  syncs with your phone both ways, and opening the chat or a new message clears
+  it. Opening a chat with
   unread messages scrolls to an "unread messages" divider above the first one.
   Pinned chats stay in pin order (most recently pinned first), regardless of
-  new messages. Like on the phone, you can pin up to three chats. Chat and contact name searches ignore accents, so `Angel`
+  new messages. Pins belong to the chip you are on: **All** keeps the WhatsApp
+  pin that your phone and other linked devices share, and every other chip
+  keeps its own order, so pinning a chat in Favorites leaves All alone. Like on
+  the phone, you can pin up to three chats in a chip. Chat and contact name searches ignore accents, so `Angel`
   finds `Ángel`.
   The filters stay on one row and scroll horizontally in narrow sidebars.
   Unnamed groups use a shared participant summary for their title and subtitle;

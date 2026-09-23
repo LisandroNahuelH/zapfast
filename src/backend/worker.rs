@@ -993,6 +993,14 @@ impl Worker {
         }
     }
 
+    /// Hands the per-chip pins to the interface.
+    fn emit_chip_pins(&self) {
+        match self.archive.chip_pins() {
+            Ok(pins) => self.emit(Event::ChipPins(pins)),
+            Err(error) => log::warn!("could not list chip pins: {error}"),
+        }
+    }
+
     /// Resolves phone numbers in chat-row previews.
     fn polish_chat(&self, chat: &mut Chat) {
         if let Some(last) = chat.last.as_mut() {
@@ -1072,6 +1080,7 @@ impl Worker {
         }
         self.emit(Event::Contacts(self.contacts.values().cloned().collect()));
         self.emit_chats();
+        self.emit_chip_pins();
     }
 
     /// Re-derives archived rows from raw protobufs after parser changes. Also
@@ -4710,6 +4719,17 @@ impl Worker {
                         self.emit_chat(&chat);
                     }
                 }
+            }
+            Command::SetFavorite(chat, favorite) => {
+                let _ = self.archive.set_favorite(&chat, favorite);
+                self.emit_chat(&chat);
+            }
+            Command::SetChipPinned { chip, chat, pinned } => {
+                if let Err(error) = self.archive.set_chip_pinned(&chip, &chat, pinned) {
+                    self.emit(Event::Error(error.to_string()));
+                    return;
+                }
+                self.emit_chip_pins();
             }
             Command::SetMuted(chat, until) => {
                 let _ = self.archive.set_muted(&chat, until);
