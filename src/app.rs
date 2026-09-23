@@ -1353,7 +1353,7 @@ impl App {
         self.chats
             .iter()
             .filter(|chat| {
-                !chat.archived && !chat.locked && chat.unread > 0 && filter.matches(chat)
+                !chat.archived && !chat.locked && chat.looks_unread() && filter.matches(chat)
             })
             .count()
     }
@@ -2230,11 +2230,28 @@ impl App {
         self.notifications.clear(chat);
         if let Some(known) = self.chat_mut(chat) {
             known.unread = 0;
+            known.marked_unread = false;
         }
         // Clear local unread state regardless of receipt settings.
         self.backend.send(Command::MarkRead {
             chat: chat.to_owned(),
             receipts: self.settings.send_read_receipts,
+        });
+    }
+
+    /// Reminds the reader about a chat with nothing pending. A chat that
+    /// already counts unread messages keeps its number instead.
+    fn mark_unread(&mut self, chat: &str) {
+        let Some(known) = self.chat_mut(chat) else {
+            return;
+        };
+        if known.unread > 0 {
+            return;
+        }
+        known.marked_unread = true;
+        self.backend.send(Command::SetMarkedUnread {
+            chat: chat.to_owned(),
+            marked: true,
         });
     }
 
@@ -2306,7 +2323,10 @@ impl App {
         {
             self.fetch_older(&id);
         }
-        if self.chat(&id).is_some_and(|chat| chat.unread > 0) {
+        if self
+            .chat(&id)
+            .is_some_and(|chat| chat.unread > 0 || chat.marked_unread)
+        {
             self.mark_read(&id);
         }
         if self.settings.last_chat.as_deref() != Some(id.as_str()) {
@@ -2846,6 +2866,7 @@ impl App {
                 }
             }
             Action::MarkRead(chat) => self.mark_read(&chat),
+            Action::MarkUnread(chat) => self.mark_unread(&chat),
             Action::LoadOlder(chat) => self.load_older(&chat),
             Action::FetchOlder(chat) => self.fetch_older(&chat),
             Action::Download {
@@ -4993,6 +5014,35 @@ mod tests {
     }
 
     #[test]
+    fn marking_unread_uses_the_empty_dot_until_the_chat_opens() {
+        let mut app = app();
+        let id = "1@s.whatsapp.net".to_owned();
+        app.chats.push(Chat::new(id.clone(), "Ada".to_owned()));
+        app.mark_unread(&id);
+        let chat = app.chat(&id).expect("chat");
+        assert!(chat.marked_unread);
+        assert_eq!(chat.unread, 0);
+        assert!(chat.looks_unread());
+        app.open_chat(id.clone());
+        let chat = app.chat(&id).expect("chat");
+        assert!(!chat.marked_unread);
+        assert!(!chat.looks_unread());
+    }
+
+    #[test]
+    fn marking_unread_leaves_a_real_count_alone() {
+        let mut app = app();
+        let id = "1@s.whatsapp.net".to_owned();
+        let mut chat = Chat::new(id.clone(), "Ada".to_owned());
+        chat.unread = 3;
+        app.chats.push(chat);
+        app.mark_unread(&id);
+        let chat = app.chat(&id).expect("chat");
+        assert_eq!(chat.unread, 3);
+        assert!(!chat.marked_unread);
+    }
+
+    #[test]
     fn failed_poll_requests_keep_the_draft_and_clear_pending_controls() {
         let directory = tempfile::tempdir().unwrap();
         let (mut app, events) =
@@ -6300,6 +6350,26 @@ mod tests {
             })
             .collect();
         assert_eq!(muted, ["1@newsletter", "2@newsletter"]);
+    }
+
+    #[test]
+    fn the_unread_chip_finds_a_chat_marked_unread_by_hand() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        let mut marked = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
+        marked.marked_unread = true;
+        let read = Chat::new("2@s.whatsapp.net".into(), "Grace".into());
+        app.chats = vec![marked, read];
+        assert_eq!(app.unread_chats(ChatFilter::Unread), 1);
+        app.apply(Action::SetChatFilter(ChatFilter::Unread), &ctx);
+        let shown: Vec<&str> = app
+            .visible_chats()
+            .iter()
+            .map(|chat| chat.name.as_str())
+            .collect();
+        assert_eq!(shown, ["Ada"], "the chip finds the chat marked by hand");
+        // Nothing is pending, so the app badge stays at zero.
+        assert_eq!(app.unread_total(), 0);
     }
 
     #[test]

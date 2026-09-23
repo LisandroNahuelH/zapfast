@@ -183,6 +183,11 @@ pub enum Command {
         chat: ChatId,
         receipts: bool,
     },
+    /// Stores the local empty unread reminder. Does not send receipts.
+    SetMarkedUnread {
+        chat: ChatId,
+        marked: bool,
+    },
     /// Follows one of our group messages' receipts while "Message info" is
     /// open, or stops following with `None`.
     WatchReceipts(Option<(ChatId, String)>),

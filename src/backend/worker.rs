@@ -3779,6 +3779,13 @@ impl Worker {
                 });
             }
             Command::MarkRead { chat, receipts } => self.mark_read(chat, receipts),
+            Command::SetMarkedUnread { chat, marked } => {
+                if let Err(error) = self.archive.set_marked_unread(&chat, marked) {
+                    self.emit(Event::Error(error.to_string()));
+                    return;
+                }
+                self.emit_chat(&chat);
+            }
             Command::WatchReceipts(watch) => {
                 self.receipts_watch = watch;
                 self.emit_receipts();

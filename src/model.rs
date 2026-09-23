@@ -78,7 +78,7 @@ impl ChatFilter {
     pub fn matches(self, chat: &Chat) -> bool {
         match self {
             Self::All => !chat.is_channel(),
-            Self::Unread => chat.unread > 0 && !chat.is_channel(),
+            Self::Unread => chat.looks_unread() && !chat.is_channel(),
             Self::Private => chat.kind == ChatKind::Direct,
             Self::Groups => chat.kind == ChatKind::Group,
             Self::Channels => chat.is_channel(),
@@ -97,6 +97,8 @@ pub struct Chat {
     /// Latest-message Unix timestamp used for ordering.
     pub last_activity: i64,
     pub unread: u32,
+    /// Local reminder: show the empty unread dot with no pending count.
+    pub marked_unread: bool,
     pub archived: bool,
     pub pinned: bool,
     /// Pin time in Unix milliseconds; zero for older archives with no ordering.
@@ -139,6 +141,7 @@ impl Chat {
             kind,
             last_activity: 0,
             unread: 0,
+            marked_unread: false,
             archived: false,
             pinned: false,
             pinned_at: 0,
@@ -165,6 +168,11 @@ impl Chat {
 
     pub fn is_group(&self) -> bool {
         self.kind == ChatKind::Group
+    }
+
+    /// Counted unread, or a local empty-dot reminder with nothing pending.
+    pub fn looks_unread(&self) -> bool {
+        self.unread > 0 || self.marked_unread
     }
 
     pub fn muted(&self, now: i64) -> bool {
@@ -1068,6 +1076,8 @@ pub enum Action {
         composing: bool,
     },
     MarkRead(ChatId),
+    /// Local empty unread mark; does not invent a pending count.
+    MarkUnread(ChatId),
     LoadOlder(ChatId),
     /// Requests messages older than the local archive.
     FetchOlder(ChatId),
@@ -1381,6 +1391,17 @@ pub enum Action {
 #[cfg(test)]
 mod tests {
     use super::StickerCrop;
+
+    #[test]
+    fn looks_unread_covers_counts_and_the_empty_dot() {
+        let mut chat = Chat::new("1@s.whatsapp.net".into(), "A".into());
+        assert!(!chat.looks_unread());
+        chat.marked_unread = true;
+        assert!(chat.looks_unread());
+        chat.marked_unread = false;
+        chat.unread = 2;
+        assert!(chat.looks_unread());
+    }
 
     #[test]
     fn a_sticker_crop_stays_square_and_inside_the_picture() {

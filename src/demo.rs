@@ -485,6 +485,8 @@ pub fn populate(app: &mut App) {
         let mut chat = Chat::new(sample.id.to_owned(), sample.name.to_owned());
         chat.last_activity = now - sample.minutes_ago * 60;
         chat.unread = sample.unread;
+        // One chat carries the empty dot, so the sample shows both marks.
+        chat.marked_unread = sample.name == "Grace Hopper";
         chat.pinned = sample.pinned;
         chat.pinned_at = if sample.pinned {
             (now - sample.minutes_ago * 60) * 1000

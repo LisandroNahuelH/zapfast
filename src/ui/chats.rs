@@ -812,7 +812,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
             egui::WidgetType::SelectableLabel,
             ui.is_enabled(),
             selected,
-            format!("{title}, {} unread messages", chat.unread),
+            unread_announcement(&title, chat),
         )
     });
     if ui.is_rect_visible(rect) {
@@ -843,7 +843,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         } else {
             String::new()
         };
-        let unread = chat.unread > 0;
+        let unread = chat.looks_unread();
         let stamp_color = if unread && !muted {
             palette.accent
         } else {
@@ -871,11 +871,12 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         let mut badge_right = right;
         let line_y = rect.top() + 38.0;
         if unread {
-            let width = widgets::badge(
+            let width = widgets::unread_indicator(
                 ui,
                 &palette,
                 pos2(badge_right - 10.0, line_y + 8.0),
                 chat.unread,
+                chat.marked_unread,
                 muted,
             );
             badge_right -= width + 6.0;
@@ -963,6 +964,7 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         ui,
         &[
             "Mark as read",
+            "Mark as unread",
             "Pin to top",
             "Unarchive",
             "Mute for 8 hours",
@@ -1158,7 +1160,7 @@ fn compact_row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response 
             egui::WidgetType::SelectableLabel,
             ui.is_enabled(),
             selected,
-            format!("{title}, {} unread messages", chat.unread),
+            unread_announcement(&title, chat),
         )
     });
     if ui.is_rect_visible(rect) {
@@ -1193,15 +1195,16 @@ fn compact_row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response 
                 palette.accent,
             );
         }
-        if chat.unread > 0 {
+        if chat.looks_unread() {
             // Top right, clear of the disappearing-messages timer in the
             // bottom right corner. A muted chat's badge is dimmed, as in the
             // full row.
-            widgets::badge(
+            widgets::unread_indicator(
                 ui,
                 &palette,
                 compact_badge_center(avatar_rect),
                 chat.unread,
+                chat.marked_unread,
                 chat.muted(crate::util::now()),
             );
         }
@@ -1224,8 +1227,15 @@ fn compact_badge_center(avatar: Rect) -> egui::Pos2 {
 }
 
 fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette) {
-    if chat.unread > 0 && widgets::menu_item(ui, palette, Some(Icon::CheckCheck), "Mark as read") {
+    if chat.looks_unread()
+        && widgets::menu_item(ui, palette, Some(Icon::CheckCheck), "Mark as read")
+    {
         app.actions.push(Action::MarkRead(chat.id.clone()));
+    }
+    if !chat.looks_unread()
+        && widgets::menu_item(ui, palette, Some(Icon::MessageCircle), "Mark as unread")
+    {
+        app.actions.push(Action::MarkUnread(chat.id.clone()));
     }
     if widgets::menu_item(
         ui,
@@ -1304,6 +1314,16 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
             .push(Action::ShowDialog(Dialog::ConfirmDeleteChat(
                 chat.id.clone(),
             )));
+    }
+}
+
+/// What a screen reader reads out for a chat's unread state. A chat marked
+/// unread by hand has no count to read, so it must not announce zero.
+fn unread_announcement(title: &str, chat: &Chat) -> String {
+    if chat.marked_unread && chat.unread == 0 {
+        format!("{title}, unread")
+    } else {
+        format!("{title}, {} unread messages", chat.unread)
     }
 }
 

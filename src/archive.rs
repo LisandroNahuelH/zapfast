@@ -123,7 +123,7 @@ const CHAT_COLUMNS: &str =
     "c.id, c.name, c.kind, c.last_activity, c.unread, c.archived, c.pinned, c.muted_until,
                     m.from_me, m.sender_name, m.content, m.status, m.sender, c.participants, c.read_only,
                     c.pinned_at, c.ephemeral_expiration, c.locked, c.group_subject_known,
-                    c.notification_sound";
+                    c.notification_sound, c.marked_unread";
 
 /// Adds columns introduced after the initial schema when missing.
 const MIGRATIONS: &[(&str, &str, &str)] = &[
@@ -146,6 +146,7 @@ const MIGRATIONS: &[(&str, &str, &str)] = &[
     ("chats", "archive_updated_at", "INTEGER"),
     ("chats", "notification_sound", "TEXT"),
     ("chats", "group_subject_known", "INTEGER NOT NULL DEFAULT 0"),
+    ("chats", "marked_unread", "INTEGER NOT NULL DEFAULT 0"),
 ];
 const CHAT_JOIN: &str = "FROM chats c
              LEFT JOIN messages m ON m.chat = c.id AND m.rowid = (
@@ -178,6 +179,7 @@ fn chat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Chat> {
         kind: kind_from_name(&kind),
         last_activity: row.get(3)?,
         unread: row.get(4)?,
+        marked_unread: row.get(20)?,
         archived: row.get(5)?,
         pinned: row.get(6)?,
         pinned_at: row.get(15)?,
@@ -460,7 +462,7 @@ impl Archive {
 
     pub fn mark_read(&self, id: &str) -> Result<()> {
         self.connection.execute(
-            "UPDATE chats SET unread = 0,
+            "UPDATE chats SET unread = 0, marked_unread = 0,
              read_through = MAX(COALESCE(read_through, 0), last_activity) WHERE id = ?1",
             params![id],
         )?;
@@ -545,10 +547,23 @@ impl Archive {
         Ok(unread.min(remaining))
     }
 
+    /// A count from the phone clears the local reminder when it is above zero.
+    /// A zero snapshot leaves it alone: the phone does not know about it.
     pub fn set_unread(&self, id: &str, unread: u32) -> Result<()> {
         self.connection.execute(
-            "UPDATE chats SET unread = ?2 WHERE id = ?1",
+            "UPDATE chats SET unread = ?2,
+             marked_unread = CASE WHEN ?2 > 0 THEN 0 ELSE marked_unread END
+             WHERE id = ?1",
             params![id, unread],
+        )?;
+        Ok(())
+    }
+
+    /// Stores the local empty unread reminder. Nothing goes to WhatsApp.
+    pub fn set_marked_unread(&self, id: &str, marked: bool) -> Result<()> {
+        self.connection.execute(
+            "UPDATE chats SET marked_unread = ?2 WHERE id = ?1",
+            params![id, marked],
         )?;
         Ok(())
     }
@@ -571,7 +586,7 @@ impl Archive {
 
     pub fn bump_unread(&self, id: &str) -> Result<()> {
         self.connection.execute(
-            "UPDATE chats SET unread = unread + 1 WHERE id = ?1",
+            "UPDATE chats SET unread = unread + 1, marked_unread = 0 WHERE id = ?1",
             params![id],
         )?;
         Ok(())
@@ -1685,6 +1700,7 @@ pub(crate) mod tests {
         assert_eq!(chats.len(), 1);
         assert!(chats[0].participants.is_empty());
         assert!(!chats[0].read_only);
+        assert!(!chats[0].marked_unread);
         assert!(!chats[0].locked, "the lock column migrates in unset");
         assert!(
             !chats[0].group_subject_known,
@@ -2659,6 +2675,47 @@ pub(crate) mod tests {
         assert_eq!(ids, vec!["m2", "m1"]);
         archive.mark_read(chat).expect("read");
         assert_eq!(archive.chat(chat).expect("chat").expect("exists").unread, 0);
+    }
+
+    #[test]
+    fn marked_unread_stays_a_dot_until_read_or_a_real_count() {
+        let archive = Archive::in_memory().expect("opens");
+        let chat = "1@s.whatsapp.net";
+        archive.ensure_chat(chat, "A").expect("chat");
+        archive.set_marked_unread(chat, true).expect("mark");
+        let row = archive.chat(chat).expect("chat").expect("exists");
+        assert!(row.marked_unread);
+        assert_eq!(row.unread, 0);
+        assert!(row.looks_unread());
+        // A zero snapshot from the phone must not clear the local reminder.
+        archive.set_unread(chat, 0).expect("keep");
+        assert!(
+            archive
+                .chat(chat)
+                .expect("chat")
+                .expect("exists")
+                .marked_unread,
+            "a zero snapshot must not clear the local reminder"
+        );
+        // A real count takes over, and the dot goes away.
+        archive.bump_unread(chat).expect("bump");
+        let row = archive.chat(chat).expect("chat").expect("exists");
+        assert_eq!(row.unread, 1);
+        assert!(!row.marked_unread);
+        archive.set_marked_unread(chat, true).expect("mark again");
+        archive.set_unread(chat, 4).expect("count");
+        let row = archive.chat(chat).expect("chat").expect("exists");
+        assert_eq!(row.unread, 4);
+        assert!(!row.marked_unread, "a counted chat drops the empty dot");
+        // Reading clears both.
+        archive
+            .set_marked_unread(chat, true)
+            .expect("mark once more");
+        archive.mark_read(chat).expect("read");
+        let row = archive.chat(chat).expect("chat").expect("exists");
+        assert_eq!(row.unread, 0);
+        assert!(!row.marked_unread);
+        assert!(!row.looks_unread());
     }
 
     #[test]
