@@ -14,7 +14,7 @@ use crate::app::{App, Conversation, JumpHighlight};
 use crate::markup;
 use crate::model::{
     Action, Chat, ChatId, Content, Delivery, Dialog, LinkPreview, Media, MediaState, Message,
-    PickerTab, RightPane,
+    PickerTab,
 };
 use crate::theme::{self, Icon, Palette};
 use crate::wallpaper;
@@ -279,25 +279,32 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                                 app.actions.push(Action::CloseChat);
                             }
                         });
+                    let searching = app.chat_search_open;
+                    let tip = format!(
+                        "{} ({})",
+                        crate::i18n::gettext(app.locale, "Search messages"),
+                        super::keys::label("Ctrl+F")
+                    );
                     if theme::icon_button(
                         ui,
                         Icon::Search,
                         18.0,
-                        if app.right_pane == Some(RightPane::Search) {
+                        if searching {
                             palette.accent
                         } else {
                             palette.secondary
                         },
                         palette.text,
-                        &crate::i18n::gettext(app.locale, "Search messages (Ctrl+G)"),
+                        &tip,
                     )
+                    .tab_stop(Stop::ChatSearch)
                     .clicked()
                     {
-                        if app.right_pane == Some(RightPane::Search) {
-                            app.actions.push(Action::CloseRightPane);
+                        app.actions.push(if searching {
+                            Action::CloseChatSearch
                         } else {
-                            app.actions.push(Action::OpenRightPane(RightPane::Search));
-                        }
+                            Action::OpenChatSearch
+                        });
                     }
                 });
             });

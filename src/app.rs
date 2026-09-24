@@ -13,8 +13,8 @@ use crate::i18n::Locale;
 use crate::image_preview::PreviewState;
 use crate::model::{
     Action, Chat, ChatFilter, ChatId, Contact, Content, Delivery, Dialog, Gif, GifError, Label,
-    Media, MediaState, Message, Page, PickerTab, RightPane, SidebarDisplayMode, StickerPack,
-    StickerShelf, Toast, ToastKind,
+    Media, MediaState, Message, Page, PickerTab, SidebarDisplayMode, StickerPack, StickerShelf,
+    Toast, ToastKind,
 };
 use crate::paths::AppDirs;
 use crate::settings::{NotificationSound, Settings, ThemeChoice};
@@ -199,21 +199,24 @@ pub struct App {
     pub search: String,
     /// Message search results, newest first.
     pub search_hits: Vec<Message>,
-    /// Right inspector: search messages in the open chat now, other uses
-    /// later. The pane carries the in-chat search, the day filter and the
-    /// results it lists.
-    pub right_pane: Option<RightPane>,
+    /// The search pane beside the open chat: its query, day filter and the
+    /// matches it lists.
+    pub chat_search_open: bool,
     pub chat_search: String,
     /// Matches in the open chat, newest first.
     pub chat_search_hits: Vec<Message>,
     /// Whether the archive held more matches than the pane lists.
     pub chat_search_truncated: bool,
+    /// Whether an answer for the current query and day is still due.
+    pub chat_search_pending: bool,
+    /// The result the arrow keys have reached, if any.
+    pub chat_search_selected: Option<usize>,
     /// Local day the in-chat search is limited to, if any.
     pub chat_search_day: Option<jiff::civil::Date>,
     /// Month the day filter shows.
     pub chat_search_month: jiff::civil::Date,
     pub chat_search_calendar: bool,
-    /// Whether the freshly opened pane should take focus.
+    /// Whether the pane's field should take focus.
     pub focus_chat_search: bool,
     /// Whether the locked-chats folder is open.
     pub locked_folder: bool,
@@ -599,10 +602,12 @@ impl App {
             last_keystroke: None,
             search: String::new(),
             search_hits: Vec::new(),
-            right_pane: None,
+            chat_search_open: false,
             chat_search: String::new(),
             chat_search_hits: Vec::new(),
             chat_search_truncated: false,
+            chat_search_pending: false,
+            chat_search_selected: None,
             chat_search_day: None,
             chat_search_month: jiff::Zoned::now().date(),
             chat_search_calendar: false,
@@ -1697,6 +1702,8 @@ impl App {
                     {
                         self.chat_search_hits = messages;
                         self.chat_search_truncated = truncated;
+                        self.chat_search_pending = false;
+                        self.chat_search_selected = None;
                     }
                 }
                 Event::SearchHits { query, messages } => {
@@ -2210,23 +2217,34 @@ impl App {
         self.sticker_packs.iter().find(|pack| pack.dir == *dir)
     }
 
-    /// Opens the inspector on `pane`, or focuses it when it is already open.
-    fn open_right_pane(&mut self, pane: RightPane) {
-        let already = self.right_pane == Some(pane);
-        self.right_pane = Some(pane);
-        if pane == RightPane::Search {
-            self.focus_chat_search = true;
-            self.chat_search_month = jiff::Zoned::now().date();
-            if !already {
-                self.request_chat_search();
-            }
-        }
+    /// Whether the search pane is on screen: it belongs to the open chat and
+    /// only the chat view shows it.
+    pub fn chat_search_visible(&self) -> bool {
+        self.chat_search_open && self.page == Page::Chats && self.open_chat.is_some()
     }
 
-    fn close_right_pane(&mut self) {
-        self.right_pane = None;
+    /// Opens the search pane beside the open chat, or focuses its field when
+    /// it is already open.
+    fn open_chat_search(&mut self) {
+        if self.open_chat.is_none() || self.page != Page::Chats {
+            return;
+        }
+        if !self.chat_search_open {
+            self.chat_search_open = true;
+            self.chat_search_month = crate::util::today();
+        }
+        self.focus_chat_search = true;
+        self.focus_search = false;
+        self.focus_composer = false;
+    }
+
+    fn close_chat_search(&mut self) {
+        self.chat_search_open = false;
         self.chat_search.clear();
         self.chat_search_hits.clear();
+        self.chat_search_truncated = false;
+        self.chat_search_pending = false;
+        self.chat_search_selected = None;
         self.chat_search_day = None;
         self.chat_search_calendar = false;
         self.focus_chat_search = false;
@@ -2242,16 +2260,22 @@ impl App {
 
     /// Asks for the open chat's matches, for the query and day in force.
     fn request_chat_search(&mut self) {
-        let Some(chat) = self.open_chat.clone() else {
-            self.chat_search_hits.clear();
-            return;
-        };
+        self.chat_search_selected = None;
         let query = self.chat_search.trim().to_owned();
         let (from, until) = self.chat_search_range();
-        if query.is_empty() && from.is_none() {
+        let Some(chat) = self
+            .open_chat
+            .clone()
+            .filter(|_| !query.is_empty() || from.is_some())
+        else {
             self.chat_search_hits.clear();
+            self.chat_search_truncated = false;
+            self.chat_search_pending = false;
             return;
-        }
+        };
+        // The earlier matches stay listed until the answer replaces them, so
+        // the list does not blink empty on every keystroke.
+        self.chat_search_pending = true;
         self.backend.send(Command::SearchChatMessages {
             chat,
             query,
@@ -2580,7 +2604,7 @@ impl App {
             self.composer = self.drafts.remove(&id).unwrap_or_default();
             self.composer_mentions = self.draft_mentions.remove(&id).unwrap_or_default();
             // A search belongs to the chat it was typed in.
-            self.close_right_pane();
+            self.close_chat_search();
             self.reply_to = None;
             self.editing = None;
             // A run of voice messages belongs to the chat it started in.
@@ -3044,11 +3068,18 @@ impl App {
                 }
             }
             Action::OpenMessage { chat, message } => {
+                // A result picked in the search pane keeps the keyboard in
+                // the pane, so the arrows can walk on to the next one.
+                let from_pane =
+                    self.chat_search_visible() && self.open_chat.as_deref() == Some(chat.as_str());
                 self.open_chat(chat.clone());
                 // A locked chat stays shut outside its folder, even for a
                 // notification clicked before the chat was locked.
                 if self.open_chat.as_deref() != Some(chat.as_str()) {
                     return;
+                }
+                if from_pane {
+                    self.focus_composer = false;
                 }
                 // Keep the search result, not the chat end, in view.
                 self.scroll_to_bottom = false;
@@ -3994,7 +4025,7 @@ impl App {
             Action::FocusSearch => self.actions.push(Action::FocusChatList),
             Action::FocusChatList => {
                 // The list search takes over Escape and Enter from the chat's.
-                self.close_right_pane();
+                self.close_chat_search();
                 self.sidebar_visible = true;
                 self.page = Page::Chats;
                 self.focus_composer = false;
@@ -4047,19 +4078,11 @@ impl App {
                     self.backend.send(Command::SearchMessages { query });
                 }
             }
-            Action::OpenChatSearch => {
-                if self.open_chat.is_none() || self.page != Page::Chats {
-                    return;
-                }
-                self.open_right_pane(RightPane::Search);
-                self.focus_search = false;
-            }
+            Action::OpenChatSearch => self.open_chat_search(),
             Action::CloseChatSearch => {
-                self.close_right_pane();
+                self.close_chat_search();
                 self.refocus_composer(ctx);
             }
-            Action::OpenRightPane(pane) => self.open_right_pane(pane),
-            Action::CloseRightPane => self.close_right_pane(),
             Action::ChatSearch(query) => {
                 self.chat_search = query;
                 self.request_chat_search();
@@ -7374,61 +7397,148 @@ mod tests {
         let ctx = egui::Context::default();
         // Without an open chat there is nothing to search inside.
         app.apply(Action::OpenChatSearch, &ctx);
-        assert!(app.right_pane.is_none());
+        assert!(!app.chat_search_open);
         app.open_chat = Some("1@s.whatsapp.net".into());
         app.apply(Action::OpenChatSearch, &ctx);
-        assert_eq!(app.right_pane, Some(RightPane::Search));
+        assert!(app.chat_search_visible());
         assert!(app.focus_chat_search);
+        assert!(!app.focus_composer, "the pane's field takes the keyboard");
         // Ctrl+K searches the chat list, and closes the pane.
         app.apply(Action::FocusSearch, &ctx);
         app.apply_actions(&ctx);
         assert!(app.focus_search);
-        assert!(app.right_pane.is_none());
+        assert!(!app.chat_search_open);
     }
 
     #[test]
-    fn opening_the_pane_keeps_the_chat_list_search() {
+    fn the_pane_keeps_the_chat_list_search_and_gives_the_composer_back() {
         let mut app = app();
         let ctx = egui::Context::default();
         let chat = "1@s.whatsapp.net";
         app.chats.push(Chat::new(chat.into(), "Ada".into()));
         app.open_chat = Some(chat.into());
         app.search = "list".into();
-        app.apply(Action::OpenRightPane(RightPane::Search), &ctx);
-        assert_eq!(app.right_pane, Some(RightPane::Search));
-        assert!(app.focus_chat_search);
+        app.apply(Action::OpenChatSearch, &ctx);
+        assert!(app.chat_search_open);
         assert_eq!(app.search, "list", "the two searches are independent");
-        app.apply(Action::CloseRightPane, &ctx);
-        assert!(app.right_pane.is_none());
+        app.search.clear();
+        app.apply(Action::ChatSearch("engine".into()), &ctx);
+        app.apply(Action::CloseChatSearch, &ctx);
+        assert!(!app.chat_search_open);
         assert!(app.chat_search.is_empty());
-        assert_eq!(app.search, "list");
+        assert!(app.focus_composer, "closing hands the keyboard back");
     }
 
     #[test]
-    fn the_day_filter_narrows_the_search_and_survives_closing_the_pane() {
+    fn the_pane_lists_only_the_answer_to_the_query_and_day_in_force() {
         let mut app = app();
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
         let ctx = egui::Context::default();
-        app.open_chat = Some("1@s.whatsapp.net".into());
-        app.apply(Action::OpenRightPane(RightPane::Search), &ctx);
-        assert_eq!(app.chat_search_range(), (None, None));
+        let chat = "1@s.whatsapp.net";
+        app.open_chat = Some(chat.into());
+        app.apply(Action::OpenChatSearch, &ctx);
+        let searches = |commands: &mut tokio::sync::mpsc::UnboundedReceiver<Command>| {
+            std::iter::from_fn(|| commands.try_recv().ok())
+                .filter_map(|command| match command {
+                    Command::SearchChatMessages {
+                        query, from, until, ..
+                    } => Some((query, from.is_some() && until.is_some())),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(searches(&mut commands).is_empty(), "nothing to ask yet");
+        app.apply(Action::ChatSearch("eng".into()), &ctx);
+        app.apply(Action::ChatSearch(" engine ".into()), &ctx);
+        assert_eq!(
+            searches(&mut commands),
+            [("eng".to_owned(), false), ("engine".to_owned(), false)]
+        );
+        assert!(app.chat_search_pending);
+        let hits =
+            |query: &str, from: Option<i64>, until: Option<i64>, ids: &[&str]| Event::ChatHits {
+                chat: chat.into(),
+                query: query.into(),
+                from,
+                until,
+                messages: ids.iter().map(|id| message(chat, id, 1)).collect(),
+                truncated: false,
+            };
+        // The answer to the query already replaced arrives too late.
+        events.send(hits("eng", None, None, &["old"])).unwrap();
+        app.handle_events();
+        assert!(app.chat_search_hits.is_empty());
+        assert!(app.chat_search_pending);
+        events
+            .send(hits("engine", None, None, &["m1", "m2"]))
+            .unwrap();
+        app.handle_events();
+        assert_eq!(app.chat_search_hits.len(), 2);
+        assert!(!app.chat_search_pending);
+        // A day narrows the same query, and an answer without it is stale.
         let day = jiff::civil::Date::new(2026, 9, 23).expect("a date");
         app.apply(Action::SetChatSearchDay(Some(day)), &ctx);
-        let (from, until) = app.chat_search_range();
-        let (from, until) = (from.expect("a start"), until.expect("an end"));
-        assert!(from < until, "the day is a half-open range");
-        // 23 or 25 hours on a clock-change day, so only the size is checked.
-        let hours = (until - from) / 3_600;
-        assert!((23..=25).contains(&hours), "a day is a day: {hours} h");
+        assert_eq!(searches(&mut commands), [("engine".to_owned(), true)]);
         assert_eq!(app.chat_search_day, Some(day));
         assert_eq!(app.chat_search_month, day, "the calendar follows the pick");
-        assert!(
-            !app.chat_search_calendar,
-            "picking a day closes the calendar"
-        );
-        // Picking the same day again clears it.
-        app.apply(Action::SetChatSearchDay(Some(day)), &ctx);
+        assert!(!app.chat_search_calendar, "picking a day closes it");
+        events.send(hits("engine", None, None, &["m3"])).unwrap();
+        app.handle_events();
+        assert_eq!(app.chat_search_hits.len(), 2, "still the earlier list");
+        let (from, until) = app.chat_search_range();
+        events.send(hits("engine", from, until, &["m1"])).unwrap();
+        app.handle_events();
+        assert_eq!(app.chat_search_hits.len(), 1);
+        // A day on its own lists that day; with neither, nothing is asked.
+        app.apply(Action::ChatSearch(String::new()), &ctx);
+        assert_eq!(searches(&mut commands), [(String::new(), true)]);
         app.apply(Action::SetChatSearchDay(None), &ctx);
+        assert!(searches(&mut commands).is_empty());
+        assert!(app.chat_search_hits.is_empty());
+        assert!(!app.chat_search_pending);
         assert_eq!(app.chat_search_range(), (None, None));
+    }
+
+    #[test]
+    fn a_result_opened_from_the_pane_keeps_the_keyboard_there() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        let chat = "1@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Ada".into()));
+        let conversation = Conversation {
+            requested: true,
+            complete: true,
+            messages: vec![message(chat, "hit", 10)],
+            ..Default::default()
+        };
+        app.conversations.insert(chat.into(), conversation);
+        app.apply(Action::OpenChat(chat.into()), &ctx);
+        app.apply(Action::OpenChatSearch, &ctx);
+        app.apply(Action::ChatSearch("engine".into()), &ctx);
+        app.apply(
+            Action::OpenMessage {
+                chat: chat.into(),
+                message: "hit".into(),
+            },
+            &ctx,
+        );
+        assert!(app.chat_search_open, "the pane stays open");
+        assert_eq!(app.chat_search, "engine", "with its query");
+        assert!(!app.focus_composer);
+        assert_eq!(
+            app.jump_highlight
+                .as_ref()
+                .map(|jump| jump.message.as_str()),
+            Some("hit"),
+            "and the result flashes"
+        );
+        // Another chat's search does not follow the reader there.
+        let other = "2@s.whatsapp.net";
+        app.chats.push(Chat::new(other.into(), "Bo".into()));
+        app.apply(Action::OpenChat(other.into()), &ctx);
+        assert!(!app.chat_search_open);
+        assert!(app.chat_search.is_empty());
     }
 
     #[test]
