@@ -609,7 +609,7 @@ impl App {
             chat_search_pending: false,
             chat_search_selected: None,
             chat_search_day: None,
-            chat_search_month: jiff::Zoned::now().date(),
+            chat_search_month: crate::util::today(),
             chat_search_calendar: false,
             focus_chat_search: false,
             locked_folder: false,
