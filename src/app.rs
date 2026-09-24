@@ -319,6 +319,12 @@ pub struct App {
     pauses_media: bool,
     /// Image currently shown in the native preview.
     pub image_preview: Option<PreviewState>,
+    /// Photos and playable videos of the open chat, oldest first, as the viewer
+    /// album lists them. Loaded when the viewer opens.
+    pub viewer_media: Vec<crate::archive::ChatMedia>,
+    /// Chat whose album `viewer_media` belongs to, so a late answer for another
+    /// chat is dropped instead of shown.
+    pub viewer_media_chat: Option<ChatId>,
     /// Voice messages with a sent played receipt.
     played_told: HashSet<String>,
     /// Message bodies registered for transcript copy formatting.
@@ -674,6 +680,8 @@ impl App {
             media_hold: None,
             pauses_media: false,
             image_preview: None,
+            viewer_media: Vec::new(),
+            viewer_media_chat: None,
             played_told: HashSet::new(),
             copy_rows: Default::default(),
             selection_view: Default::default(),
@@ -1673,6 +1681,13 @@ impl App {
                             // Show archived messages immediately, including offline.
                             self.ensure_loaded(&open);
                         }
+                    }
+                }
+                Event::ChatMedia { chat, items } => {
+                    // An album for a chat the viewer has already left arrives
+                    // too late to matter.
+                    if self.viewer_media_chat.as_deref() == Some(chat.as_str()) {
+                        self.viewer_media = items;
                     }
                 }
                 Event::ChatUpdated(chat) => self.handle_chat_updated(*chat),
@@ -3295,9 +3310,19 @@ impl App {
                     message,
                 });
             }
-            Action::PreviewImage(path) => {
+            Action::PreviewImage {
+                path,
+                chat,
+                message,
+            } => {
                 if crate::safety::can_preview_image(&path) && path.is_file() {
-                    self.image_preview = Some(PreviewState::new(path));
+                    // The album is asked for as the viewer opens, so stepping
+                    // through it works from the first frame.
+                    self.viewer_media.clear();
+                    self.viewer_media_chat = Some(chat.clone());
+                    self.backend
+                        .send(Command::LoadChatMedia { chat: chat.clone() });
+                    self.image_preview = Some(PreviewState::new(path, chat, message));
                     self.dialog = None;
                     self.picker = None;
                     // egui drops the focus of widgets behind a modal only from
@@ -3334,7 +3359,54 @@ impl App {
             }
             Action::CloseImagePreview => {
                 self.image_preview = None;
+                self.viewer_media.clear();
+                self.viewer_media_chat = None;
                 self.refocus_composer(ctx);
+            }
+            Action::ViewImage { message } => {
+                let Some(preview) = self.image_preview.as_ref() else {
+                    return;
+                };
+                let Some(item) = self
+                    .viewer_media
+                    .iter()
+                    .find(|item| item.id == message)
+                    .cloned()
+                else {
+                    return;
+                };
+                // An item whose file is not here yet is shown for what it is and
+                // offered for download, rather than skipped.
+                let path = item
+                    .path
+                    .clone()
+                    .unwrap_or_else(|| preview.path().to_owned());
+                if let Some(preview) = &mut self.image_preview {
+                    preview.show_item(path, item.id.clone());
+                }
+            }
+            Action::ViewerStep(step) => {
+                let Some(preview) = self.image_preview.as_ref() else {
+                    return;
+                };
+                let Some(index) = preview.position(&self.viewer_media) else {
+                    return;
+                };
+                let count = self.viewer_media.len() as i64;
+                if count == 0 {
+                    return;
+                }
+                let next = (index as i64 + i64::from(step)).rem_euclid(count) as usize;
+                let item = self.viewer_media[next].clone();
+                // An item whose file is not here yet is shown for what it is
+                // and offered for download, rather than skipped.
+                let path = item
+                    .path
+                    .clone()
+                    .unwrap_or_else(|| preview.path().to_owned());
+                if let Some(preview) = &mut self.image_preview {
+                    preview.show_item(path, item.id.clone());
+                }
             }
             Action::OpenFile(path) => {
                 if crate::safety::can_open_attachment(&path) && path.is_file() {
@@ -5578,6 +5650,123 @@ mod tests {
         }
     }
 
+    /// A chat whose album holds `count` pictures.
+    fn app_with_album(count: usize) -> App {
+        let mut app = app();
+        let chat = "1@s.whatsapp.net".to_owned();
+        app.chats.push(Chat::new(chat.clone(), "Ada".into()));
+        app.viewer_media = (0..count)
+            .map(|index| crate::archive::ChatMedia {
+                id: format!("m{index}"),
+                timestamp: index as i64,
+                video: false,
+                path: Some(PathBuf::from(format!("/fixture/{index}.png"))),
+                thumbnail: None,
+            })
+            .collect();
+        app.viewer_media_chat = Some(chat);
+        app
+    }
+
+    /// Opens the viewer on one item of that album.
+    fn open_viewer(app: &mut App, index: usize) {
+        app.image_preview = Some(PreviewState::new(
+            PathBuf::from(format!("/fixture/{index}.png")),
+            "1@s.whatsapp.net".into(),
+            format!("m{index}"),
+        ));
+    }
+
+    #[test]
+    fn stepping_the_viewer_walks_the_album_and_wraps() {
+        let mut app = app_with_album(3);
+        let ctx = egui::Context::default();
+        open_viewer(&mut app, 0);
+        app.apply(Action::ViewerStep(1), &ctx);
+        assert_eq!(app.image_preview.as_ref().unwrap().message(), "m1");
+        app.apply(Action::ViewerStep(1), &ctx);
+        assert_eq!(app.image_preview.as_ref().unwrap().message(), "m2");
+        // Past the last one: back to the first.
+        app.apply(Action::ViewerStep(1), &ctx);
+        assert_eq!(app.image_preview.as_ref().unwrap().message(), "m0");
+        app.apply(Action::ViewerStep(-1), &ctx);
+        assert_eq!(app.image_preview.as_ref().unwrap().message(), "m2");
+    }
+
+    #[test]
+    fn stepping_does_nothing_without_an_album() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        open_viewer(&mut app, 0);
+        app.apply(Action::ViewerStep(1), &ctx);
+        assert_eq!(
+            app.image_preview.as_ref().unwrap().message(),
+            "m0",
+            "a picture opened on its own has nowhere to step"
+        );
+    }
+
+    #[test]
+    fn a_thumbnail_click_shows_that_item() {
+        let mut app = app_with_album(3);
+        let ctx = egui::Context::default();
+        open_viewer(&mut app, 0);
+        app.apply(
+            Action::ViewImage {
+                message: "m2".into(),
+            },
+            &ctx,
+        );
+        let preview = app.image_preview.as_ref().unwrap();
+        assert_eq!(preview.message(), "m2");
+        assert_eq!(preview.path(), std::path::Path::new("/fixture/2.png"));
+        assert!(preview.is_fit(), "the picture opens fitted");
+        // An id the album does not hold leaves the viewer where it was.
+        app.apply(
+            Action::ViewImage {
+                message: "nope".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(app.image_preview.as_ref().unwrap().message(), "m2");
+    }
+
+    #[test]
+    fn closing_the_viewer_forgets_the_album() {
+        let mut app = app_with_album(3);
+        let ctx = egui::Context::default();
+        open_viewer(&mut app, 0);
+        app.apply(Action::CloseImagePreview, &ctx);
+        assert!(app.image_preview.is_none());
+        assert!(app.viewer_media.is_empty());
+        assert!(app.viewer_media_chat.is_none());
+    }
+
+    #[test]
+    fn an_album_answer_for_another_chat_is_dropped() {
+        let root = std::env::temp_dir().join(format!("zapfast-album-{}", std::process::id()));
+        let (mut app, events) = App::headless(AppDirs::under(&root), Settings::default());
+        app.viewer_media_chat = Some("1@s.whatsapp.net".into());
+        // An album for a chat the viewer has already left arrives too late.
+        events
+            .send(Event::ChatMedia {
+                chat: "2@s.whatsapp.net".into(),
+                items: Vec::new(),
+            })
+            .unwrap();
+        app.handle_events();
+        assert!(app.viewer_media_chat.as_deref() == Some("1@s.whatsapp.net"));
+        // Its own album lands.
+        events
+            .send(Event::ChatMedia {
+                chat: "1@s.whatsapp.net".into(),
+                items: Vec::new(),
+            })
+            .unwrap();
+        app.handle_events();
+        assert!(app.viewer_media.is_empty());
+    }
+
     #[test]
     fn image_preview_opens_zooms_fits_and_closes() {
         let ctx = egui::Context::default();
@@ -5585,7 +5774,14 @@ mod tests {
         let file = tempfile::NamedTempFile::with_suffix(".png").unwrap();
         std::fs::write(file.path(), b"not a real image").unwrap();
 
-        app.apply(Action::PreviewImage(file.path().to_owned()), &ctx);
+        app.apply(
+            Action::PreviewImage {
+                path: file.path().to_owned(),
+                chat: "1@s.whatsapp.net".into(),
+                message: "m1".into(),
+            },
+            &ctx,
+        );
         let preview = app.image_preview.as_ref().expect("preview opens");
         assert_eq!(preview.path(), file.path());
         assert!(preview.is_fit());
@@ -5608,7 +5804,14 @@ mod tests {
         let file = tempfile::NamedTempFile::with_suffix(".heic").unwrap();
         std::fs::write(file.path(), b"not a real image").unwrap();
 
-        app.apply(Action::PreviewImage(file.path().to_owned()), &ctx);
+        app.apply(
+            Action::PreviewImage {
+                path: file.path().to_owned(),
+                chat: "1@s.whatsapp.net".into(),
+                message: "m1".into(),
+            },
+            &ctx,
+        );
 
         assert!(
             app.image_preview.is_none(),

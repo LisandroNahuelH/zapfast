@@ -1057,6 +1057,14 @@ impl Worker {
         }
     }
 
+    /// Hands the chat's viewer album to the interface.
+    fn emit_chat_media(&mut self, chat: ChatId) {
+        match self.archive.gallery_media(&chat) {
+            Ok(items) => self.emit(Event::ChatMedia { chat, items }),
+            Err(error) => self.emit(Event::Error(error.to_string())),
+        }
+    }
+
     /// Resolves phone numbers in chat-row previews.
     fn polish_chat(&self, chat: &mut Chat) {
         if let Some(last) = chat.last.as_mut() {
@@ -4099,6 +4107,7 @@ impl Worker {
                 message,
             } => self.download_media(chat, message, card),
             Command::FetchAvatar { id, full } => self.fetch_avatar(id, full),
+            Command::LoadChatMedia { chat } => self.emit_chat_media(chat),
             Command::EditText {
                 chat,
                 id,

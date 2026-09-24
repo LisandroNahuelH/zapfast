@@ -2257,7 +2257,37 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             // Shows the native image preview over the demo chat.
             "preview" => {
                 let (photo, _) = sample_files(app);
-                app.image_preview = Some(crate::image_preview::PreviewState::new(photo));
+                let chat = SAMPLES[0].id.to_owned();
+                app.viewer_media = app
+                    .conversations
+                    .get(&chat)
+                    .map(|conversation| {
+                        conversation
+                            .messages
+                            .iter()
+                            .filter_map(|message| {
+                                message.content.gallery_kind().map(|kind| {
+                                    crate::archive::ChatMedia {
+                                        id: message.id.clone(),
+                                        timestamp: message.timestamp,
+                                        video: kind == crate::model::GalleryKind::Video,
+                                        path: message
+                                            .content
+                                            .media()
+                                            .and_then(|media| media.path.clone()),
+                                        thumbnail: message.thumbnail.clone(),
+                                    }
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                app.viewer_media_chat = Some(chat.clone());
+                app.image_preview = Some(crate::image_preview::PreviewState::new(
+                    photo,
+                    chat,
+                    "ada-photo".to_owned(),
+                ));
             }
             "compose-emoji" => {
                 app.composer = "Andiamo 😊 con due 👍🏽 e poi testo normale".to_owned();
@@ -4041,7 +4071,11 @@ mod tests {
         assert_eq!(app.composer, "draft");
 
         let (photo, _) = sample_files(&app);
-        app.actions.push(crate::model::Action::PreviewImage(photo));
+        app.actions.push(crate::model::Action::PreviewImage {
+            path: photo,
+            chat: crate::demo::SAMPLES[0].id.to_owned(),
+            message: "ada-photo".to_owned(),
+        });
         // Enter in the very frame the preview opens, before egui knows about
         // the modal layer.
         frame_with(
@@ -4086,7 +4120,11 @@ mod tests {
         render(&mut app, &ctx);
         let interface_zoom = ctx.zoom_factor();
         let (photo, _) = sample_files(&app);
-        app.actions.push(crate::model::Action::PreviewImage(photo));
+        app.actions.push(crate::model::Action::PreviewImage {
+            path: photo,
+            chat: crate::demo::SAMPLES[0].id.to_owned(),
+            message: "ada-photo".to_owned(),
+        });
         render(&mut app, &ctx);
 
         let ctrl_shift = egui::Modifiers {

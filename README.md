@@ -206,6 +206,13 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   after they expire on the phone.
   A clock badge on chat avatars shows enabled timers and follows changes from
   the phone. Changing the default timer for new chats leaves existing chats alone.
+- **Media viewer.** Clicking a photo or a video in a chat opens it across the
+  whole window, as WhatsApp's own viewer does: the chat's other photos and clips
+  along the bottom to move between them, arrows, and the comma and full-stop
+  keys, with zoom and pan on the picture itself. A video plays in place with
+  sound. Reply, react, forward, download and show in the chat are one click away
+  from the header, and a click on the empty field closes it. A file that is a
+  photo or a clip joins the strip too.
 - **View attachments.** ZapFast downloads files up to 64 MiB automatically or
   on click. Photos, stickers, GIFs, voice messages, audio, locations, contacts,
   polls, and link previews appear in the chat. Click a downloaded JPEG, PNG,

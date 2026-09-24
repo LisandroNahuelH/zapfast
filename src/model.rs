@@ -3,7 +3,7 @@
 //! The backend translates protocol types into these models, keeping protobufs
 //! out of views and giving the archive a stable shape.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -567,6 +567,13 @@ impl PollDraft {
 /// WhatsApp's longest live location share, in seconds.
 pub const LIVE_LOCATION_LIMIT: i64 = 8 * 60 * 60;
 
+/// A photo or a playable video, as the in-app viewer album counts them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GalleryKind {
+    Photo,
+    Video,
+}
+
 impl Content {
     /// Whether a live location sent at `sent` has stopped by `now`: its
     /// sender ended it, or it has outlived the longest share.
@@ -714,6 +721,22 @@ impl Content {
         }
     }
 
+    /// Whether this message belongs in the viewer album, and as what.
+    ///
+    /// A GIF is not a video here: it plays inline as an animation, so it is
+    /// left out. A file is judged by its type and then by its extension, which
+    /// is how a photo or a clip sent as a document still shows up.
+    pub fn gallery_kind(&self) -> Option<GalleryKind> {
+        match self {
+            Self::Image { .. } => Some(GalleryKind::Photo),
+            Self::Video { gif: false, .. } => Some(GalleryKind::Video),
+            Self::Document {
+                media, file_name, ..
+            } => gallery_file(&media.mime, file_name),
+            _ => None,
+        }
+    }
+
     /// Carries downloaded file paths over from `old` when rederiving content
     /// from the raw protobuf: the main attachment and each carousel card's image.
     pub fn keep_local_paths(&mut self, old: &Content) {
@@ -749,6 +772,34 @@ impl Content {
             } => card.image.as_mut(),
             _ => None,
         }
+    }
+}
+
+/// The viewer kind of a file, from its MIME type or, failing that, its name.
+fn gallery_file(mime: &str, file_name: &str) -> Option<GalleryKind> {
+    let mime = mime
+        .split(';')
+        .next()
+        .unwrap_or(mime)
+        .trim()
+        .to_ascii_lowercase();
+    if mime == "image/gif" {
+        return None;
+    }
+    if mime.starts_with("image/") {
+        return Some(GalleryKind::Photo);
+    }
+    if mime.starts_with("video/") {
+        return Some(GalleryKind::Video);
+    }
+    let ext = Path::new(file_name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())?;
+    match ext.as_str() {
+        "jpg" | "jpeg" | "png" | "webp" | "bmp" | "tif" | "tiff" => Some(GalleryKind::Photo),
+        "mp4" | "m4v" | "mov" | "webm" | "mkv" | "3gp" | "3gpp" => Some(GalleryKind::Video),
+        _ => None,
     }
 }
 
@@ -1229,7 +1280,19 @@ pub enum Action {
     /// extension and existence are checked here, and anything else opens
     /// externally; an image that then fails to decode shows a message with an
     /// Open externally button inside the preview.
-    PreviewImage(PathBuf),
+    PreviewImage {
+        path: PathBuf,
+        /// The chat whose album the viewer browses from here.
+        chat: ChatId,
+        /// The message this picture came from, so the album can be positioned.
+        message: String,
+    },
+    /// Moves the viewer to the next (`1`) or previous (`-1`) item of the album.
+    ViewerStep(i8),
+    /// Shows one item of the album the viewer already has, by message id.
+    ViewImage {
+        message: String,
+    },
     ZoomImageIn,
     /// Shows the previewed image at its original size.
     ImageActualSize,

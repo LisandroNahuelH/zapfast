@@ -30,6 +30,18 @@ pub struct Removed {
     pub media: Vec<PathBuf>,
 }
 
+/// One item of a chat's viewer album: what it is, when it arrived, and what
+/// the strip needs to draw it before the file itself is loaded.
+#[derive(Clone, Debug)]
+pub struct ChatMedia {
+    pub id: String,
+    pub timestamp: i64,
+    pub video: bool,
+    /// `None` until the attachment is downloaded.
+    pub path: Option<PathBuf>,
+    pub thumbnail: Option<Vec<u8>>,
+}
+
 /// Recent phone sticker metadata, last-used time, and optional local file.
 #[derive(Clone, Debug)]
 pub struct PhoneSticker {
@@ -1329,7 +1341,44 @@ impl Archive {
         Ok(())
     }
 
-    /// Attachment paths recorded for one chat.
+    /// The chat's photos and playable videos, oldest first, for the viewer
+    /// album. A file that is a photo or a clip counts too.
+    pub fn gallery_media(&self, chat: &str) -> Result<Vec<ChatMedia>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, timestamp, content, thumbnail FROM messages
+             WHERE chat = ?1 AND json_valid(content)
+             AND json_extract(content, '$.kind') IN ('image', 'video', 'document')
+             ORDER BY timestamp ASC, rowid ASC",
+        )?;
+        let rows = statement.query_map(params![chat], |row| {
+            let id: String = row.get(0)?;
+            let timestamp: i64 = row.get(1)?;
+            let raw: String = row.get(2)?;
+            let thumbnail: Option<Vec<u8>> = row.get(3)?;
+            Ok((id, timestamp, raw, thumbnail))
+        })?;
+        let mut list = Vec::new();
+        for row in rows {
+            let (id, timestamp, raw, thumbnail) = row?;
+            let content: Content = serde_json::from_str(&raw).unwrap_or(Content::Unsupported {
+                what: "unreadable".into(),
+            });
+            let Some(kind) = content.gallery_kind() else {
+                continue;
+            };
+            let path = content.media().and_then(|media| media.path.clone());
+            list.push(ChatMedia {
+                id,
+                timestamp,
+                video: kind == crate::model::GalleryKind::Video,
+                path,
+                thumbnail,
+            });
+        }
+        Ok(list)
+    }
+
+    /// Attachment paths of one chat.
     fn chat_media(&self, chat: &str) -> Result<Vec<PathBuf>> {
         self.cached_media("m.chat = ?1", params![chat])
     }

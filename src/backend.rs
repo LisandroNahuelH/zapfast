@@ -208,6 +208,10 @@ pub enum Command {
     },
     /// Requests messages before the archive's earliest message.
     FetchOlder(ChatId),
+    /// The chat's photos and playable videos, for the media viewer album.
+    LoadChatMedia {
+        chat: ChatId,
+    },
     Download {
         card: Option<usize>,
         chat: ChatId,
@@ -703,6 +707,11 @@ pub enum Event {
         /// Whether the archive held more matches than `messages` carries, so
         /// the pane can say so instead of dropping them silently.
         truncated: bool,
+    },
+    /// A chat's photos and playable videos, oldest first.
+    ChatMedia {
+        chat: ChatId,
+        items: Vec<crate::archive::ChatMedia>,
     },
     ChatUpdated(Box<Chat>),
     /// Chat messages in ascending order. `older` prepends them; `complete`

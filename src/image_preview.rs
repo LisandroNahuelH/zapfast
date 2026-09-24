@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use egui::{Event, Key, Modifiers};
 
+use crate::model::ChatId;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OpenTarget {
     Preview,
@@ -31,6 +33,10 @@ pub fn preview_action(key: Key, modifiers: Modifiers) -> Option<crate::model::Ac
         }
         (false, Key::Minus) if !modifiers.any() => Some(crate::model::Action::ZoomImageOut),
         (false, Key::Num0) if !modifiers.any() => Some(crate::model::Action::FitImage),
+        // The arrow keys stay with the modal, which needs them to walk its own
+        // controls. A viewer's own step keys are the comma and the full stop.
+        (false, Key::Comma) if !modifiers.any() => Some(crate::model::Action::ViewerStep(-1)),
+        (false, Key::Period) if !modifiers.any() => Some(crate::model::Action::ViewerStep(1)),
         _ => None,
     }
 }
@@ -88,6 +94,10 @@ pub struct PreviewState {
     /// Scale the fitted image is drawn at, so zooming starts from what is
     /// on screen rather than from the original pixels.
     fit_scale: f32,
+    /// The chat whose album the viewer browses.
+    chat: ChatId,
+    /// The message this picture came from.
+    message: String,
 }
 
 impl PreviewState {
@@ -95,13 +105,40 @@ impl PreviewState {
     const MAX_ZOOM: f32 = 4.0;
     const ZOOM_STEP: f32 = 1.25;
 
-    pub fn new(path: PathBuf) -> Self {
+    pub fn new(path: PathBuf, chat: ChatId, message: String) -> Self {
         Self {
             path,
+            chat,
+            message,
             zoom: 1.0,
             fit: true,
             fit_scale: 1.0,
         }
+    }
+
+    /// The chat whose album the viewer browses.
+    pub fn chat(&self) -> &str {
+        &self.chat
+    }
+
+    /// The message this picture came from.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Where this picture sits in the album, when the album holds it. The
+    /// position is derived, so a list that arrives late or changes cannot put
+    /// the viewer on the wrong item.
+    pub fn position(&self, album: &[crate::archive::ChatMedia]) -> Option<usize> {
+        album.iter().position(|item| item.id == self.message)
+    }
+
+    /// Points the viewer at another item, back to fitting the window.
+    pub fn show_item(&mut self, path: PathBuf, message: String) {
+        self.path = path;
+        self.message = message;
+        self.fit = true;
+        self.zoom = 1.0;
     }
 
     pub fn path(&self) -> &Path {
@@ -155,9 +192,67 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
 
+    /// A preview of one file, with no album behind it.
+    fn fixture() -> PreviewState {
+        PreviewState::new(
+            PathBuf::from("photo.png"),
+            "1@s.whatsapp.net".into(),
+            "m1".into(),
+        )
+    }
+
+    /// One album item, only ever matched by its id here.
+    fn item(id: &str) -> crate::archive::ChatMedia {
+        crate::archive::ChatMedia {
+            id: id.into(),
+            timestamp: 0,
+            video: false,
+            path: None,
+            thumbnail: None,
+        }
+    }
+
+    #[test]
+    fn the_album_position_comes_from_the_message_id() {
+        let mut preview = fixture();
+        let album = vec![item("m1"), item("m2"), item("m3")];
+        assert_eq!(preview.position(&album), Some(0));
+        preview.show_item(PathBuf::from("other.png"), "m3".into());
+        assert_eq!(preview.position(&album), Some(2));
+        // A picture that is not in the album has no position, so the viewer
+        // does not claim to be somewhere it is not.
+        preview.show_item(PathBuf::from("other.png"), "nope".into());
+        assert_eq!(preview.position(&album), None);
+    }
+
+    #[test]
+    fn showing_another_item_returns_to_fitting() {
+        let mut preview = fixture();
+        preview.zoom_in();
+        assert!(!preview.is_fit());
+        preview.show_item(PathBuf::from("next.png"), "m2".into());
+        assert!(preview.is_fit(), "a new picture starts fitted");
+        assert_eq!(preview.path(), Path::new("next.png"));
+        assert_eq!(preview.message(), "m2");
+    }
+
+    #[test]
+    fn the_viewer_steps_with_its_own_keys() {
+        assert_eq!(
+            preview_action(Key::Period, Modifiers::NONE),
+            Some(crate::model::Action::ViewerStep(1))
+        );
+        assert_eq!(
+            preview_action(Key::Comma, Modifiers::NONE),
+            Some(crate::model::Action::ViewerStep(-1))
+        );
+        // The arrows stay with the modal, which walks its own controls.
+        assert_eq!(preview_action(Key::ArrowRight, Modifiers::NONE), None);
+    }
+
     #[test]
     fn zooming_from_fit_starts_at_the_fitted_scale() {
-        let mut preview = PreviewState::new(PathBuf::from("photo.png"));
+        let mut preview = fixture();
         preview.set_fit_scale(0.4);
         preview.zoom_in();
         assert!(!preview.is_fit());
@@ -263,7 +358,7 @@ mod tests {
 
     #[test]
     fn preview_starts_fitted_and_zoom_has_sensible_limits() {
-        let mut preview = PreviewState::new(PathBuf::from("photo.png"));
+        let mut preview = fixture();
         assert_eq!(preview.path(), Path::new("photo.png"));
         assert!(preview.is_fit());
 

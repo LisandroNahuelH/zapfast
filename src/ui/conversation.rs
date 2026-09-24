@@ -4869,7 +4869,7 @@ fn location_card(
     });
 }
 
-fn thumbnail_uri(ctx: &egui::Context, chat: &str, id: &str, bytes: &[u8]) -> String {
+pub(crate) fn thumbnail_uri(ctx: &egui::Context, chat: &str, id: &str, bytes: &[u8]) -> String {
     let uri = format!(
         "bytes://thumb-{}-{}",
         chat.chars()
@@ -5025,9 +5025,11 @@ fn picture(
                     .clicked()
                 {
                     let action = match crate::image_preview::open_target(path, sticker.is_none()) {
-                        crate::image_preview::OpenTarget::Preview => {
-                            Action::PreviewImage(path.clone())
-                        }
+                        crate::image_preview::OpenTarget::Preview => Action::PreviewImage {
+                            path: path.clone(),
+                            chat: view.chat.id.clone(),
+                            message: message.id.clone(),
+                        },
                         crate::image_preview::OpenTarget::External => {
                             Action::OpenFile(path.clone())
                         }
