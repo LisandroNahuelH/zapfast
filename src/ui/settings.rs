@@ -553,7 +553,7 @@ fn sections(app: &App) -> Vec<Section> {
     }
     window.toggle(
         "Download updates automatically",
-        "Download and verify new releases in the background. You choose when to restart. Native packages and Flatpak update through their package manager.",
+        "Download and verify new releases in the background. A verified download installs when ZapFast next quits or starts, so there is nothing to click. Native packages and Flatpak update through their package manager.",
         |settings| &mut settings.download_updates_automatically,
     );
     window.toggle(

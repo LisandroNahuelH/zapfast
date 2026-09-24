@@ -319,6 +319,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   zero removes it.
 - **Update notices.** ZapFast checks GitHub once a day and shows a download
   link when a newer release is available. You can turn this off in Settings.
+  With **Download updates automatically** on, a verified release installs when
+  ZapFast next quits or starts, so there is nothing to click; the toast is
+  there for installing it right away.
 - **Themes.** Light, dark, follow the system, or a local JSON palette. Native
   Linux packages can follow Omarchy colors without restarting the app. Zoom with
   Ctrl+plus and Ctrl+minus.

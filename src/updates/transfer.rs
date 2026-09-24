@@ -331,10 +331,18 @@ fn download_with_key(
             version: release.version.clone(),
         })
     })();
-    if result.is_err() {
-        let _ = fs::remove_dir_all(&directory);
+    match result {
+        Ok(prepared) => {
+            // The payload is only useful while it is recorded: without this a
+            // quit before installing would leave it stranded on disk.
+            install::save_prepared(&prepared)?;
+            Ok(prepared)
+        }
+        Err(error) => {
+            let _ = fs::remove_dir_all(&directory);
+            Err(error)
+        }
     }
-    result
 }
 
 #[cfg(test)]

@@ -553,6 +553,7 @@ impl App {
         if crate::autostart::supported() {
             app.start_with_system = Some(crate::autostart::enabled());
         }
+        app.adopt_pending_update();
         app
     }
 
@@ -2965,6 +2966,38 @@ impl App {
         }
     }
 
+    /// Installs a verified payload left by an earlier run.
+    ///
+    /// A download that was never installed is still on disk, and nothing else
+    /// would pick it up: without this the next start would fetch it again.
+    fn adopt_pending_update(&mut self) {
+        if let Ok(installation) = crate::updates::install::detect() {
+            self.adopt_pending_installation(&installation);
+        }
+    }
+
+    fn adopt_pending_installation(&mut self, installation: &crate::updates::install::Installation) {
+        // Automatic downloads are the setting that says "do this without me".
+        // With it off, a pending file waits for the toast like any other
+        // download.
+        if !self.settings.check_for_updates || !self.settings.download_updates_automatically {
+            return;
+        }
+        let Ok(Some(prepared)) = crate::updates::install::load_pending(installation) else {
+            return;
+        };
+        self.update = Some(crate::updates::Release {
+            version: prepared.version.clone(),
+            url: format!(
+                "https://github.com/crmne/zapfast/releases/tag/v{}",
+                prepared.version
+            ),
+        });
+        self.update_support = Some(Ok(installation.clone()));
+        self.update_download = crate::updates::DownloadState::Ready(Box::new(prepared));
+        self.actions.push(Action::InstallUpdate);
+    }
+
     fn maybe_download_update(&mut self) {
         if !self.settings.check_for_updates
             || !self.settings.download_updates_automatically
@@ -4403,6 +4436,19 @@ impl App {
                 self.backend.send(Command::StartOverArchive);
             }
             Action::Quit => {
+                // A verified payload in memory would go with the process, so
+                // hand it to the helper first. It installs while this copy
+                // exits, and the helper starts the new one.
+                if self.settings.check_for_updates
+                    && self.settings.download_updates_automatically
+                    && matches!(
+                        self.update_download,
+                        crate::updates::DownloadState::Ready(_)
+                    )
+                {
+                    self.actions.push(Action::InstallUpdate);
+                    return;
+                }
                 self.quit_requested = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -6078,6 +6124,118 @@ mod tests {
         app.apply(Action::InstallUpdate, &ctx);
         assert!(matches!(app.update_download, DownloadState::Installing));
         assert!(!app.quit_requested, "wait for the helper before closing");
+    }
+
+    fn fixture_prepared(version: &str) -> crate::updates::install::Prepared {
+        use crate::updates::install::{Installation, Kind, Prepared};
+        Prepared {
+            installation: Installation {
+                executable: PathBuf::from("/fixture/zapfast"),
+                kind: Kind::Portable,
+            },
+            directory: "/fixture/staging".into(),
+            payload: "/fixture/staging/next".into(),
+            sha256: String::new(),
+            version: version.into(),
+        }
+    }
+
+    /// Writes a real pending payload beside a fixture executable, so the hash
+    /// check in `load_pending` is the one under test.
+    fn write_pending_update() -> (tempfile::TempDir, crate::updates::install::Installation) {
+        use crate::updates::install::{self, Installation, Kind, Prepared};
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("zapfast");
+        std::fs::write(&executable, b"old").unwrap();
+        let installation = Installation {
+            executable,
+            kind: Kind::Portable,
+        };
+        let stage = install::staging(&installation).unwrap();
+        let payload = stage.join("next");
+        std::fs::write(&payload, b"new").unwrap();
+        install::save_prepared(&Prepared {
+            installation: installation.clone(),
+            directory: stage,
+            payload: payload.clone(),
+            sha256: install::hash(&payload).unwrap(),
+            version: "99.0.0".into(),
+        })
+        .unwrap();
+        (root, installation)
+    }
+
+    #[test]
+    fn quitting_with_a_ready_download_hands_it_to_the_helper() {
+        use crate::updates::DownloadState;
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.settings.check_for_updates = true;
+        app.settings.download_updates_automatically = true;
+        app.update_download = DownloadState::Ready(Box::new(fixture_prepared("99.0.0")));
+        app.apply(Action::Quit, &ctx);
+        assert!(
+            !app.quit_requested,
+            "the install runs before the window closes"
+        );
+        app.apply_actions(&ctx);
+        assert!(matches!(app.update_download, DownloadState::Installing));
+    }
+
+    #[test]
+    fn quitting_with_auto_download_off_leaves_without_installing() {
+        use crate::updates::DownloadState;
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.settings.download_updates_automatically = false;
+        app.update_download = DownloadState::Ready(Box::new(fixture_prepared("99.0.0")));
+        app.apply(Action::Quit, &ctx);
+        assert!(app.quit_requested);
+        assert!(
+            matches!(app.update_download, DownloadState::Ready(_)),
+            "a download the reader asked for is not installed behind their back"
+        );
+    }
+
+    #[test]
+    fn quitting_without_a_download_leaves_normally() {
+        use crate::updates::DownloadState;
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.settings.check_for_updates = true;
+        app.settings.download_updates_automatically = true;
+        app.update_download = DownloadState::Idle;
+        app.apply(Action::Quit, &ctx);
+        assert!(app.quit_requested);
+    }
+
+    #[test]
+    fn a_pending_payload_installs_on_the_next_start_when_auto_download_is_on() {
+        use crate::updates::DownloadState;
+        let (_root, installation) = write_pending_update();
+        let mut app = app();
+        app.settings.check_for_updates = true;
+        app.settings.download_updates_automatically = true;
+        app.adopt_pending_installation(&installation);
+        assert_eq!(
+            app.update.as_ref().map(|release| release.version.as_str()),
+            Some("99.0.0"),
+            "the notice names the payload that was found"
+        );
+        let ctx = egui::Context::default();
+        app.apply_actions(&ctx);
+        assert!(matches!(app.update_download, DownloadState::Installing));
+    }
+
+    #[test]
+    fn a_pending_payload_waits_when_auto_download_is_off() {
+        use crate::updates::DownloadState;
+        let (_root, installation) = write_pending_update();
+        let mut app = app();
+        app.settings.download_updates_automatically = false;
+        app.adopt_pending_installation(&installation);
+        assert!(matches!(app.update_download, DownloadState::Idle));
+        assert!(app.update.is_none());
     }
 
     #[test]

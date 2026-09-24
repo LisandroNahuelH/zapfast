@@ -11,6 +11,8 @@ use sha2::{Digest, Sha256};
 const LIMIT: u64 = 2 * 1024 * 1024 * 1024;
 #[cfg(not(target_os = "macos"))]
 const MARKER: &str = "zapfast-portable-v1";
+const PENDING_DIR: &str = ".zapfast-pending";
+const PREPARED_FILE: &str = "prepared.json";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Kind {
@@ -152,12 +154,21 @@ pub fn hash(path: &Path) -> Result<String> {
     Ok(super::hex(&hash.finalize()))
 }
 
-pub fn staging(installation: &Installation) -> Result<PathBuf> {
-    let parent = installation
+fn pending_directory(installation: &Installation) -> Result<PathBuf> {
+    Ok(installation
         .root()?
         .parent()
-        .context("Missing installation directory")?;
-    let directory = parent.join(format!(".zapfast-update-{:016x}", rand::random::<u64>()));
+        .context("Missing installation directory")?
+        .join(PENDING_DIR))
+}
+
+/// Staging folder beside the install. One pending update at a time, so a second
+/// download replaces the first instead of filling the folder with them.
+pub fn staging(installation: &Installation) -> Result<PathBuf> {
+    let directory = pending_directory(installation)?;
+    if directory.exists() {
+        fs::remove_dir_all(&directory).context("Cannot replace the staged update")?;
+    }
     fs::create_dir(&directory).context("Cannot write to the installation directory")?;
     #[cfg(unix)]
     {
@@ -165,6 +176,48 @@ pub fn staging(installation: &Installation) -> Result<PathBuf> {
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
     }
     Ok(directory)
+}
+
+/// Records a verified payload so the next process can install it.
+pub fn save_prepared(prepared: &Prepared) -> Result<()> {
+    let path = prepared.directory.join(PREPARED_FILE);
+    let mut file = File::create(&path)?;
+    serde_json::to_writer(&mut file, prepared)?;
+    file.flush()?;
+    file.sync_all()?;
+    Ok(())
+}
+
+/// A verified payload that is still newer than this build, or `None`.
+///
+/// The hash is checked again on load: the file sat on disk between runs, and a
+/// payload that no longer matches what was verified is not installed. A payload
+/// this build has already caught up with is cleared, which is also how the
+/// folder empties itself after an update.
+pub fn load_pending(installation: &Installation) -> Result<Option<Prepared>> {
+    let directory = pending_directory(installation)?;
+    let path = directory.join(PREPARED_FILE);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let mut prepared: Prepared = serde_json::from_reader(File::open(&path)?)?;
+    let usable = prepared.payload.is_file()
+        && hash(&prepared.payload)? == prepared.sha256
+        && super::is_newer(&prepared.version, env!("CARGO_PKG_VERSION"));
+    if !usable {
+        let _ = clear_pending(installation);
+        return Ok(None);
+    }
+    prepared.installation = installation.clone();
+    Ok(Some(prepared))
+}
+
+pub fn clear_pending(installation: &Installation) -> Result<()> {
+    let directory = pending_directory(installation)?;
+    if directory.exists() {
+        fs::remove_dir_all(directory)?;
+    }
+    Ok(())
 }
 
 pub fn extract(archive: &Path, entry: &str, destination: &Path) -> Result<()> {
@@ -793,6 +846,43 @@ mod tests {
         replace(&prepared).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"new");
         assert_eq!(fs::read(stage.join("previous")).unwrap(), b"old");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_pending_payload_survives_reload_until_this_build_is_newer() {
+        let directory = std::env::temp_dir().join(format!(
+            "zapfast-pending-test-{:016x}",
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let target = directory.join("zapfast");
+        fs::write(&target, b"old").unwrap();
+        let installation = Installation {
+            executable: target,
+            kind: Kind::Portable,
+        };
+        let stage = staging(&installation).unwrap();
+        let payload = stage.join("next");
+        fs::write(&payload, b"new").unwrap();
+        let sha256 = hash(&payload).unwrap();
+        let prepared = Prepared {
+            installation: installation.clone(),
+            directory: stage,
+            payload,
+            sha256: sha256.clone(),
+            version: "99.0.0".into(),
+        };
+        save_prepared(&prepared).unwrap();
+        let loaded = load_pending(&installation).unwrap().expect("pending");
+        assert_eq!(loaded.version, "99.0.0");
+        assert_eq!(loaded.sha256, sha256);
+        // A payload this build has caught up with is spent, so it goes, and
+        // that is also how the folder empties itself after an update.
+        let mut current = prepared.clone();
+        current.version = env!("CARGO_PKG_VERSION").into();
+        save_prepared(&current).unwrap();
+        assert!(load_pending(&installation).unwrap().is_none());
         fs::remove_dir_all(directory).unwrap();
     }
 }
