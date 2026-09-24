@@ -359,9 +359,6 @@ pub struct App {
     pub show_archived: bool,
     /// Chat-list filter; applies to the main list, not to search or the archive.
     pub chat_filter: ChatFilter,
-    /// Pins inside one chip: chip key, chat id, pin time. `All` is not here; it
-    /// keeps using `chats.pinned`.
-    pub chip_pins: HashMap<String, HashMap<ChatId, i64>>,
     /// Labels known here, in creation order. Local to this computer.
     pub labels: Vec<Label>,
     /// Name typed in the label manager.
@@ -687,7 +684,6 @@ impl App {
             sidebar_visible: true,
             show_archived: false,
             chat_filter: ChatFilter::All,
-            chip_pins: HashMap::new(),
             labels: Vec::new(),
             label_name: String::new(),
             label_color: crate::archive::DEFAULT_COLOR.to_owned(),
@@ -961,13 +957,6 @@ impl App {
         self.draft_mentions.remove(id);
         self.typing.remove(id);
         self.unread_kept.remove(id);
-        // The archive drops the chat's chip pins with the rest of its rows, so
-        // the copy in memory goes too. A chat recreated with the same id would
-        // otherwise look pinned in a chip, and hold that chip's pin limit.
-        self.chip_pins.retain(|_, pins| {
-            pins.remove(id);
-            !pins.is_empty()
-        });
         if self.scroll_chat_into_view.as_deref() == Some(id) {
             self.scroll_chat_into_view = None;
         }
@@ -1396,14 +1385,6 @@ impl App {
         self.locked_folder && (self.chat_lock_authenticated() || self.secret_code_matched())
     }
 
-    /// Whether the chips are filtering the list. Search, the archived view and
-    /// the locked folder list every match and leave no chip selected, so a pin
-    /// there is the WhatsApp pin again. `visible_chats` and `pin_chip` share
-    /// this, so the two cannot disagree about which chip is on.
-    pub fn chip_filter_active(&self) -> bool {
-        !self.locked_folder_open() && self.search.trim().is_empty() && !self.show_archived
-    }
-
     pub fn locked_count(&self) -> usize {
         self.chats.iter().filter(|chat| chat.locked).count()
     }
@@ -1420,7 +1401,7 @@ impl App {
     pub fn visible_chats(&self) -> Vec<&Chat> {
         let needle = crate::util::search_key(self.search.trim());
         let locked = self.locked_folder_open();
-        let filtering = self.chip_filter_active();
+        let filtering = !locked && needle.is_empty() && !self.show_archived;
         let mut chats: Vec<&Chat> = self
             .chats
             .iter()
@@ -1450,69 +1431,15 @@ impl App {
             })
             .collect();
         chats.sort_by(|a, b| {
-            let (a_pinned, b_pinned) = (self.is_pinned_here(a), self.is_pinned_here(b));
-            b_pinned.cmp(&a_pinned).then_with(|| {
-                if a_pinned && b_pinned {
-                    self.pinned_at_here(b)
-                        .cmp(&self.pinned_at_here(a))
-                        .then(a.id.cmp(&b.id))
+            b.pinned.cmp(&a.pinned).then_with(|| {
+                if a.pinned && b.pinned {
+                    b.pinned_at.cmp(&a.pinned_at).then(a.id.cmp(&b.id))
                 } else {
                     b.last_activity.cmp(&a.last_activity).then(a.id.cmp(&b.id))
                 }
             })
         });
         chats
-    }
-
-    /// The chip the sidebar is on, for the pin order. A label chip keeps its
-    /// own pins like any other chip; `None` is the WhatsApp pin `All` uses,
-    /// which is also where every view without active chips falls back.
-    pub fn pin_chip(&self) -> Option<String> {
-        if !self.chip_filter_active() {
-            return None;
-        }
-        match &self.label_filter {
-            Some(label) => Some(ChatFilter::label_key(label)),
-            None => self.chat_filter.pin_key().map(str::to_owned),
-        }
-    }
-
-    /// Whether the chat is pinned in the chip the sidebar has selected. `All`
-    /// keeps the WhatsApp pin; every other chip has its own local order.
-    pub fn is_pinned_here(&self, chat: &Chat) -> bool {
-        match self.pin_chip() {
-            None => chat.pinned,
-            Some(chip) => self
-                .chip_pins
-                .get(&chip)
-                .is_some_and(|pins| pins.contains_key(&chat.id)),
-        }
-    }
-
-    /// Pin time inside the selected chip, for the order in the list.
-    pub fn pinned_at_here(&self, chat: &Chat) -> i64 {
-        match self.pin_chip() {
-            None => chat.pinned_at,
-            Some(chip) => self
-                .chip_pins
-                .get(&chip)
-                .and_then(|pins| pins.get(&chat.id))
-                .copied()
-                .unwrap_or(0),
-        }
-    }
-
-    /// Pins or unpins the chat in the selected chip.
-    pub fn toggle_pin_action(&self, chat: &Chat) -> Action {
-        let pinned = !self.is_pinned_here(chat);
-        match self.pin_chip() {
-            None => Action::SetPinned(chat.id.clone(), pinned),
-            Some(chip) => Action::SetChipPinned {
-                chip,
-                chat: chat.id.clone(),
-                pinned,
-            },
-        }
     }
 
     /// Matching individual contacts without an existing chat, sorted by name.
@@ -1678,13 +1605,6 @@ impl App {
                             self.drafts.entry(chat).or_insert(text);
                         }
                     }
-                }
-                Event::ChipPins(pins) => {
-                    let mut map: HashMap<String, HashMap<ChatId, i64>> = HashMap::new();
-                    for (chip, chat, at) in pins {
-                        map.entry(chip).or_default().insert(chat, at);
-                    }
-                    self.chip_pins = map;
                 }
                 Event::Chats(chats) => {
                     for chat in &chats {
@@ -2140,8 +2060,6 @@ impl App {
                 self.notifications.clear_all();
                 self.chats.clear();
                 self.conversations.clear();
-                // The pins belonged to the account that was unlinked.
-                self.chip_pins.clear();
                 self.contacts.clear();
                 self.avatars.clear();
                 self.open_chat = None;
@@ -3882,20 +3800,6 @@ impl App {
                     known.favorite = favorite;
                 }
                 self.backend.send(Command::SetFavorite(chat, favorite));
-            }
-            Action::SetChipPinned { chip, chat, pinned } => {
-                let pins = self.chip_pins.entry(chip.clone()).or_default();
-                if pinned && pins.len() >= self.pin_limit && !pins.contains_key(&chat) {
-                    self.toast(format!("You can only pin {} chats", self.pin_limit));
-                    return;
-                }
-                if pinned {
-                    pins.insert(chat.clone(), jiff::Timestamp::now().as_millisecond());
-                } else {
-                    pins.remove(&chat);
-                }
-                self.backend
-                    .send(Command::SetChipPinned { chip, chat, pinned });
             }
             Action::ShowDialog(dialog) => {
                 self.clear_chat_lock_entry();
@@ -5709,105 +5613,6 @@ mod tests {
             app.chat_filter,
             ChatFilter::All,
             "a label replaces what the chips were filtering"
-        );
-    }
-
-    #[test]
-    fn a_label_chip_keeps_its_own_pins() {
-        let mut app = app();
-        let ctx = egui::Context::default();
-        let mut chat = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
-        chat.labels = vec!["label-1".into()];
-        app.chats = vec![chat];
-        app.labels = vec![Label {
-            id: "label-1".into(),
-            name: "Work".into(),
-            color_hex: "#3b82f6".into(),
-            created_at: 1,
-        }];
-        app.apply(Action::SelectLabel(Some("label-1".into())), &ctx);
-        // Choosing a label leaves the filter chip on All, so the pin order has
-        // to follow the label or the pin would go to the phone.
-        assert_eq!(app.pin_chip().as_deref(), Some("label:label-1"));
-        let chat = app.chats[0].clone();
-        assert!(!app.is_pinned_here(&chat));
-        let action = app.toggle_pin_action(&chat);
-        app.apply(action, &ctx);
-        assert!(
-            app.is_pinned_here(&chat),
-            "the chat is pinned in the label chip"
-        );
-        assert!(
-            app.chip_pins
-                .get("label:label-1")
-                .is_some_and(|pins| pins.contains_key(&chat.id)),
-            "the pin lives in the label chip"
-        );
-        assert!(
-            !app.chat(&chat.id).expect("chat").pinned,
-            "the WhatsApp pin the phone keeps is left alone"
-        );
-    }
-
-    #[test]
-    fn a_pin_follows_the_chip_only_while_the_chips_filter() {
-        let mut app = app();
-        app.chats = vec![Chat::new("1@s.whatsapp.net".into(), "Ada".into())];
-        app.chat_filter = ChatFilter::Favorites;
-        assert_eq!(app.pin_chip().as_deref(), Some("favorites"));
-        // Search, the archived view and the locked folder list every match and
-        // leave no chip selected, so a pin there is the WhatsApp pin again.
-        app.search = "ada".into();
-        assert_eq!(app.pin_chip(), None, "search");
-        app.search.clear();
-        app.show_archived = true;
-        assert_eq!(app.pin_chip(), None, "archived");
-        app.show_archived = false;
-        assert_eq!(app.pin_chip().as_deref(), Some("favorites"));
-    }
-
-    #[test]
-    fn forgetting_a_chat_drops_its_chip_pins() {
-        let mut app = app();
-        let ctx = egui::Context::default();
-        app.chats = vec![Chat::new("1@s.whatsapp.net".into(), "Ada".into())];
-        app.apply(
-            Action::SetChipPinned {
-                chip: "favorites".into(),
-                chat: "1@s.whatsapp.net".into(),
-                pinned: true,
-            },
-            &ctx,
-        );
-        assert!(app.chip_pins.contains_key("favorites"));
-        // The archive drops the chat's pins with its other rows, so the copy in
-        // memory cannot outlive it and hold the chip's pin limit.
-        app.forget_chat("1@s.whatsapp.net");
-        assert!(
-            app.chip_pins.is_empty(),
-            "a chat that leaves the archive leaves its chip pins"
-        );
-    }
-
-    #[test]
-    fn unlinking_the_account_drops_the_chip_pins() {
-        let root = std::env::temp_dir().join(format!("zapfast-pins-{}", std::process::id()));
-        let (mut app, events) = App::headless(AppDirs::under(&root), Settings::default());
-        let ctx = egui::Context::default();
-        app.apply(
-            Action::SetChipPinned {
-                chip: "favorites".into(),
-                chat: "1@s.whatsapp.net".into(),
-                pinned: true,
-            },
-            &ctx,
-        );
-        assert!(!app.chip_pins.is_empty());
-        events.send(Event::Link(LinkStatus::LoggedOut)).unwrap();
-        app.background_frame(&ctx);
-        assert!(
-            app.chip_pins.is_empty(),
-            "the pins belonged to the account that was unlinked"
         );
     }
 

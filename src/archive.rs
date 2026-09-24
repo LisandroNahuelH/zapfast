@@ -9,7 +9,6 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::model::{Chat, ChatKind, Contact, Content, Delivery, LastMessage, Message};
 
-mod chip_pins;
 mod drafts;
 mod encryption;
 mod labels;
@@ -147,9 +146,9 @@ const MIGRATIONS: &[(&str, &str, &str)] = &[
     ("chats", "archive_updated_at", "INTEGER"),
     ("chats", "notification_sound", "TEXT"),
     ("chats", "group_subject_known", "INTEGER NOT NULL DEFAULT 0"),
+    ("chats", "favorite", "INTEGER NOT NULL DEFAULT 0"),
     ("chats", "marked_unread", "INTEGER NOT NULL DEFAULT 0"),
     ("chats", "pending_unread", "INTEGER"),
-    ("chats", "favorite", "INTEGER NOT NULL DEFAULT 0"),
 ];
 const CHAT_JOIN: &str = "FROM chats c
              LEFT JOIN messages m ON m.chat = c.id AND m.rowid = (
@@ -271,7 +270,6 @@ impl Archive {
         connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
         connection.execute_batch(SCHEMA)?;
         connection.execute_batch(labels::SCHEMA)?;
-        connection.execute_batch(chip_pins::SCHEMA)?;
         connection.execute_batch(polls::SCHEMA)?;
         connection.execute_batch(drafts::SCHEMA)?;
         connection.execute_batch(stickers::SCHEMA)?;
@@ -1280,7 +1278,6 @@ impl Archive {
             "polls",
             "poll_history",
             "local_chat_labels",
-            "chip_pins",
             "drafts",
         ] {
             self.connection.execute(
@@ -1619,7 +1616,7 @@ impl Archive {
     /// Clears all archived data during unlinking.
     pub fn clear(&self) -> Result<()> {
         self.connection.execute_batch(
-            "DELETE FROM poll_history; DELETE FROM poll_votes; DELETE FROM polls; DELETE FROM group_receipts; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_removals; DELETE FROM contacts; DELETE FROM meta; DELETE FROM lids; DELETE FROM drafts; DELETE FROM local_chat_labels; DELETE FROM local_labels; DELETE FROM chip_pins; DELETE FROM removed_recent_stickers; DELETE FROM favorite_stickers;",
+            "DELETE FROM poll_history; DELETE FROM poll_votes; DELETE FROM polls; DELETE FROM group_receipts; DELETE FROM messages; DELETE FROM chats; DELETE FROM chat_removals; DELETE FROM contacts; DELETE FROM meta; DELETE FROM lids; DELETE FROM drafts; DELETE FROM local_chat_labels; DELETE FROM local_labels; DELETE FROM removed_recent_stickers; DELETE FROM favorite_stickers;",
         )
     }
 }
@@ -1803,6 +1800,23 @@ pub(crate) mod tests {
                 .map(|m| m.id),
             Some("m1".into())
         );
+    }
+
+    #[test]
+    fn a_favorite_mark_survives_a_chat_update() {
+        let archive = Archive::in_memory().expect("opens");
+        let chat = "1@s.whatsapp.net";
+        archive.ensure_chat(chat, "Ada").expect("chat");
+        assert!(!archive.chat(chat).expect("read").expect("exists").favorite);
+        archive.set_favorite(chat, true).expect("mark");
+        // Pinning and renaming leave the mark alone.
+        archive.set_pinned(chat, true).expect("pin");
+        archive.ensure_chat(chat, "Ada L.").expect("rename");
+        let row = archive.chat(chat).expect("read").expect("exists");
+        assert!(row.favorite);
+        assert!(row.pinned);
+        archive.set_favorite(chat, false).expect("unmark");
+        assert!(!archive.chat(chat).expect("read").expect("exists").favorite);
     }
 
     #[test]

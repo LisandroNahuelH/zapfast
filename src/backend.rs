@@ -513,12 +513,6 @@ pub enum Command {
     SetPinned(ChatId, bool),
     /// Marks a chat as a favorite, or removes the mark. Local only.
     SetFavorite(ChatId, bool),
-    /// Pins a chat inside one chip, which keeps its own order.
-    SetChipPinned {
-        chip: String,
-        chat: ChatId,
-        pinned: bool,
-    },
     PairWithPhone(String),
     /// Unlinks the device remotely and locally.
     Unlink,
@@ -688,8 +682,6 @@ pub enum Event {
         message: Box<Message>,
     },
     Contacts(Vec<Contact>),
-    /// The pins inside the chips that keep their own order: chip, chat, time.
-    ChipPins(Vec<(String, String, i64)>),
     /// Message search results with their query, newest first.
     SearchHits {
         query: String,

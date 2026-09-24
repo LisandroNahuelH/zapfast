@@ -3,7 +3,7 @@
 use egui::{Align, CornerRadius, Frame, Layout, Margin, Sense, Stroke, pos2, vec2};
 
 use crate::app::App;
-use crate::model::{Action, Chat, Dialog};
+use crate::model::{Action, Dialog};
 use crate::theme::{self, Icon};
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -1268,19 +1268,6 @@ fn new_contact(app: &mut App, ui: &mut egui::Ui) {
     });
 }
 
-/// The Chat Info pin button. The pin belongs to the chip the sidebar shows, so
-/// the label and the action come from the app, exactly as in the chat list's
-/// own menu: `All` changes the WhatsApp pin the phone keeps, every other chip
-/// keeps a local one.
-fn pin_button(app: &App, chat: &Chat) -> (Icon, &'static str, Vec<Action>) {
-    let pinned = app.is_pinned_here(chat);
-    (
-        if pinned { Icon::PinOff } else { Icon::Pin },
-        if pinned { "Unpin" } else { "Pin" },
-        vec![app.toggle_pin_action(chat)],
-    )
-}
-
 fn chat_info(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let palette = app.palette;
     // Group members may not have an existing chat.
@@ -1555,7 +1542,11 @@ fn chat_info(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 vec![Action::SetMuted(chat.id.clone(), Some(0))],
             )
         });
-        buttons.push(pin_button(app, &chat));
+        buttons.push((
+            if chat.pinned { Icon::PinOff } else { Icon::Pin },
+            if chat.pinned { "Unpin" } else { "Pin" },
+            vec![Action::SetPinned(chat.id.clone(), !chat.pinned)],
+        ));
         buttons.push((
             Icon::Archive,
             if chat.archived {
@@ -1649,42 +1640,5 @@ mod tests {
 
         chat.kind = ChatKind::Broadcast;
         assert!(!super::forwardable(&chat));
-    }
-
-    #[test]
-    fn the_chat_info_pin_follows_the_chip() {
-        use crate::model::{Action, ChatFilter};
-        use crate::paths::AppDirs;
-        use crate::settings::Settings;
-        use crate::theme::Icon;
-
-        let root = std::env::temp_dir().join(format!("zapfast-info-{}", std::process::id()));
-        let (mut app, _events) =
-            crate::app::App::headless(AppDirs::under(&root), Settings::default());
-        let chat = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
-        app.chats = vec![chat.clone()];
-        // All keeps the WhatsApp pin, the one the phone sees.
-        assert_eq!(
-            super::pin_button(&app, &chat),
-            (
-                Icon::Pin,
-                "Pin",
-                vec![Action::SetPinned(chat.id.clone(), true)]
-            )
-        );
-        // Every other chip keeps its own, so the phone is left alone.
-        app.chat_filter = ChatFilter::Favorites;
-        assert_eq!(
-            super::pin_button(&app, &chat),
-            (
-                Icon::Pin,
-                "Pin",
-                vec![Action::SetChipPinned {
-                    chip: "favorites".into(),
-                    chat: chat.id.clone(),
-                    pinned: true,
-                }]
-            )
-        );
     }
 }

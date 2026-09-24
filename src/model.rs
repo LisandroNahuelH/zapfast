@@ -67,35 +67,6 @@ impl ChatFilter {
         Self::Channels,
     ];
 
-    /// A stable name for this filter. `All` has no pins of its own: it keeps
-    /// the WhatsApp pin in `chats.pinned`.
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::Unread => "unread",
-            Self::Private => "private",
-            Self::Favorites => "favorites",
-            Self::Groups => "groups",
-            Self::Channels => "channels",
-        }
-    }
-
-    /// Whether this chip keeps its own pins, and under which key.
-    pub fn pin_key(self) -> Option<&'static str> {
-        match self {
-            Self::All => None,
-            _ => Some(self.key()),
-        }
-    }
-
-    /// The key a label chip keeps its pins under. A label is the chip the
-    /// sidebar is on while it is selected, but it is not a `ChatFilter`, so it
-    /// gets its own namespace beside `key()`. One definition, because the
-    /// archive has to delete these rows when the label itself goes.
-    pub fn label_key(label: &str) -> String {
-        format!("label:{label}")
-    }
-
     pub fn label(self, locale: crate::i18n::Locale) -> std::borrow::Cow<'static, str> {
         use crate::i18n::gettext;
         match self {
@@ -113,9 +84,7 @@ impl ChatFilter {
             Self::All => !chat.is_channel(),
             Self::Unread => chat.looks_unread() && !chat.is_channel(),
             Self::Private => chat.kind == ChatKind::Direct,
-            // A favorite is still a chat, so a channel marked as one stays out
-            // of All and is found here.
-            Self::Favorites => chat.favorite,
+            Self::Favorites => chat.favorite && !chat.is_channel(),
             Self::Groups => chat.kind == ChatKind::Group,
             Self::Channels => chat.is_channel(),
         }
@@ -1323,12 +1292,6 @@ pub enum Action {
     SetPinned(ChatId, bool),
     /// Marks a chat as a favorite, or removes the mark. Local only.
     SetFavorite(ChatId, bool),
-    /// Pins a chat inside one chip, which keeps its own order.
-    SetChipPinned {
-        chip: String,
-        chat: ChatId,
-        pinned: bool,
-    },
     ShowDialog(Dialog),
     CloseDialog,
     ToggleSidebar,

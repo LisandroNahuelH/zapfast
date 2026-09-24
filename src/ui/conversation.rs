@@ -293,9 +293,6 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                     app.actions
                         .push(Action::ShowDialog(Dialog::ChatInfo(chat.id.clone())));
                 }
-                // The pin belongs to the chip the sidebar shows, exactly as it
-                // does in the chat list's own menu.
-                let pinned_here = app.is_pinned_here(chat);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let more = theme::icon_button(
                         ui,
@@ -327,10 +324,11 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                             if widgets::menu_item(
                                 ui,
                                 &palette,
-                                Some(if pinned_here { Icon::PinOff } else { Icon::Pin }),
-                                if pinned_here { "Unpin" } else { "Pin to top" },
+                                Some(if chat.pinned { Icon::PinOff } else { Icon::Pin }),
+                                if chat.pinned { "Unpin" } else { "Pin to top" },
                             ) {
-                                app.actions.push(app.toggle_pin_action(chat));
+                                app.actions
+                                    .push(Action::SetPinned(chat.id.clone(), !chat.pinned));
                             }
                             if widgets::menu_item(
                                 ui,

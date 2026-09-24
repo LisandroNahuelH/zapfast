@@ -485,9 +485,9 @@ pub fn populate(app: &mut App) {
         let mut chat = Chat::new(sample.id.to_owned(), sample.name.to_owned());
         chat.last_activity = now - sample.minutes_ago * 60;
         chat.unread = sample.unread;
+        chat.favorite = sample.name == "Ada Lovelace";
         // One chat carries the empty dot, so the sample shows both marks.
         chat.marked_unread = sample.name == "Grace Hopper";
-        chat.favorite = sample.name == "Ada Lovelace";
         chat.pinned = sample.pinned;
         chat.pinned_at = if sample.pinned {
             (now - sample.minutes_ago * 60) * 1000
@@ -2222,18 +2222,6 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "unread" => app.chat_filter = crate::model::ChatFilter::Unread,
             "private" => app.chat_filter = crate::model::ChatFilter::Private,
             "favorites" => app.chat_filter = crate::model::ChatFilter::Favorites,
-            // The same chip with one of its chats pinned in it, the state the
-            // screenshots show.
-            "favorites-pinned" => {
-                app.chat_filter = crate::model::ChatFilter::Favorites;
-                let chip = crate::model::ChatFilter::Favorites.key();
-                if let Some(chat) = app.chats.iter().find(|chat| chat.favorite) {
-                    app.chip_pins
-                        .entry(chip.to_owned())
-                        .or_default()
-                        .insert(chat.id.clone(), jiff::Timestamp::now().as_millisecond());
-                }
-            }
             "groups" => app.chat_filter = crate::model::ChatFilter::Groups,
             "picker" => app.picker = Some(crate::model::PickerTab::Emoji),
             "stickers" => sticker_sample(app, crate::model::StickerShelf::Recent, ""),
@@ -3657,7 +3645,6 @@ mod tests {
             "unread",
             "private",
             "favorites",
-            "favorites-pinned",
             "groups",
             "offline",
             "syncing",
@@ -4835,7 +4822,7 @@ mod tests {
     }
 
     #[test]
-    fn the_favorites_chip_lists_favorites_and_pins_them_on_its_own() {
+    fn the_favorites_chip_lists_favorites() {
         use crate::model::ChatFilter;
         let mut app = app();
         // Every chip has to be on screen to be clicked, and the row scrolls
@@ -4866,29 +4853,7 @@ mod tests {
         let favorites = app.visible_chats();
         assert!(!favorites.is_empty(), "the sample has a favorite");
         assert!(favorites.iter().all(|chat| chat.favorite));
-        // A favorite is pinned inside its own chip, and the WhatsApp pin the
-        // phone keeps is left alone.
         let favorite = favorites[0].clone();
-        let whatsapp_pin = favorite.pinned;
-        assert!(!app.is_pinned_here(&favorite));
-        let pin = app.toggle_pin_action(&favorite);
-        app.actions.push(pin);
-        render(&mut app, &ctx);
-        assert!(
-            app.is_pinned_here(app.chat(&favorite.id).expect("the chat")),
-            "the chat is pinned in this chip"
-        );
-        assert!(
-            app.chip_pins
-                .get("favorites")
-                .is_some_and(|pins| pins.contains_key(&favorite.id)),
-            "the pin lives in the chip, not in the WhatsApp pin"
-        );
-        assert_eq!(
-            app.chat(&favorite.id).expect("the chat").pinned,
-            whatsapp_pin,
-            "the WhatsApp pin the phone keeps is left alone"
-        );
         // The mark itself comes off the menu, and the chip follows it.
         let mark = app.chat(&favorite.id).expect("the chat").favorite;
         app.actions.push(crate::model::Action::SetFavorite(

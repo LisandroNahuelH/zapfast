@@ -49,13 +49,12 @@ protocol. These notes are for coding agents and new contributors.
   a disposable archive. Tests use fixtures and mock credentials only.
 - `src/model.rs` holds the app's own types. Views never touch a protobuf;
   the worker translates in `classify()` and `parse_conversation()`.
-- Favorites are local: `chats.favorite` is a mark this computer keeps, and
-  `ChatFilter::Favorites` lists it. Nothing about it goes to WhatsApp.
-- Pins belong to the chip. `ChatFilter::All` uses `chats.pinned`, which syncs
-  with the phone; every other chip stores its own pins in `archive/chip_pins.rs`
-  under `ChatFilter::key()`. Never promote a chip pin to the WhatsApp pin, and
-  never read one chip's order while another chip is selected. A chat that leaves
-  the archive, or an account that is unlinked, takes its chip pins with it.
+- Favorites are local for now: `chats.favorite` is a mark this computer keeps,
+  and `ChatFilter::Favorites` lists it. WhatsApp syncs its Favorites list as the
+  `favorites` app-state action, but whatsapp-rust drops that mutation instead of
+  raising an event, so ZapFast cannot read the phone's list. Do not send one
+  either: the action carries the whole list, and a blind write replaces the
+  phone's. Pins stay global, as on the phone: every chip shows `chats.pinned`.
 - Interactive messages are parsed in `backend/worker/interactive.rs`. Views receive
   labels and local capabilities, never protocol option ids. `ReplyInteractive`
   carries only the archived message id and visible button/choice indices;
