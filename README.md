@@ -24,11 +24,16 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
 - **Links to your phone.** Scan a QR code or link with your phone number.
   Recent history is copied to this computer after linking and stored here.
 - **Chats.** See pinned, unread, muted, and archived chats, typing indicators,
-  and message status. Search chats, saved messages, and contacts. The open chat
-  shows a **Search** icon that opens a side pane (**Ctrl+G**) listing this
-  chat's matches, with an optional day filter; clicking a result brings it into
-  view. **Ctrl+F** opens the same pane, and **Ctrl+K** still searches the chat
-  list.
+  and message status. Search chats, saved messages, and contacts. The
+  **Search** icon in a chat's header (or **Ctrl+F**) opens a pane beside the
+  chat, as in WhatsApp Desktop, listing its matches newest first with the time
+  and the line that matched. The calendar narrows them to one day, or lists
+  that day's messages when the field is empty. Clicking a result, or reaching
+  it with the arrow keys and pressing Enter, brings it into view with a brief
+  flash; Escape closes the calendar, then the pane. The pane can be dragged
+  wider, and in a narrow window it lies over the conversation instead of
+  squeezing it. The newest 80 matches are listed, and the pane says when there
+  are more.
   Filter the list to unread, private (one-to-one), or group chats with the
   chips under the search bar; a chip with unread chats shows how many it has.
   Followed channels have their own **Channels** chip and stay out of the other
@@ -291,9 +296,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   selectable, with Brazilian numbers shown as `(DDD) XXXX-XXXX` or
   `(DDD) XXXXX-XXXX`.
 - **Keyboard shortcuts.** `Ctrl+K` or `Ctrl+Shift+F` searches your chats,
-  `Ctrl+F` searches the open chat as in WhatsApp (Enter and Shift+Enter move
-  between matches; with no chat open it searches your chats, and in Settings it
-  searches the settings), `Alt+↑/↓` switches chats and
+  `Ctrl+F` searches the open chat as in WhatsApp (`↑`/`↓` walk the results
+  and Enter jumps to one; with no chat open it searches your chats, and in
+  Settings it searches the settings), `Alt+↑/↓` switches chats and
   keeps the active chat visible in the list, `↑` in an empty input edits your
   previous message, `Esc` cancels the current action, `Ctrl+L` focuses the
   message input, `Ctrl+N` opens New chat, `Ctrl+B` hides or shows the chat
