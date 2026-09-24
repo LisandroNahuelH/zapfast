@@ -2500,9 +2500,17 @@ impl App {
         if let Ok(path) = &result
             && card.is_none()
             && self.viewer_media_chat.as_deref() == Some(chat)
-            && let Some(item) = self.viewer_media.iter_mut().find(|item| item.id == id)
         {
-            item.path = Some(path.clone());
+            if let Some(item) = self.viewer_media.iter_mut().find(|item| item.id == id) {
+                item.path = Some(path.clone());
+            }
+            // The viewer may be showing that item, waiting for its file: give
+            // it the file too, or it keeps offering the download it just did.
+            if let Some(preview) = &mut self.image_preview
+                && preview.message() == id
+            {
+                preview.show_item(Some(path.clone()), id.to_owned());
+            }
         }
         let Some(message) = self
             .conversations
@@ -5727,6 +5735,49 @@ mod tests {
         let preview = app.image_preview.as_ref().unwrap();
         assert_eq!(preview.message(), "m2");
         assert_eq!(preview.path(), None, "and stepping does not either");
+    }
+
+    /// An album item with no file is shown for what it is, and the viewer is
+    /// waiting on the download it offered. When the file lands, the viewer has
+    /// to be given it too, or it keeps offering the download it just did.
+    #[test]
+    fn a_download_gives_the_viewer_the_file_it_was_waiting_for() {
+        let mut app = app_with_album(3);
+        let ctx = egui::Context::default();
+        app.viewer_media[2].path = None;
+        open_viewer(&mut app, 0);
+        app.apply(
+            Action::ViewImage {
+                message: "m2".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(app.image_preview.as_ref().unwrap().path(), None);
+
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        events
+            .send(Event::Media {
+                card: None,
+                chat: "1@s.whatsapp.net".into(),
+                message: "m2".into(),
+                result: Ok(PathBuf::from("/fixture/2.png")),
+            })
+            .unwrap();
+        app.handle_events();
+
+        let preview = app.image_preview.as_ref().unwrap();
+        assert_eq!(preview.message(), "m2");
+        assert_eq!(
+            preview.path(),
+            Some(std::path::Path::new("/fixture/2.png")),
+            "the viewer takes the file that just arrived"
+        );
+        assert_eq!(
+            app.viewer_media[2].path.as_deref(),
+            Some(std::path::Path::new("/fixture/2.png")),
+            "and so does the album"
+        );
     }
 
     /// The album reaches messages the transcript has not paged in, so a

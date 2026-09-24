@@ -3500,13 +3500,16 @@ fn context_menu(ui: &mut egui::Ui, view: &View<'_>, message: &Message, actions: 
     }
     // A photo opens the viewer on its own click; a clip plays in its bubble
     // there, so this is how the album is reached from a chat that holds no
-    // pictures. It needs the file, since the viewer shows what the message is
-    // rather than a stand-in.
+    // pictures. Both conditions matter: the album decides what belongs in it,
+    // and a sticker, a GIF or a card's image is not in it, so none of them
+    // offers this; the file has to be here, because the viewer shows what the
+    // message is rather than a stand-in.
+    let in_the_album = message.content.gallery_kind().is_some();
     if let Some(path) = message
         .content
         .media()
         .and_then(|media| media.path.as_deref())
-        .filter(|path| crate::image_preview::can_view(path))
+        .filter(|path| in_the_album && crate::image_preview::can_view(path))
         && widgets::menu_item(ui, &palette, Some(Icon::Maximize), "Open in the viewer")
     {
         actions.push(Action::PreviewImage {

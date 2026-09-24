@@ -12,13 +12,16 @@ pub enum OpenTarget {
     External,
 }
 
-/// Whether the full-window viewer can open this file. It browses the chat's
-/// album, so it takes what the album holds: a photo it can decode, or a clip it
-/// can play. A clip is not an image, so `can_preview_image` alone would send it
-/// to the system player instead.
+/// Whether the full-window viewer can open this file.
+///
+/// The viewer browses the chat's album, so it takes exactly what the album
+/// holds, decided by the same rule the album uses to decide what joins it: a
+/// photo it can decode, or a clip it can play. A clip is not an image, so
+/// `can_preview_image` alone would send it to the system player; a GIF is an
+/// inline animation and is deliberately not in the album, so it is not opened
+/// here either.
 pub fn can_view(path: &Path) -> bool {
-    crate::safety::can_preview_image(path)
-        || crate::model::gallery_kind_for_path(path) == Some(crate::model::GalleryKind::Video)
+    crate::model::gallery_kind_for_path(path).is_some()
 }
 
 /// Chooses the native preview for an image rendered successfully by the conversation view.
@@ -284,12 +287,15 @@ mod tests {
 
     /// The viewer browses the album, so it opens what the album holds: a photo
     /// it can decode, and a clip it can play. A clip is not an image, so the
-    /// image test alone would send it to the system player instead.
+    /// image test alone would send it to the system player instead, and a GIF
+    /// is an inline animation the album leaves out.
     #[test]
     fn the_viewer_opens_photos_and_clips_but_not_anything_else() {
         assert!(can_view(Path::new("photo.png")));
         assert!(can_view(Path::new("clip.mp4")));
         assert!(can_view(Path::new("holiday.MOV")));
+        assert!(!can_view(Path::new("anim.gif")));
+        assert!(!can_view(Path::new("sticker.webp.png.gif")));
         assert!(!can_view(Path::new("notes.pdf")));
         assert!(!can_view(Path::new("song.mp3")));
         assert!(!can_view(Path::new("no-extension")));

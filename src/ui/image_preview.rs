@@ -96,8 +96,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 strip_bar(
                     app,
                     &mut bar,
-                    &palette,
                     &album,
+                    &chat,
                     &message,
                     strip_rect,
                     &mut actions,
@@ -290,6 +290,9 @@ fn header(
                 )
                 .clicked()
                 {
+                    // Every action here does what the message menu would have
+                    // done, and returns to the chat with it.
+                    actions.push(Action::CloseImagePreview);
                     actions.push(Action::Download {
                         card: None,
                         chat: chat.to_owned(),
@@ -559,8 +562,8 @@ fn video(
 fn strip_bar(
     app: &App,
     ui: &mut egui::Ui,
-    palette: &crate::theme::Palette,
     album: &[ChatMedia],
+    chat: &str,
     current: &str,
     rect: Rect,
     actions: &mut Vec<Action>,
@@ -604,7 +607,7 @@ fn strip_bar(
                         );
                     }
                     if ui.is_rect_visible(thumb_rect) {
-                        thumb(ui, palette, item, thumb_rect, item.id == current);
+                        thumb(ui, &app.palette, chat, item, thumb_rect, item.id == current);
                     }
                     // Custom-painted and clickable, so it needs the same focus
                     // reveal and label every other custom control registers.
@@ -642,6 +645,7 @@ fn strip_bar(
 fn thumb(
     ui: &egui::Ui,
     palette: &crate::theme::Palette,
+    chat: &str,
     item: &ChatMedia,
     rect: Rect,
     current: bool,
@@ -654,7 +658,9 @@ fn thumb(
             .corner_radius(6.0)
             .paint_at(ui, rect);
     } else if let Some(bytes) = item.thumbnail.as_deref() {
-        egui::Image::new(thumbnail_uri(ui.ctx(), &item.id, &item.id, bytes))
+        // A message id is only unique inside its chat, and the image cache
+        // keeps the first bytes for a URI, so the chat has to be part of it.
+        egui::Image::new(thumbnail_uri(ui.ctx(), chat, &item.id, bytes))
             .fit_to_exact_size(rect.size())
             .corner_radius(6.0)
             .paint_at(ui, rect);
