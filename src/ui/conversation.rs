@@ -293,6 +293,14 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                     app.actions
                         .push(Action::ShowDialog(Dialog::ChatInfo(chat.id.clone())));
                 }
+                // The item and the width that has to hold it are measured from
+                // the same localized label: a translation wider than the
+                // English one would otherwise be clipped.
+                let leave_label = if chat.is_channel() {
+                    crate::i18n::gettext(app.locale, "Leave channel")
+                } else {
+                    crate::i18n::gettext(app.locale, "Leave group")
+                };
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let more = theme::icon_button(
                         ui,
@@ -308,8 +316,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                             "Info",
                             "Pin to top",
                             "Unarchive",
-                            "Leave group",
-                            "Leave channel",
+                            leave_label.as_ref(),
                             "Copy number",
                             "Close chat",
                         ],
@@ -346,13 +353,6 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                                     .push(Action::SetArchived(chat.id.clone(), !chat.archived));
                             }
                             widgets::menu_separator(ui, &palette);
-                            // Bound before the call so the translated text
-                            // outlives the borrow.
-                            let leave_label = if chat.is_channel() {
-                                crate::i18n::gettext(app.locale, "Leave channel")
-                            } else {
-                                crate::i18n::gettext(app.locale, "Leave group")
-                            };
                             if chat.can_leave(app.me.as_deref())
                                 && widgets::menu_item(
                                     ui,

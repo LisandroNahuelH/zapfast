@@ -594,6 +594,9 @@ pub enum Command {
         read_only: bool,
         ephemeral_expiration: Option<u32>,
         ephemeral_setting_timestamp: Option<i64>,
+        /// The chat's leave generation when this metadata was asked for. A
+        /// snapshot older than a confirmed leave cannot undo it.
+        leave_generation: u64,
     },
     /// Internal pairing-code result.
     PairCode {

@@ -461,6 +461,7 @@ pub async fn run(
         syncing: false,
         sync_deadline: None,
         group_info_requested: HashSet::new(),
+        leave_generation: HashMap::new(),
         group_info_queue: std::collections::VecDeque::new(),
         group_info_tries: HashMap::new(),
         group_info_retry: Vec::new(),
@@ -678,6 +679,11 @@ struct Worker {
     /// Pending group metadata queue.
     group_info_queue: std::collections::VecDeque<String>,
     /// Group metadata attempt counts.
+    /// Bumped whenever a leave is confirmed. `query_group_info` runs in a
+    /// spawned task, so metadata asked for before the leave can land after it;
+    /// the snapshot carries the generation it was issued in and a stale one
+    /// cannot resurrect the chat.
+    leave_generation: HashMap<String, u64>,
     group_info_tries: HashMap<String, u32>,
     /// Next retry time for failed group metadata requests.
     group_info_retry: Vec<(Instant, String)>,
@@ -1803,6 +1809,8 @@ impl Worker {
         };
         let commands = self.commands.clone();
         let chat = id.to_owned();
+        // The answer can land after a leave confirmed while it was in flight.
+        let leave_generation = self.leave_generation.get(id).copied().unwrap_or(0);
         let me: Vec<String> = [self.me_pn.clone(), self.me_lid.clone()]
             .into_iter()
             .flatten()
@@ -1839,6 +1847,7 @@ impl Worker {
                         participants.push(id);
                     }
                     let _ = commands.send(Command::GroupInfo {
+                        leave_generation,
                         chat,
                         // Empty subjects leave cached titles intact and retry.
                         name: Some(metadata.subject.clone().unwrap_or_default()),
@@ -4901,6 +4910,7 @@ impl Worker {
                 read_only,
                 ephemeral_expiration,
                 ephemeral_setting_timestamp,
+                leave_generation,
             } => {
                 if name.as_deref().is_none_or(|name| name.trim().is_empty()) {
                     self.handle_failed_group(chat.clone(), false);
@@ -4912,8 +4922,12 @@ impl Worker {
                     self.archive
                         .set_group_info(&chat, name.as_deref(), &participants, read_only);
                 // Metadata that lists us again means we are back in, so a
-                // remembered leave no longer holds.
-                if participants.iter().any(|id| self.is_me(id)) {
+                // remembered leave no longer holds. Only a snapshot asked for
+                // after the leave counts: one already in flight when it was
+                // confirmed still lists us and would undo it.
+                if leave_generation >= self.leave_generation.get(&chat).copied().unwrap_or(0)
+                    && participants.iter().any(|id| self.is_me(id))
+                {
                     let _ = self.archive.set_left(&chat, false);
                 }
                 if let Some(expiration) = ephemeral_expiration {
@@ -4933,7 +4947,7 @@ impl Worker {
     /// A group goes through the group API and a channel through the newsletter
     /// API. Leaving does not delete anything here: the chat stays with its
     /// messages, and only stops accepting new ones.
-    async fn leave_group(&self, chat: ChatId, archive: bool) {
+    async fn leave_group(&mut self, chat: ChatId, archive: bool) {
         let channel = chat.ends_with("@newsletter");
         if !channel && ChatKind::from_id(&chat) != ChatKind::Group {
             return;
@@ -4983,7 +4997,9 @@ impl Worker {
     }
 
     /// Marks the chat as one we can no longer post in, once the phone agreed.
-    fn finish_leave(&self, chat: &str, archive: bool) {
+    fn finish_leave(&mut self, chat: &str, archive: bool) {
+        // Any metadata already in flight belongs to the state before this.
+        *self.leave_generation.entry(chat.to_owned()).or_default() += 1;
         let Ok(Some(row)) = self.archive.chat(chat) else {
             return;
         };
@@ -9294,6 +9310,7 @@ mod receipt_tests {
                 read_only: false,
                 ephemeral_expiration: None,
                 ephemeral_setting_timestamp: None,
+                leave_generation: 0,
             })
             .await;
         assert_eq!(
@@ -9314,6 +9331,7 @@ mod receipt_tests {
                 read_only: false,
                 ephemeral_expiration: None,
                 ephemeral_setting_timestamp: None,
+                leave_generation: 0,
             })
             .await;
         assert_eq!(
@@ -9321,6 +9339,50 @@ mod receipt_tests {
             "Current title"
         );
         assert!(worker.group_info_retry.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stale_metadata_snapshot_cannot_undo_a_leave() {
+        let (mut worker, _events, _inbox, _wa) = worker();
+        let chat = "fixture@g.us";
+        worker.archive.ensure_chat(chat, "Weekend plans").unwrap();
+        worker.me_pn = Some(ME.into());
+        worker.archive.set_left(chat, true).unwrap();
+        // The leave was confirmed after this request went out, so the answer
+        // still lists us and must not resurrect the chat.
+        worker.leave_generation.insert(chat.into(), 1);
+        worker
+            .handle_command(Command::GroupInfo {
+                chat: chat.into(),
+                name: Some("Weekend plans".into()),
+                participants: vec![PEER.into(), ME.into()],
+                read_only: false,
+                ephemeral_expiration: None,
+                ephemeral_setting_timestamp: None,
+                leave_generation: 0,
+            })
+            .await;
+        assert!(
+            worker.archive.chat(chat).unwrap().unwrap().left,
+            "the stale snapshot is ignored"
+        );
+        // A snapshot asked for after the leave is the phone's current word, so
+        // it clears the leave when it lists us again.
+        worker
+            .handle_command(Command::GroupInfo {
+                chat: chat.into(),
+                name: Some("Weekend plans".into()),
+                participants: vec![PEER.into(), ME.into()],
+                read_only: false,
+                ephemeral_expiration: None,
+                ephemeral_setting_timestamp: None,
+                leave_generation: 1,
+            })
+            .await;
+        assert!(
+            !worker.archive.chat(chat).unwrap().unwrap().left,
+            "being listed again means we are back in"
+        );
     }
 
     #[test]
@@ -9416,6 +9478,7 @@ mod receipt_tests {
             syncing: false,
             sync_deadline: None,
             group_info_requested: HashSet::new(),
+            leave_generation: HashMap::new(),
             group_info_queue: std::collections::VecDeque::new(),
             group_info_tries: HashMap::new(),
             group_info_retry: Vec::new(),
