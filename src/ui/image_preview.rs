@@ -3,6 +3,8 @@
 
 use egui::{Align, CornerRadius, Layout, Rect, Sense, Stroke, UiBuilder, Vec2, pos2, vec2};
 
+use std::path::Path;
+
 use crate::app::App;
 use crate::archive::ChatMedia;
 use crate::model::{Action, Dialog};
@@ -77,13 +79,22 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             body.set_clip_rect(stage);
             match item.as_ref().filter(|item| item.video) {
                 Some(item) => video(app, &mut body, item, stage, &chat, &message, &mut actions),
-                None => still(app, &mut body, &preview, stage),
+                None => still(
+                    app,
+                    &mut body,
+                    &preview,
+                    item.as_ref(),
+                    &chat,
+                    stage,
+                    &mut actions,
+                ),
             }
             if strip {
-                chevrons(ui, &palette, stage, &mut actions);
+                chevrons(app, ui, &palette, stage, &mut actions);
                 let mut bar = ui.new_child(UiBuilder::new().max_rect(strip_rect));
                 bar.set_clip_rect(strip_rect);
                 strip_bar(
+                    app,
                     &mut bar,
                     &palette,
                     &album,
@@ -134,10 +145,12 @@ fn header(
         .unwrap_or_else(|| {
             preview
                 .path()
-                .file_name()
+                .and_then(Path::file_name)
                 .and_then(|name| name.to_str())
-                .unwrap_or("Image")
-                .to_owned()
+                .map_or_else(
+                    || crate::i18n::gettext(app.locale, "Image").into_owned(),
+                    str::to_owned,
+                )
         });
     let message = preview.message().to_owned();
     ui.horizontal(|ui| {
@@ -149,23 +162,24 @@ fn header(
                 18.0,
                 palette.secondary,
                 palette.text,
-                "Close preview (Esc)",
+                crate::i18n::gettext(app.locale, "Close preview (Esc)").as_ref(),
             )
             .clicked()
             {
                 actions.push(Action::CloseImagePreview);
             }
-            if theme::icon_button(
-                ui,
-                Icon::ExternalLink,
-                18.0,
-                palette.secondary,
-                palette.text,
-                "Open in another app",
-            )
-            .clicked()
+            if let Some(path) = preview.path()
+                && theme::icon_button(
+                    ui,
+                    Icon::ExternalLink,
+                    18.0,
+                    palette.secondary,
+                    palette.text,
+                    crate::i18n::gettext(app.locale, "Open in another app").as_ref(),
+                )
+                .clicked()
             {
-                actions.push(Action::OpenFile(preview.path().to_owned()));
+                actions.push(Action::OpenFile(path.to_owned()));
             }
             ui.add_space(8.0);
             // Right to left: zoom in, the current scale, zoom out.
@@ -175,7 +189,7 @@ fn header(
                 18.0,
                 palette.secondary,
                 palette.text,
-                "Zoom in",
+                crate::i18n::gettext(app.locale, "Zoom in").as_ref(),
             )
             .clicked()
             {
@@ -185,14 +199,14 @@ fn header(
             // window and the original size.
             let (label, hint, action) = if preview.is_fit() {
                 (
-                    "Fit".to_owned(),
-                    "Show at original size",
+                    crate::i18n::gettext(app.locale, "Fit").into_owned(),
+                    crate::i18n::gettext(app.locale, "Show at original size"),
                     Action::ImageActualSize,
                 )
             } else {
                 (
                     format!("{:.0}%", preview.zoom() * 100.0),
-                    "Fit to the window (0)",
+                    crate::i18n::gettext(app.locale, "Fit to the window (0)"),
                     Action::FitImage,
                 )
             };
@@ -208,7 +222,7 @@ fn header(
                 18.0,
                 palette.secondary,
                 palette.text,
-                "Zoom out",
+                crate::i18n::gettext(app.locale, "Zoom out").as_ref(),
             )
             .clicked()
             {
@@ -224,7 +238,7 @@ fn header(
                     18.0,
                     palette.secondary,
                     palette.text,
-                    "Reply",
+                    crate::i18n::gettext(app.locale, "Reply").as_ref(),
                 )
                 .clicked()
                 {
@@ -237,10 +251,13 @@ fn header(
                     18.0,
                     palette.secondary,
                     palette.text,
-                    "React",
+                    crate::i18n::gettext(app.locale, "React").as_ref(),
                 )
                 .clicked()
                 {
+                    // The viewer draws after the picker, so it has to go first:
+                    // otherwise the picker opens behind it and cannot be used.
+                    actions.push(Action::CloseImagePreview);
                     actions.push(Action::OpenReactionPicker {
                         chat: chat.to_owned(),
                         message: message.clone(),
@@ -253,7 +270,7 @@ fn header(
                     18.0,
                     palette.secondary,
                     palette.text,
-                    "Forward",
+                    crate::i18n::gettext(app.locale, "Forward").as_ref(),
                 )
                 .clicked()
                 {
@@ -269,7 +286,7 @@ fn header(
                     18.0,
                     palette.secondary,
                     palette.text,
-                    "Download",
+                    crate::i18n::gettext(app.locale, "Download").as_ref(),
                 )
                 .clicked()
                 {
@@ -285,7 +302,7 @@ fn header(
                     18.0,
                     palette.secondary,
                     palette.text,
-                    "Show in the chat",
+                    crate::i18n::gettext(app.locale, "Show in the chat").as_ref(),
                 )
                 .clicked()
                 {
@@ -305,13 +322,23 @@ fn still(
     app: &mut App,
     ui: &mut egui::Ui,
     preview: &crate::image_preview::PreviewState,
+    item: Option<&ChatMedia>,
+    chat: &str,
     stage: Rect,
+    actions: &mut Vec<Action>,
 ) {
     let palette = app.palette;
     let canvas = stage.size();
+    // An item whose attachment is not here yet is shown for what it is, with
+    // its thumbnail and a way to fetch it, instead of standing in for another
+    // picture.
+    let Some(path) = preview.path() else {
+        pending(app, ui, item, preview.message(), chat, stage, actions);
+        return;
+    };
     // Registered with the image cache like every other draw site, so a sweep
     // never releases the picture while it is on screen.
-    let image = crate::ui::widgets::file_image(ui, preview.path());
+    let image = crate::ui::widgets::file_image(ui, path);
     match image.load_for_size(ui.ctx(), canvas) {
         Ok(egui::load::TexturePoll::Ready { texture }) => {
             let size = display_size(texture.size, canvas, preview.is_fit(), preview.zoom());
@@ -338,18 +365,92 @@ fn still(
             theme::paint_spinner(ui, stage, 28.0, palette.accent);
         }
         Err(_) => {
-            let path = preview.path().to_owned();
+            let path = path.to_owned();
             ui.allocate_ui_with_layout(
                 canvas,
                 Layout::centered_and_justified(egui::Direction::TopDown),
                 |ui| {
-                    ui.label("This image could not be displayed in ZapFast.");
-                    if ui.button("Open externally").clicked() {
+                    ui.label(crate::i18n::gettext(
+                        app.locale,
+                        "This image could not be displayed in ZapFast.",
+                    ));
+                    if ui
+                        .button(crate::i18n::gettext(app.locale, "Open externally"))
+                        .clicked()
+                    {
                         app.actions.push(Action::OpenFile(path.clone()));
                     }
                 },
             );
         }
+    }
+}
+
+/// An item whose attachment has not been downloaded: its own thumbnail, the
+/// clip or picture it is, and the button that fetches it. Nothing here stands
+/// in for another file.
+fn pending(
+    app: &App,
+    ui: &mut egui::Ui,
+    item: Option<&ChatMedia>,
+    message: &str,
+    chat: &str,
+    stage: Rect,
+    actions: &mut Vec<Action>,
+) {
+    let disc = Rect::from_center_size(stage.center(), Vec2::splat(220.0));
+    if let Some(bytes) = item.and_then(|item| item.thumbnail.as_deref()) {
+        egui::Image::new(thumbnail_uri(ui.ctx(), chat, message, bytes))
+            .fit_to_exact_size(disc.size())
+            .corner_radius(8.0)
+            .paint_at(ui, disc);
+    } else {
+        theme::paint_icon(
+            ui,
+            if item.is_some_and(|item| item.video) {
+                Icon::Video
+            } else {
+                Icon::Image
+            },
+            disc,
+            48.0,
+            egui::Color32::from_white_alpha(150),
+        );
+    }
+    let button = Rect::from_center_size(
+        pos2(stage.center().x, disc.bottom() + 34.0),
+        vec2(160.0, 32.0),
+    );
+    let response = ui
+        .interact(
+            button,
+            egui::Id::new("viewer-pending-download"),
+            Sense::click(),
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    ui.painter()
+        .rect_filled(button, 6.0, egui::Color32::from_white_alpha(28));
+    ui.painter().text(
+        button.center(),
+        egui::Align2::CENTER_CENTER,
+        crate::i18n::gettext(app.locale, "Download"),
+        theme::regular(13.5),
+        egui::Color32::WHITE,
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            crate::i18n::gettext(app.locale, "Download").as_ref(),
+        )
+    });
+    theme::reveal_focus(&response);
+    if response.clicked() {
+        actions.push(Action::Download {
+            card: None,
+            chat: chat.to_owned(),
+            message: message.to_owned(),
+        });
     }
 }
 
@@ -365,9 +466,23 @@ fn video(
     actions: &mut Vec<Action>,
 ) {
     let palette = app.palette;
-    let size = fit(vec2(16.0, 9.0), stage.size());
-    let media = Rect::from_center_size(stage.center(), size);
+    // A clip keeps its own shape: the decoded frame knows it, and 16:9 is only
+    // what an undecoded poster falls back to.
     let status = app.video.status(message);
+    let aspect = status
+        .as_ref()
+        .and_then(|status| status.frame.as_ref())
+        .map(|frame| frame.size())
+        .filter(|size| size[0] > 0 && size[1] > 0)
+        .map_or_else(
+            || vec2(16.0, 9.0),
+            |size| vec2(size[0] as f32, size[1] as f32),
+        );
+    let size = fit(aspect, stage.size());
+    let media = Rect::from_center_size(stage.center(), size);
+    // The player pauses a clip it has not been told about for 1.5 s, so the
+    // viewer has to say it is still on screen, as the chat renderer does.
+    app.video.saw(message);
     match status.as_ref().and_then(|status| status.frame.clone()) {
         Some(frame) => {
             ui.painter().image(
@@ -393,6 +508,15 @@ fn video(
     let response = ui
         .interact(media, egui::Id::new("viewer-video"), Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let label = if item.path.as_deref().is_some_and(Path::is_file) {
+        crate::i18n::gettext(app.locale, "Play or pause the video")
+    } else {
+        crate::i18n::gettext(app.locale, "Download")
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label.as_ref())
+    });
+    theme::reveal_focus(&response);
     if response.clicked() {
         match item.path.clone().filter(|path| path.is_file()) {
             Some(path) => actions.push(Action::PlayVideo {
@@ -410,9 +534,12 @@ fn video(
         .as_ref()
         .is_some_and(|status| status.state == crate::video::State::Playing);
     if playing {
-        // A thin line under the frame, so a long clip has a position.
+        // A thin line along the bottom of the frame, so a long clip has a
+        // position. It sits inside the frame: the body is clipped to the
+        // stage, and a wide window makes the frame as tall as the stage, so a
+        // bar below it would be painted outside the clip and never seen.
         let bar = Rect::from_min_size(
-            pos2(media.left(), media.bottom() + 6.0),
+            pos2(media.left(), media.bottom() - 7.0),
             vec2(media.width(), 3.0),
         );
         ui.painter()
@@ -430,6 +557,7 @@ fn video(
 
 /// The album along the bottom: a thumbnail per item, the current one ringed.
 fn strip_bar(
+    app: &App,
     ui: &mut egui::Ui,
     palette: &crate::theme::Palette,
     album: &[ChatMedia],
@@ -478,6 +606,25 @@ fn strip_bar(
                     if ui.is_rect_visible(thumb_rect) {
                         thumb(ui, palette, item, thumb_rect, item.id == current);
                     }
+                    // Custom-painted and clickable, so it needs the same focus
+                    // reveal and label every other custom control registers.
+                    let label = format!(
+                        "{} {}",
+                        crate::i18n::gettext(
+                            app.locale,
+                            if item.video { "Video" } else { "Photo" },
+                        ),
+                        index + 1
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::Button,
+                            ui.is_enabled(),
+                            item.id == current,
+                            &label,
+                        )
+                    });
+                    theme::reveal_focus(&response);
                     if response
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .clicked()
@@ -537,14 +684,25 @@ fn thumb(
 }
 
 fn chevrons(
+    app: &App,
     ui: &mut egui::Ui,
     palette: &crate::theme::Palette,
     stage: Rect,
     actions: &mut Vec<Action>,
 ) {
     for (left, icon, step, hint) in [
-        (true, Icon::ChevronLeft, -1i8, "Previous (Left)"),
-        (false, Icon::ChevronRight, 1i8, "Next (Right)"),
+        (
+            true,
+            Icon::ChevronLeft,
+            -1i8,
+            crate::i18n::gettext(app.locale, "Previous (Left)").as_ref(),
+        ),
+        (
+            false,
+            Icon::ChevronRight,
+            1i8,
+            crate::i18n::gettext(app.locale, "Next (Right)").as_ref(),
+        ),
     ] {
         let x = if left {
             stage.left() + 28.0

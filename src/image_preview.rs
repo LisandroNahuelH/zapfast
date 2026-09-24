@@ -88,7 +88,10 @@ pub fn zoomed_size(width: f32, height: f32, zoom: f32) -> (f32, f32) {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreviewState {
-    path: PathBuf,
+    /// The file being shown, or `None` for an album item whose attachment is
+    /// not downloaded yet. A missing file is not replaced by another one: the
+    /// viewer shows what the item is and offers it for download.
+    path: Option<PathBuf>,
     zoom: f32,
     fit: bool,
     /// Scale the fitted image is drawn at, so zooming starts from what is
@@ -105,7 +108,7 @@ impl PreviewState {
     const MAX_ZOOM: f32 = 4.0;
     const ZOOM_STEP: f32 = 1.25;
 
-    pub fn new(path: PathBuf, chat: ChatId, message: String) -> Self {
+    pub fn new(path: Option<PathBuf>, chat: ChatId, message: String) -> Self {
         Self {
             path,
             chat,
@@ -134,15 +137,16 @@ impl PreviewState {
     }
 
     /// Points the viewer at another item, back to fitting the window.
-    pub fn show_item(&mut self, path: PathBuf, message: String) {
+    pub fn show_item(&mut self, path: Option<PathBuf>, message: String) {
         self.path = path;
         self.message = message;
         self.fit = true;
         self.zoom = 1.0;
     }
 
-    pub fn path(&self) -> &Path {
-        &self.path
+    /// The file on screen, when the item has one.
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     pub fn zoom(&self) -> f32 {
@@ -195,7 +199,7 @@ mod tests {
     /// A preview of one file, with no album behind it.
     fn fixture() -> PreviewState {
         PreviewState::new(
-            PathBuf::from("photo.png"),
+            Some(PathBuf::from("photo.png")),
             "1@s.whatsapp.net".into(),
             "m1".into(),
         )
@@ -217,11 +221,11 @@ mod tests {
         let mut preview = fixture();
         let album = vec![item("m1"), item("m2"), item("m3")];
         assert_eq!(preview.position(&album), Some(0));
-        preview.show_item(PathBuf::from("other.png"), "m3".into());
+        preview.show_item(Some(PathBuf::from("other.png")), "m3".into());
         assert_eq!(preview.position(&album), Some(2));
         // A picture that is not in the album has no position, so the viewer
         // does not claim to be somewhere it is not.
-        preview.show_item(PathBuf::from("other.png"), "nope".into());
+        preview.show_item(Some(PathBuf::from("other.png")), "nope".into());
         assert_eq!(preview.position(&album), None);
     }
 
@@ -230,10 +234,15 @@ mod tests {
         let mut preview = fixture();
         preview.zoom_in();
         assert!(!preview.is_fit());
-        preview.show_item(PathBuf::from("next.png"), "m2".into());
+        preview.show_item(Some(PathBuf::from("next.png")), "m2".into());
         assert!(preview.is_fit(), "a new picture starts fitted");
-        assert_eq!(preview.path(), Path::new("next.png"));
+        assert_eq!(preview.path(), Some(Path::new("next.png")));
         assert_eq!(preview.message(), "m2");
+        // An item whose file is not here yet keeps that: the viewer does not
+        // fall back to whatever was on screen.
+        preview.show_item(None, "m3".into());
+        assert_eq!(preview.path(), None);
+        assert_eq!(preview.message(), "m3");
     }
 
     #[test]
@@ -359,7 +368,7 @@ mod tests {
     #[test]
     fn preview_starts_fitted_and_zoom_has_sensible_limits() {
         let mut preview = fixture();
-        assert_eq!(preview.path(), Path::new("photo.png"));
+        assert_eq!(preview.path(), Some(Path::new("photo.png")));
         assert!(preview.is_fit());
 
         preview.zoom_in();

@@ -2310,7 +2310,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                     .unwrap_or_default();
                 app.viewer_media_chat = Some(chat.clone());
                 app.image_preview = Some(crate::image_preview::PreviewState::new(
-                    photo,
+                    Some(photo),
                     chat,
                     "ada-photo".to_owned(),
                 ));
@@ -4351,7 +4351,15 @@ mod tests {
         // The picture decodes on a loader thread; wait until its fitted
         // scale is known so zooming starts from a settled size.
         let loaded = |app: &App| {
-            let path = app.image_preview.as_ref().unwrap().path().to_owned();
+            let Some(path) = app
+                .image_preview
+                .as_ref()
+                .unwrap()
+                .path()
+                .map(std::path::Path::to_owned)
+            else {
+                return false;
+            };
             matches!(
                 ctx.try_load_texture(
                     &crate::util::image_uri(&path),

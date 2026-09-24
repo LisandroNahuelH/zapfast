@@ -5346,30 +5346,59 @@ fn video(
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
     {
-        video_clicked(view, message, media, gif, auto, actions);
+        video_clicked(view, message, media, gif, auto, status.is_some(), actions);
     }
     size.x
 }
 
-/// What a click on a video does: a downloaded video plays or pauses, a GIF
-/// that cannot play here opens in the system viewer, and a video still on
-/// WhatsApp's servers downloads and then plays. `downloading` is set when
-/// this frame already asked for the download.
+/// Where a click on a clip goes. A GIF plays inline as an animation, so it
+/// opens in the system viewer; a downloaded clip opens the full-window viewer,
+/// which is where the chat's album lives; a clip the bubble is already playing
+/// keeps the click for play and pause, because once a session exists the bubble
+/// is its own player; and a clip still on the phone's side downloads first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClipClick {
+    External,
+    Viewer,
+    Player,
+    Download,
+}
+
+/// The decision `video_clicked` makes, on its own so it can be tested without
+/// a rendered chat. `running` is set when the player already holds a session
+/// for this message.
+fn clip_click(media: &Media, gif: bool, running: bool) -> ClipClick {
+    match &media.path {
+        Some(_) if gif => ClipClick::External,
+        Some(_) if running => ClipClick::Player,
+        Some(_) => ClipClick::Viewer,
+        None => ClipClick::Download,
+    }
+}
+
+/// What a click on a video does, following `clip_click`. `downloading` is set
+/// when this frame already asked for the download.
 fn video_clicked(
     view: &View<'_>,
     message: &Message,
     media: &Media,
     gif: bool,
     downloading: bool,
+    running: bool,
     actions: &mut Vec<Action>,
 ) {
-    match &media.path {
-        Some(path) if gif => actions.push(Action::OpenFile(path.clone())),
-        Some(path) => actions.push(Action::PlayVideo {
+    match (clip_click(media, gif, running), &media.path) {
+        (ClipClick::External, Some(path)) => actions.push(Action::OpenFile(path.clone())),
+        (ClipClick::Player, Some(path)) => actions.push(Action::PlayVideo {
             message: message.id.clone(),
             path: path.clone(),
         }),
-        None => {
+        (ClipClick::Viewer, Some(path)) => actions.push(Action::PreviewImage {
+            path: path.clone(),
+            chat: view.chat.id.clone(),
+            message: message.id.clone(),
+        }),
+        (ClipClick::Download, _) => {
             if !downloading && !matches!(media.state, MediaState::Downloading) {
                 actions.push(Action::Download {
                     card: None,
@@ -5381,6 +5410,9 @@ fn video_clicked(
                 actions.push(Action::PlayVideoWhenDownloaded(message.id.clone()));
             }
         }
+        // The three above answer for a file that is here, which is the only
+        // way `clip_click` reaches them; a clip without one downloads instead.
+        (_, None) => {}
     }
 }
 
@@ -5638,7 +5670,7 @@ fn video_note(
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
     {
-        video_clicked(view, message, media, false, auto, actions);
+        video_clicked(view, message, media, false, auto, false, actions);
     }
     NOTE_SIDE
 }
@@ -6157,6 +6189,29 @@ fn chat_of(chat: &ChatId) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A click on a downloaded clip opens the full-window viewer, which is the
+    /// only way into the chat's album from a chat that holds no pictures. A
+    /// clip the bubble is already playing keeps the click for play and pause,
+    /// and one that is not here yet still downloads first.
+    #[test]
+    fn a_downloaded_clip_opens_the_viewer_and_a_running_one_keeps_playing() {
+        let here = Media {
+            path: Some(PathBuf::from("/fixture/clip.mp4")),
+            ..media(None, None)
+        };
+        assert_eq!(clip_click(&here, false, false), ClipClick::Viewer);
+        assert_eq!(clip_click(&here, false, true), ClipClick::Player);
+        // A GIF plays inline as an animation, so it keeps opening externally.
+        assert_eq!(clip_click(&here, true, false), ClipClick::External);
+        // A clip still on the phone's side is downloaded first.
+        let missing = Media {
+            path: None,
+            ..media(None, None)
+        };
+        assert_eq!(clip_click(&missing, false, false), ClipClick::Download);
+        assert_eq!(clip_click(&missing, true, false), ClipClick::Download);
+    }
 
     #[test]
     fn saved_attachments_suggest_a_plain_file_name() {
