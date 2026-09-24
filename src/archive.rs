@@ -1696,27 +1696,56 @@ pub(crate) mod tests {
     /// write the leave goes through name it bare and qualified.
     #[test]
     fn the_leave_column_lands_on_an_archive_that_predates_it() {
+        fn has_left(connection: &Connection) -> bool {
+            connection
+                .prepare("PRAGMA table_info(chats)")
+                .expect("table info")
+                .query_map([], |row| row.get::<_, String>(1))
+                .expect("column names")
+                .any(|name| name.as_deref() == Ok("left"))
+        }
+
         let connection = Connection::open_in_memory().expect("opens");
-        // The chats table as an older version of the app left it: no `left`,
-        // and rows already in it.
+        // An archive made before the leave feature: the chats table without
+        // `left`, and rows already in it. `left` is not in `SCHEMA`, it only
+        // ever arrives through `MIGRATIONS`.
+        connection.execute_batch(SCHEMA).expect("the older schema");
         connection
             .execute_batch(
-                "CREATE TABLE chats (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL);
-                 INSERT INTO chats (id, name, kind) VALUES ('1-2@g.us', 'Rust', 'group');
+                "INSERT INTO chats (id, name, kind) VALUES ('1-2@g.us', 'Rust', 'group');
                  INSERT INTO chats (id, name, kind) VALUES ('3@s.whatsapp.net', 'Ana', 'direct');",
             )
-            .expect("the older schema");
-        Archive::prepare(connection).expect("the migration adds the column");
+            .expect("rows");
+        assert!(!has_left(&connection), "the table predates the column");
 
-        let archive = Archive::in_memory().expect("opens");
+        // The archive the migration leaves behind, not a fresh one: every
+        // assertion below has to run against the table `left` was just added
+        // to, which is the one the review asked about.
+        let archive = Archive::prepare(connection).expect("the migration adds the column");
+        assert!(has_left(&archive.connection), "the column arrived");
+
+        // The row that was there when the column arrived takes the default.
         let id = "1-2@g.us";
-        archive.ensure_chat(id, "Rust").expect("chat");
-        // The write, then the read that goes through `CHAT_COLUMNS`.
+        assert!(
+            !archive.chat(id).expect("row").expect("chat").left,
+            "an existing row takes the default"
+        );
+        assert!(
+            !archive
+                .chat("3@s.whatsapp.net")
+                .expect("row")
+                .expect("chat")
+                .left,
+            "and so does the other one"
+        );
+        // The write, then the read that goes through `CHAT_COLUMNS`, which
+        // names `c.left` in the same statement as its `LEFT JOIN`.
         archive.set_left(id, true).expect("the update");
         assert!(archive.chat(id).expect("row").expect("chat").left);
         archive.set_left(id, false).expect("the update back");
         assert!(!archive.chat(id).expect("row").expect("chat").left);
-        // And the name on its own, in a select and in an update.
+        // And the name on its own, bare and unqualified, in a select, in an
+        // update and in a where.
         let mut statement = archive
             .connection
             .prepare("SELECT left FROM chats")
@@ -1731,6 +1760,13 @@ pub(crate) mod tests {
             .connection
             .execute("UPDATE chats SET left = 1", [])
             .expect("a bare left in an update");
+        let marked: i64 = archive
+            .connection
+            .query_row("SELECT COUNT(*) FROM chats WHERE left = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("a bare left in a where");
+        assert_eq!(marked, 2, "both rows took the update");
     }
 
     #[test]
