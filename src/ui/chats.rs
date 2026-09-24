@@ -1009,6 +1009,17 @@ fn row(app: &mut App, ui: &mut egui::Ui, chat: &Chat) -> egui::Response {
         ],
         true,
     )
+    // Submenu rows also carry a chevron.
+    .max(
+        widgets::menu_width(
+            ui,
+            &[
+                "Notification sound",
+                &crate::i18n::gettext(app.locale, "Labels"),
+            ],
+            true,
+        ) + 24.0,
+    )
     .max(190.0);
     let popup = egui::Popup::context_menu(&response)
         .width(menu_width)
@@ -1376,7 +1387,7 @@ fn unread_announcement(title: &str, chat: &Chat) -> String {
 /// A chat's own notification sound, overriding Settings for this chat.
 fn sound_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette, chat: &Chat) {
     use crate::settings::NotificationSound;
-    ui.menu_button("Notification sound", |ui| {
+    widgets::submenu(ui, palette, Icon::Volume2, "Notification sound", |ui| {
         let current = chat.notification_sound.clone();
         for (sound, label) in [
             (None, "Default"),
