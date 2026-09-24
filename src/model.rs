@@ -262,6 +262,13 @@ impl Message {
     pub fn summary(&self) -> String {
         self.content.summary()
     }
+
+    /// The line of this message that contains `query`, for a search result's
+    /// preview. The archive matches the whole text, so a hit on a later line
+    /// would otherwise show a first line the query is nowhere in.
+    pub fn text_matching(&self, query: &str) -> Option<String> {
+        self.content.text_matching(query)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -530,6 +537,35 @@ impl Content {
         Self::Text {
             text: text.into(),
             preview: None,
+        }
+    }
+
+    /// The first line of the text the archive search looks at that contains
+    /// `query`, trimmed, or `None` when no line has it.
+    pub fn text_matching(&self, query: &str) -> Option<String> {
+        let needle = query.trim().to_lowercase();
+        if needle.is_empty() {
+            return None;
+        }
+        self.searchable_text()
+            .lines()
+            .find(|line| line.to_lowercase().contains(&needle))
+            .map(|line| line.trim().to_owned())
+    }
+
+    /// The text fields the archive search matches, one per line, so a preview
+    /// can be built from the same set.
+    fn searchable_text(&self) -> String {
+        match self {
+            Self::Text { text, .. } | Self::Interactive { text, .. } => text.clone(),
+            Self::Image { caption, .. } | Self::Video { caption, .. } => {
+                caption.clone().unwrap_or_default()
+            }
+            Self::Document { file_name, .. } => file_name.clone(),
+            Self::Poll { question, .. } => question.clone(),
+            Self::Contact { display_name, .. } => display_name.clone(),
+            Self::Location { name, .. } => name.clone().unwrap_or_default(),
+            _ => String::new(),
         }
     }
 
@@ -1420,6 +1456,50 @@ pub enum Action {
 #[cfg(test)]
 mod tests {
     use super::StickerCrop;
+
+    #[test]
+    fn a_preview_comes_from_the_line_the_query_matched() {
+        let text = super::Content::Text {
+            text: "first line\nsecond line with Zebra\nthird".into(),
+            preview: None,
+        };
+        assert_eq!(
+            text.text_matching("zebra").as_deref(),
+            Some("second line with Zebra"),
+            "the matching line, not the first one"
+        );
+        assert_eq!(
+            text.text_matching("First").as_deref(),
+            Some("first line"),
+            "case does not matter"
+        );
+        assert_eq!(text.text_matching("nowhere"), None);
+        assert_eq!(
+            text.text_matching("  "),
+            None,
+            "an empty query matches nothing"
+        );
+        // A caption is searched too, and previewed the same way.
+        let photo = super::Content::Image {
+            caption: Some("a photo of a Zebra".into()),
+            media: media(),
+        };
+        assert_eq!(
+            photo.text_matching("zebra").as_deref(),
+            Some("a photo of a Zebra")
+        );
+        // So is a file name, with no text of its own to show.
+        let file = super::Content::Document {
+            media: media(),
+            file_name: "Zebra report.pdf".into(),
+            caption: None,
+            pages: None,
+        };
+        assert_eq!(
+            file.text_matching("zebra").as_deref(),
+            Some("Zebra report.pdf")
+        );
+    }
 
     #[test]
     fn looks_unread_covers_counts_and_the_empty_dot() {

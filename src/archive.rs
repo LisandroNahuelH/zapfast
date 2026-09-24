@@ -882,10 +882,8 @@ impl Archive {
         Ok(messages)
     }
 
-    /// Message ids in one chat whose visible text matches, oldest first so
-    /// next and previous walk forward in time. Same fields as the global
-    /// search, scoped to a single chat.
-    /// Searches one chat, optionally inside a Unix-second day range.
+    /// Searches one chat, optionally inside a Unix-second day range. Same
+    /// fields as the global search, scoped to a single chat.
     ///
     /// An empty needle matches everything in the range, so the day filter
     /// works on its own. Newest first, the order the pane lists them in.

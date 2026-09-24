@@ -5744,7 +5744,11 @@ impl Worker {
         }
     }
 
-    /// Answers the open chat's search bar with the ids of its matches.
+    /// How many in-chat matches the pane lists. One more is asked for, so a
+    /// full page can be told apart from a truncated one.
+    const CHAT_SEARCH_LIMIT: usize = 80;
+
+    /// Answers the in-chat search with its matches.
     fn search_chat_messages(
         &mut self,
         chat: ChatId,
@@ -5752,11 +5756,18 @@ impl Worker {
         from: Option<i64>,
         until: Option<i64>,
     ) {
-        match self
-            .archive
-            .search_chat_messages(&chat, &query, from, until, 80)
-        {
+        match self.archive.search_chat_messages(
+            &chat,
+            &query,
+            from,
+            until,
+            Self::CHAT_SEARCH_LIMIT + 1,
+        ) {
             Ok(mut messages) => {
+                // The extra row is not shown: it is how the pane learns the
+                // archive held more, so it can say the list was cut.
+                let truncated = messages.len() > Self::CHAT_SEARCH_LIMIT;
+                messages.truncate(Self::CHAT_SEARCH_LIMIT);
                 for message in &mut messages {
                     self.polish(message);
                 }
@@ -5766,6 +5777,7 @@ impl Worker {
                     from,
                     until,
                     messages,
+                    truncated,
                 });
             }
             Err(error) => self.emit(Event::Error(format!("Could not search: {error}"))),

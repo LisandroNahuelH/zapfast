@@ -204,6 +204,8 @@ pub struct App {
     pub chat_search: String,
     /// Matches in the open chat, newest first.
     pub chat_search_hits: Vec<Message>,
+    /// Whether the archive held more matches than the pane lists.
+    pub chat_search_truncated: bool,
     /// Local day the in-chat search is limited to, if any.
     pub chat_search_day: Option<jiff::civil::Date>,
     /// Month the day filter shows.
@@ -594,6 +596,7 @@ impl App {
             right_pane: None,
             chat_search: String::new(),
             chat_search_hits: Vec::new(),
+            chat_search_truncated: false,
             chat_search_day: None,
             chat_search_month: jiff::Zoned::now().date(),
             chat_search_calendar: false,
@@ -1647,6 +1650,7 @@ impl App {
                     from,
                     until,
                     messages,
+                    truncated,
                 } => {
                     // Hits for another chat, for a query the user has already
                     // replaced, or for a day they have already moved off,
@@ -1658,6 +1662,7 @@ impl App {
                         && until == want_until
                     {
                         self.chat_search_hits = messages;
+                        self.chat_search_truncated = truncated;
                     }
                 }
                 Event::SearchHits { query, messages } => {

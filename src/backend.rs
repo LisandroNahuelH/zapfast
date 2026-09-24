@@ -660,6 +660,9 @@ pub enum Event {
         from: Option<i64>,
         until: Option<i64>,
         messages: Vec<Message>,
+        /// Whether the archive held more matches than `messages` carries, so
+        /// the pane can say so instead of dropping them silently.
+        truncated: bool,
     },
     ChatUpdated(Box<Chat>),
     /// Chat messages in ascending order. `older` prepends them; `complete`

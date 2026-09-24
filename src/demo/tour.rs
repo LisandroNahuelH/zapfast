@@ -618,12 +618,15 @@ mod tests {
         for _ in 0..3 {
             frame(&mut app, &mut tour, &ctx, Vec::new());
         }
-        assert!(
-            tour.labels.contains_key("Search messages"),
-            "the pane names itself"
-        );
+        // The pane's copy is translated, and the interface language follows
+        // the system when Settings carries no choice of its own.
+        let title = crate::i18n::gettext(app.locale, "Search messages").to_string();
+        assert!(tour.labels.contains_key(&title), "the pane names itself");
         let hit = app.chat_search_hits.first().cloned().expect("a hit");
-        click(&mut app, &mut tour, &ctx, &hit.summary());
+        // The row previews the line the query matched, not the message's first
+        // line, so that is the text the click lands on.
+        let preview = hit.text_matching("engine").unwrap_or_else(|| hit.summary());
+        click(&mut app, &mut tour, &ctx, &preview);
         assert_eq!(
             app.open_chat.as_deref(),
             Some(hit.chat.as_str()),
