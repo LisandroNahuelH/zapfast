@@ -1296,17 +1296,14 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
         app.actions
             .push(Action::SetArchived(chat.id.clone(), !chat.archived));
     }
+    // Bound before the call so the translated text outlives the borrow.
+    let leave_label = if chat.is_channel() {
+        crate::i18n::gettext(app.locale, "Leave channel")
+    } else {
+        crate::i18n::gettext(app.locale, "Leave group")
+    };
     if chat.can_leave(app.me.as_deref())
-        && widgets::menu_item(
-            ui,
-            palette,
-            Some(Icon::LogOut),
-            if chat.is_channel() {
-                "Leave channel"
-            } else {
-                "Leave group"
-            },
-        )
+        && widgets::menu_item(ui, palette, Some(Icon::LogOut), leave_label.as_ref())
     {
         app.actions
             .push(Action::ShowDialog(Dialog::ConfirmLeaveGroup(

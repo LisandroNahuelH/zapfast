@@ -598,9 +598,19 @@ mod tests {
 
     #[test]
     fn leaving_is_offered_for_a_group_and_for_a_channel() {
-        for (index, leave, title) in [
-            (1usize, "Leave group", "Leave this group?"),
-            (9usize, "Leave channel", "Leave this channel?"),
+        for (index, leave, title, archive) in [
+            (
+                1usize,
+                "Leave group",
+                "Leave this group?",
+                "Leave group and archive",
+            ),
+            (
+                9usize,
+                "Leave channel",
+                "Leave this channel?",
+                "Leave channel and archive",
+            ),
         ] {
             let mut app = super::super::tests::app();
             prepare(&mut app);
@@ -613,8 +623,14 @@ mod tests {
             for _ in 0..3 {
                 frame(&mut app, &mut tour, &ctx, Vec::new());
             }
-            assert!(tour.labels.contains_key(leave), "chat info offers {leave}");
-            click(&mut app, &mut tour, &ctx, leave);
+            // The controls are announced in the interface language, which
+            // follows the system when Settings carries no choice of its own.
+            let locale = app.locale;
+            let leave = crate::i18n::gettext(locale, leave).to_string();
+            let title = crate::i18n::gettext(locale, title).to_string();
+            let archive = crate::i18n::gettext(locale, archive).to_string();
+            assert!(tour.labels.contains_key(&leave), "chat info offers {leave}");
+            click(&mut app, &mut tour, &ctx, &leave);
             assert!(
                 matches!(
                     app.dialog,
@@ -625,10 +641,13 @@ mod tests {
             for _ in 0..3 {
                 frame(&mut app, &mut tour, &ctx, Vec::new());
             }
-            assert!(tour.labels.contains_key(title), "the dialog asks {title}");
-            assert!(tour.labels.contains_key(leave), "the dialog offers {leave}");
+            assert!(tour.labels.contains_key(&title), "the dialog asks {title}");
             assert!(
-                tour.labels.contains_key(&format!("{leave} and archive")),
+                tour.labels.contains_key(&leave),
+                "the dialog offers {leave}"
+            );
+            assert!(
+                tour.labels.contains_key(&archive),
                 "the dialog offers archiving in the same step"
             );
             // Cancelling leaves the chat alone.

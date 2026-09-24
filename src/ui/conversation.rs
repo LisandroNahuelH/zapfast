@@ -346,16 +346,19 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                                     .push(Action::SetArchived(chat.id.clone(), !chat.archived));
                             }
                             widgets::menu_separator(ui, &palette);
+                            // Bound before the call so the translated text
+                            // outlives the borrow.
+                            let leave_label = if chat.is_channel() {
+                                crate::i18n::gettext(app.locale, "Leave channel")
+                            } else {
+                                crate::i18n::gettext(app.locale, "Leave group")
+                            };
                             if chat.can_leave(app.me.as_deref())
                                 && widgets::menu_item(
                                     ui,
                                     &palette,
                                     Some(Icon::LogOut),
-                                    if chat.is_channel() {
-                                        "Leave channel"
-                                    } else {
-                                        "Leave group"
-                                    },
+                                    leave_label.as_ref(),
                                 )
                             {
                                 app.actions
@@ -835,10 +838,14 @@ fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                         theme::text(
                             ui,
                             if chat.read_only {
-                                "You left this channel"
+                                crate::i18n::gettext(app.locale, "You left this channel")
                             } else {
-                                "Channels are read-only in ZapFast"
-                            },
+                                crate::i18n::gettext(
+                                    app.locale,
+                                    "Channels are read-only in ZapFast",
+                                )
+                            }
+                            .as_ref(),
                             theme::regular(13.5),
                             palette.secondary,
                         );
@@ -853,16 +860,19 @@ fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                 }
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
-                    // A group we left says so instead of blaming the admins.
-                    let left = app
-                        .me
-                        .as_deref()
-                        .is_some_and(|me| !chat.participants.iter().any(|id| id == me))
-                        && !chat.participants.is_empty();
+                    // A group we left says so instead of blaming the admins:
+                    // either we left it here, or the phone says we are no
+                    // longer a member.
+                    let left = chat.left
+                        || (app
+                            .me
+                            .as_deref()
+                            .is_some_and(|me| !chat.participants.iter().any(|id| id == me))
+                            && !chat.participants.is_empty());
                     if left {
                         theme::text(
                             ui,
-                            "You left this group",
+                            crate::i18n::gettext(app.locale, "You left this group"),
                             theme::regular(13.5),
                             palette.secondary,
                         );

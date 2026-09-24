@@ -1033,31 +1033,29 @@ fn confirm_leave_group(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let chat = app.chat(id);
     let archived = chat.is_some_and(|chat| chat.archived);
     let channel = chat.is_some_and(crate::model::Chat::is_channel);
-    title(
-        ui,
-        app,
-        if channel {
-            "Leave this channel?"
-        } else {
-            "Leave this group?"
-        },
-    );
+    let locale = app.locale;
+    let question = if channel {
+        crate::i18n::gettext(locale, "Leave this channel?")
+    } else {
+        crate::i18n::gettext(locale, "Leave this group?")
+    };
+    title(ui, app, question.as_ref());
     theme::paragraph(
         ui,
-        "You will not receive new messages. The local history stays on this computer.",
+        crate::i18n::gettext(
+            locale,
+            "You will not receive new messages. The local history stays on this computer.",
+        ),
         theme::regular(13.5),
         palette.text,
     );
     ui.add_space(10.0);
-    if danger_button(
-        ui,
-        app,
-        if channel {
-            "Leave channel"
-        } else {
-            "Leave group"
-        },
-    ) {
+    let leave_label = if channel {
+        crate::i18n::gettext(locale, "Leave channel")
+    } else {
+        crate::i18n::gettext(locale, "Leave group")
+    };
+    if danger_button(ui, app, leave_label.as_ref()) {
         app.actions.push(Action::LeaveGroup {
             chat: id.to_owned(),
             archive: false,
@@ -1065,18 +1063,12 @@ fn confirm_leave_group(app: &mut App, ui: &mut egui::Ui, id: &str) {
     }
     if !archived {
         ui.add_space(4.0);
-        if theme::pill_button(
-            ui,
-            &palette,
-            if channel {
-                "Leave channel and archive"
-            } else {
-                "Leave group and archive"
-            },
-            false,
-        )
-        .clicked()
-        {
+        let archive_label = if channel {
+            crate::i18n::gettext(locale, "Leave channel and archive")
+        } else {
+            crate::i18n::gettext(locale, "Leave group and archive")
+        };
+        if theme::pill_button(ui, &palette, archive_label.as_ref(), false).clicked() {
             app.actions.push(Action::LeaveGroup {
                 chat: id.to_owned(),
                 archive: true,
@@ -1477,15 +1469,12 @@ fn chat_info(app: &mut App, ui: &mut egui::Ui, id: &str) {
         }
         if can_leave {
             ui.add_space(8.0);
-            if danger_button(
-                ui,
-                app,
-                if chat.is_channel() {
-                    "Leave channel"
-                } else {
-                    "Leave group"
-                },
-            ) {
+            let leave_label = if chat.is_channel() {
+                crate::i18n::gettext(app.locale, "Leave channel")
+            } else {
+                crate::i18n::gettext(app.locale, "Leave group")
+            };
+            if danger_button(ui, app, leave_label.as_ref()) {
                 leave = true;
             }
         }
@@ -1703,6 +1692,13 @@ fn danger_button(ui: &mut egui::Ui, app: &mut App, label: &str) -> bool {
     );
     let size = galley.size() + egui::vec2(36.0, 16.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    // Reachable and announced like every other button: the keyboard walks to
+    // it and AccessKit reads its label.
+    theme::reveal_focus(&response);
+    theme::focus_outline(ui, response.id, rect, rect.height() / 2.0);
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
     if ui.is_rect_visible(rect) {
         let fill = if response.hovered() {
             palette.danger.gamma_multiply(0.85)
