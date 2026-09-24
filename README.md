@@ -95,7 +95,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   message's menu, or Ctrl-click (Command-click on macOS) on a message, starts
   a selection: click more messages to add or remove them, Shift-click to add
   everything up to the one you click, then **Forward…** sends them together,
-  in their original order, or Escape cancels.
+  in their original order, or Escape cancels. A batch goes out one message at
+  a time, each starting once the one before it reached WhatsApp, so a picture
+  cannot overtake the text that came before it.
 - **WhatsApp formatting.** Bold, italic, strikethrough, code, lists, quotes,
   mentions, and link previews are supported. Links are clickable. Hebrew,
   Arabic, and mixed lines follow the Unicode Bidirectional Algorithm, so

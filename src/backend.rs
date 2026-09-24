@@ -162,10 +162,10 @@ pub enum Command {
         button: usize,
         choice: Option<usize>,
     },
-    /// Forwards an archived message to another chat.
+    /// Forwards archived messages to another chat, oldest first.
     Forward {
         from_chat: ChatId,
-        message: String,
+        messages: Vec<String>,
         to_chat: ChatId,
     },
     /// Updates our typing state in a chat.

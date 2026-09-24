@@ -3,7 +3,7 @@
 //! Messages are archived before reaching the UI. Privacy ids (`@lid`) are
 //! canonicalized to phone-number ids as soon as their mapping is known.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -520,6 +520,7 @@ pub async fn run(
         receipts_watch: None,
         receipts_pruned: Instant::now(),
         link_watch: Default::default(),
+        forward_queue: None,
     };
     worker.load_state();
     worker.backfill();
@@ -780,6 +781,66 @@ struct Worker {
     favorites_recovering: bool,
     /// Active attachment downloads by chat, message id, and carousel card.
     downloads: HashSet<(ChatId, String, Option<usize>)>,
+    /// Serial forward in flight. The next send waits for the running one.
+    forward_queue: Option<ForwardQueue<ForwardJob>>,
+}
+
+/// A queued forward: where it goes, the protobuf, and its disappearing timer.
+type ForwardJob = (ChatId, Jid, wa::Message, Option<u32>);
+
+/// Pure queue behind a serial forward. `T` is one job's payload.
+struct ForwardQueue<T> {
+    remaining: VecDeque<(String, T)>,
+    current: Option<String>,
+}
+
+enum ForwardStep<T> {
+    /// The ack belongs to something else.
+    Ignore,
+    Next {
+        id: String,
+        payload: T,
+    },
+    Finished,
+}
+
+impl<T> ForwardQueue<T> {
+    fn new() -> Self {
+        Self {
+            remaining: VecDeque::new(),
+            current: None,
+        }
+    }
+
+    /// Queues a batch and returns the job to start now, when the queue is idle.
+    /// A batch that arrives while one runs waits behind it, in order.
+    fn push(&mut self, jobs: Vec<(String, T)>) -> Option<(String, T)> {
+        let mut jobs = jobs.into_iter();
+        if self.current.is_some() {
+            self.remaining.extend(jobs);
+            return None;
+        }
+        let (id, payload) = jobs.next()?;
+        self.current = Some(id.clone());
+        self.remaining.extend(jobs);
+        Some((id, payload))
+    }
+
+    fn ack(&mut self, id: &str) -> ForwardStep<T> {
+        if self.current.as_deref() != Some(id) {
+            return ForwardStep::Ignore;
+        }
+        match self.remaining.pop_front() {
+            Some((next, payload)) => {
+                self.current = Some(next.clone());
+                ForwardStep::Next { id: next, payload }
+            }
+            None => {
+                self.current = None;
+                ForwardStep::Finished
+            }
+        }
+    }
 }
 
 /// Decoded history chunk waiting to be canonicalized and archived.
@@ -2448,6 +2509,7 @@ impl Worker {
         self.poll_sending.clear();
         self.interactive_sending.clear();
         self.poll_history = Default::default();
+        self.forward_queue = None;
         self.pending_older.clear();
         self.pending_avatars.clear();
         self.me_pn = None;
@@ -3992,9 +4054,9 @@ impl Worker {
             }
             Command::Forward {
                 from_chat,
-                message,
+                messages,
                 to_chat,
-            } => self.forward_message(from_chat, message, to_chat),
+            } => self.forward_messages(from_chat, messages, to_chat),
             // Stores the open chat's unsent text, or clears it when empty.
             Command::SaveDraft { chat, text } => {
                 let at = std::time::SystemTime::now()
@@ -5013,6 +5075,7 @@ impl Worker {
                     .set_status(&chat, &id, status, crate::util::now());
                 self.emit_message(&chat, &id);
                 self.emit_chat(&chat);
+                self.advance_serial_forward(&id);
                 if let Some(error) = error {
                     self.emit(Event::Error(format!("Message not sent: {error}")));
                 }
@@ -5298,16 +5361,95 @@ impl Worker {
         ));
     }
 
-    fn forward_message(&mut self, from_chat: ChatId, message_id: String, to_chat: ChatId) {
-        let (Some(client), Some(jid)) = (self.client.clone(), Self::jid_of(&to_chat)) else {
+    fn forward_messages(&mut self, from_chat: ChatId, messages: Vec<String>, to_chat: ChatId) {
+        let Some(client) = self.client.clone() else {
             self.emit(Event::Error("Not connected to WhatsApp".to_owned()));
             return;
         };
-        let Ok(Some(source)) = self.archive.message(&from_chat, &message_id) else {
+        let Some(jid) = Self::jid_of(&to_chat) else {
+            self.emit(Event::Error("Not connected to WhatsApp".to_owned()));
+            return;
+        };
+        let jobs: Vec<_> = messages
+            .iter()
+            .filter_map(|message| {
+                self.forward_job(&from_chat, message, &to_chat)
+                    .map(|(id, message, expiration)| {
+                        (id, (to_chat.clone(), jid.clone(), message, expiration))
+                    })
+            })
+            .collect();
+        if jobs.is_empty() {
+            return;
+        }
+        let first = match self.forward_queue.as_mut() {
+            Some(queue) => queue.push(jobs),
+            None => {
+                let mut queue = ForwardQueue::new();
+                let first = queue.push(jobs);
+                self.forward_queue = Some(queue);
+                first
+            }
+        };
+        let Some((id, (to_chat, jid, message, expiration))) = first else {
+            // A batch is already going: these follow it, in order.
+            return;
+        };
+        tokio::spawn(send_outgoing(
+            client,
+            self.commands.clone(),
+            to_chat,
+            jid,
+            id,
+            message,
+            expiration,
+        ));
+    }
+
+    /// Starts the next queued forward once `id` reports its first tick, or its
+    /// failure. An ack that is not the running job's is ignored.
+    fn advance_serial_forward(&mut self, id: &str) {
+        let next = match self.forward_queue.as_mut() {
+            Some(queue) => queue.ack(id),
+            None => return,
+        };
+        let (id, (to_chat, jid, message, expiration)) = match next {
+            ForwardStep::Ignore => return,
+            ForwardStep::Next { id, payload } => (id, payload),
+            ForwardStep::Finished => {
+                self.forward_queue = None;
+                return;
+            }
+        };
+        let Some(client) = self.client.clone() else {
+            // The link went away; the rest of the batch cannot be sent.
+            self.forward_queue = None;
+            return;
+        };
+        tokio::spawn(send_outgoing(
+            client,
+            self.commands.clone(),
+            to_chat,
+            jid,
+            id,
+            message,
+            expiration,
+        ));
+    }
+
+    /// Prepares one forwarded message: its stored row and the outgoing
+    /// protobuf. `None` when it cannot be forwarded, reported to the user.
+    fn forward_job(
+        &mut self,
+        from_chat: &ChatId,
+        message_id: &str,
+        to_chat: &ChatId,
+    ) -> Option<(String, wa::Message, Option<u32>)> {
+        let Ok(Some(source)) = self.archive.message(from_chat, message_id) else {
             self.emit(Event::Error(
                 "This message is not stored on this computer".to_owned(),
             ));
-            return;
+            return None;
         };
         if matches!(
             source.content,
@@ -5318,24 +5460,24 @@ impl Worker {
                 | Content::Interactive { .. }
         ) {
             self.emit(Event::Error("This message cannot be forwarded".to_owned()));
-            return;
+            return None;
         }
-        let Ok(Some(raw)) = self.archive.raw(&from_chat, &message_id) else {
+        let Ok(Some(raw)) = self.archive.raw(from_chat, message_id) else {
             self.emit(Event::Error(
                 "The original message data is not available to forward".to_owned(),
             ));
-            return;
+            return None;
         };
         let Ok(original) = wa::Message::decode_from_slice(&raw) else {
             self.emit(Event::Error(
                 "The original message data could not be read".to_owned(),
             ));
-            return;
+            return None;
         };
         // whatsapp-rust owns the forwarding rules: unwrap transient wrappers,
         // strip quote chains and secrets, and retain reusable media metadata.
-        let (message, expiration) =
-            outgoing_forward(&original, self.ephemeral_expiration(&to_chat));
+        let (message, expiration) = outgoing_forward(&original, self.ephemeral_expiration(to_chat));
+        let client = self.client.clone()?;
         let id = client.generate_message_id();
         let mentions = self.mentions_of(&mentioned_of(&message));
         let thumbnail = thumbnail_of(&message).or_else(|| source.thumbnail.clone());
@@ -5349,15 +5491,7 @@ impl Worker {
             thumbnail,
         );
         self.store_message(row, Some(message.encode_to_vec()), None);
-        tokio::spawn(send_outgoing(
-            client,
-            self.commands.clone(),
-            to_chat,
-            jid,
-            id,
-            message,
-            expiration,
-        ));
+        Some((id, message, expiration))
     }
 
     fn mark_read(&mut self, chat: ChatId, receipts: bool) {
@@ -9691,6 +9825,43 @@ mod receipt_tests {
         assert_eq!(worker.group_info_tries.get("busy@g.us"), Some(&1));
     }
 
+    #[test]
+    fn a_serial_forward_starts_the_next_job_on_the_running_one_ack() {
+        let mut queue = ForwardQueue::new();
+        assert!(queue.push(Vec::new()).is_none());
+
+        let first = queue.push(vec![("only".into(), 7)]).expect("first job");
+        assert_eq!(first, ("only".to_owned(), 7));
+        assert!(matches!(queue.ack("only"), ForwardStep::Finished));
+        assert!(queue.current.is_none());
+
+        let first = queue
+            .push(vec![("a".into(), 1), ("b".into(), 2), ("c".into(), 3)])
+            .expect("first job");
+        assert_eq!(first, ("a".to_owned(), 1));
+        // A second batch waits behind the running one, in order.
+        assert!(queue.push(vec![("d".into(), 4)]).is_none());
+        assert!(matches!(queue.ack("other"), ForwardStep::Ignore));
+        assert_eq!(queue.current.as_deref(), Some("a"));
+
+        let ForwardStep::Next { id, payload } = queue.ack("a") else {
+            panic!("the running job's ack starts the next one");
+        };
+        assert_eq!((id.as_str(), payload), ("b", 2));
+        // A failed send reports the same ack; a stall would leave current as b.
+        let ForwardStep::Next { id, payload } = queue.ack("b") else {
+            panic!("a failed send still starts the next job");
+        };
+        assert_eq!((id.as_str(), payload), ("c", 3));
+        let ForwardStep::Next { id, payload } = queue.ack("c") else {
+            panic!("the batch queued behind it follows");
+        };
+        assert_eq!((id.as_str(), payload), ("d", 4));
+        assert!(matches!(queue.ack("d"), ForwardStep::Finished));
+        assert!(queue.current.is_none());
+        assert!(queue.remaining.is_empty());
+    }
+
     pub(super) fn worker() -> (
         Worker,
         std::sync::mpsc::Receiver<Event>,
@@ -9764,6 +9935,7 @@ mod receipt_tests {
             receipts_watch: None,
             receipts_pruned: Instant::now(),
             link_watch: Default::default(),
+            forward_queue: None,
         };
         (worker, events_rx, inbox, wa_events)
     }

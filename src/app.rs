@@ -3402,13 +3402,11 @@ impl App {
                 messages,
                 to_chat,
             } => {
-                for message in messages {
-                    self.backend.send(Command::Forward {
-                        from_chat: from_chat.clone(),
-                        message,
-                        to_chat: to_chat.clone(),
-                    });
-                }
+                self.backend.send(Command::Forward {
+                    from_chat,
+                    messages,
+                    to_chat,
+                });
                 self.dialog = None;
                 self.forward_search.clear();
                 self.selection = None;
@@ -6256,9 +6254,9 @@ mod tests {
             &ctx,
         );
         let forwarded: Vec<String> = std::iter::from_fn(|| commands.try_recv().ok())
-            .filter_map(|command| match command {
-                Command::Forward { message, .. } => Some(message),
-                _ => None,
+            .flat_map(|command| match command {
+                Command::Forward { messages, .. } => messages,
+                _ => Vec::new(),
             })
             .collect();
         assert_eq!(forwarded, ["first", "third"]);
