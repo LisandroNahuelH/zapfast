@@ -651,6 +651,10 @@ pub enum Command {
     /// Ask GitHub whether a newer release exists.
     CheckForUpdates,
     InspectUpdate,
+    /// Look for a verified payload an earlier run left behind. Reading it
+    /// hashes the file, which can be gigabytes, so it is done here rather than
+    /// on the interface thread.
+    AdoptPendingUpdate,
     DownloadUpdate {
         release: crate::updates::Release,
         source: crate::updates::Source,
@@ -855,6 +859,17 @@ pub enum Event {
         url: String,
     },
     UpdateSupport(Result<crate::updates::install::Installation, String>),
+    /// A verified payload an earlier run left behind, with the installation it
+    /// belongs to. `Ok(None)` when there is nothing waiting.
+    PendingUpdate(
+        Result<
+            Option<(
+                crate::updates::install::Installation,
+                Box<crate::updates::install::Prepared>,
+            )>,
+            String,
+        >,
+    ),
     UpdateProgress {
         received: u64,
         total: u64,

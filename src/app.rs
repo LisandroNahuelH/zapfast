@@ -553,7 +553,10 @@ impl App {
         if crate::autostart::supported() {
             app.start_with_system = Some(crate::autostart::enabled());
         }
-        app.adopt_pending_update();
+        // The payload an earlier run left behind is read by the worker: the
+        // hash check reads the whole file, which can be gigabytes, and this
+        // runs before the first frame.
+        app.backend.send(Command::AdoptPendingUpdate);
         app
     }
 
@@ -2084,6 +2087,16 @@ impl App {
                     self.update_inspecting = false;
                     self.maybe_download_update();
                 }
+                Event::PendingUpdate(result) => match result {
+                    Ok(Some((installation, prepared))) => {
+                        self.adopt_pending_installation(installation, *prepared);
+                    }
+                    Ok(None) => {}
+                    // A payload that cannot be read is not installed, and the
+                    // toast that would have offered it is not worth a dialog:
+                    // the next check fetches the release again.
+                    Err(error) => log::debug!("could not read the pending update: {error}"),
+                },
                 Event::UpdateProgress { received, total } => {
                     self.update_download =
                         crate::updates::DownloadState::Downloading { received, total };
@@ -2970,22 +2983,17 @@ impl App {
     ///
     /// A download that was never installed is still on disk, and nothing else
     /// would pick it up: without this the next start would fetch it again.
-    fn adopt_pending_update(&mut self) {
-        if let Ok(installation) = crate::updates::install::detect() {
-            self.adopt_pending_installation(&installation);
-        }
-    }
-
-    fn adopt_pending_installation(&mut self, installation: &crate::updates::install::Installation) {
+    fn adopt_pending_installation(
+        &mut self,
+        installation: crate::updates::install::Installation,
+        prepared: crate::updates::install::Prepared,
+    ) {
         // Automatic downloads are the setting that says "do this without me".
         // With it off, a pending file waits for the toast like any other
         // download.
         if !self.settings.check_for_updates || !self.settings.download_updates_automatically {
             return;
         }
-        let Ok(Some(prepared)) = crate::updates::install::load_pending(installation) else {
-            return;
-        };
         self.update = Some(crate::updates::Release {
             version: prepared.version.clone(),
             url: format!(
@@ -2993,7 +3001,7 @@ impl App {
                 prepared.version
             ),
         });
-        self.update_support = Some(Ok(installation.clone()));
+        self.update_support = Some(Ok(installation));
         self.update_download = crate::updates::DownloadState::Ready(Box::new(prepared));
         self.actions.push(Action::InstallUpdate);
     }
@@ -6216,7 +6224,10 @@ mod tests {
         let mut app = app();
         app.settings.check_for_updates = true;
         app.settings.download_updates_automatically = true;
-        app.adopt_pending_installation(&installation);
+        let prepared = crate::updates::install::load_pending(&installation)
+            .expect("reads")
+            .expect("a pending payload");
+        app.adopt_pending_installation(installation, prepared);
         assert_eq!(
             app.update.as_ref().map(|release| release.version.as_str()),
             Some("99.0.0"),
@@ -6233,7 +6244,10 @@ mod tests {
         let (_root, installation) = write_pending_update();
         let mut app = app();
         app.settings.download_updates_automatically = false;
-        app.adopt_pending_installation(&installation);
+        let prepared = crate::updates::install::load_pending(&installation)
+            .expect("reads")
+            .expect("a pending payload");
+        app.adopt_pending_installation(installation, prepared);
         assert!(matches!(app.update_download, DownloadState::Idle));
         assert!(app.update.is_none());
     }

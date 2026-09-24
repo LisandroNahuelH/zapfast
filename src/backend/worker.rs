@@ -4641,6 +4641,23 @@ impl Worker {
                 });
                 self.emit(Event::InviteJoined { code, result });
             }
+            Command::AdoptPendingUpdate => {
+                let events = self.events.clone();
+                let waker = self.waker.clone();
+                tokio::task::spawn_blocking(move || {
+                    let result = crate::updates::install::detect()
+                        .map_err(|error| format!("{error:#}"))
+                        .and_then(|installation| {
+                            crate::updates::install::load_pending(&installation)
+                                .map(|pending| {
+                                    pending.map(|prepared| (installation, Box::new(prepared)))
+                                })
+                                .map_err(|error| format!("{error:#}"))
+                        });
+                    let _ = events.send(Event::PendingUpdate(result));
+                    waker.wake();
+                });
+            }
             Command::InspectUpdate => {
                 let events = self.events.clone();
                 let waker = self.waker.clone();

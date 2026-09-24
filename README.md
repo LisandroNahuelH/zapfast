@@ -661,9 +661,11 @@ light/dark preference and does not read host theme files or install desktop hook
 ZapFast checks GitHub once a day when **Check for updates** is enabled.
 Click **Update** in the banner to download and verify a newer release, then
 **Restart to update** when convenient. **Download updates automatically** is
-optional and off by default; it downloads in the background and still waits for
-you to restart. Downloads contact GitHub's API and release-asset hosts and are
-checked against the release's SHA-256 checksums. Before downloading a package,
+optional and off by default; with it on, a verified release is recorded beside
+the install and installs the next time ZapFast quits or starts, without a click,
+and quitting before that no longer throws the download away. Downloads contact
+GitHub's API and release-asset hosts and are checked against the release's
+SHA-256 checksums. Before downloading a package,
 the updater verifies the checksum manifest's Ed25519 publisher signature using
 its embedded public key. Missing or invalid signatures stop the update.
 The updater keeps a backup and restores it if the updated app cannot start.

@@ -334,8 +334,14 @@ fn download_with_key(
     match result {
         Ok(prepared) => {
             // The payload is only useful while it is recorded: without this a
-            // quit before installing would leave it stranded on disk.
-            install::save_prepared(&prepared)?;
+            // quit before installing would leave it stranded on disk. A
+            // failure to record it takes the folder with it, like every other
+            // failure here: a verified payload nothing knows about is exactly
+            // the leftover this is here to prevent.
+            if let Err(error) = install::save_prepared(&prepared) {
+                let _ = fs::remove_dir_all(&directory);
+                return Err(error);
+            }
             Ok(prepared)
         }
         Err(error) => {

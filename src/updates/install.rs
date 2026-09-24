@@ -214,6 +214,15 @@ pub fn load_pending(installation: &Installation) -> Result<Option<Prepared>> {
 
 pub fn clear_pending(installation: &Installation) -> Result<()> {
     let directory = pending_directory(installation)?;
+    // The folder belongs to the update helper until it has written its result.
+    // It watches for the `started` file the updated app writes on its first
+    // frame, and the receipt it was handed lives in here: removing the folder
+    // would take that receipt with it and the helper would roll back an update
+    // that worked. `load_pending` runs while the app is still starting, so it
+    // has to leave the folder alone until the helper is done.
+    if directory.join("handoff.json").is_file() && !directory.join("result.txt").is_file() {
+        return Ok(());
+    }
     if directory.exists() {
         fs::remove_dir_all(directory)?;
     }
@@ -846,6 +855,55 @@ mod tests {
         replace(&prepared).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"new");
         assert_eq!(fs::read(stage.join("previous")).unwrap(), b"old");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// The helper watches for the `started` file the updated app writes on its
+    /// first frame, and the receipt it was handed lives in the pending folder.
+    /// `load_pending` runs before that frame, so it must leave the folder alone
+    /// while the handoff is in flight: emptying it would take the receipt and
+    /// the helper would roll back an update that worked.
+    #[test]
+    fn a_pending_payload_waits_for_a_handoff_to_finish() {
+        let directory = std::env::temp_dir().join(format!(
+            "zapfast-handoff-test-{:016x}",
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let target = directory.join("zapfast");
+        fs::write(&target, b"old").unwrap();
+        let installation = Installation {
+            executable: target,
+            kind: Kind::Portable,
+        };
+        let stage = staging(&installation).unwrap();
+        let payload = stage.join("next");
+        fs::write(&payload, b"new").unwrap();
+        let prepared = Prepared {
+            installation: installation.clone(),
+            directory: stage.clone(),
+            sha256: hash(&payload).unwrap(),
+            payload,
+            // This build has caught up with it, which is the state the app is
+            // in right after the helper swapped the payload in.
+            version: env!("CARGO_PKG_VERSION").into(),
+        };
+        save_prepared(&prepared).unwrap();
+        fs::write(stage.join("handoff.json"), b"{}").unwrap();
+
+        assert!(
+            load_pending(&installation).unwrap().is_none(),
+            "a payload this build has caught up with is not installed"
+        );
+        assert!(
+            stage.join("handoff.json").is_file(),
+            "the receipt the helper was handed survives until it is done"
+        );
+
+        // Once the helper has written its result, the folder empties itself.
+        fs::write(stage.join("result.txt"), b"Updated").unwrap();
+        assert!(load_pending(&installation).unwrap().is_none());
+        assert!(!stage.exists(), "the folder goes once the helper is done");
         fs::remove_dir_all(directory).unwrap();
     }
 
