@@ -663,7 +663,10 @@ mod tests {
         for _ in 0..3 {
             frame(&mut app, &mut tour, &ctx, Vec::new());
         }
-        // Privacy sits below the fold, so scroll the page down to it.
+        // Privacy sits below the fold. How far below depends on the platform's
+        // own rows, so scroll until the section is on screen instead of by a
+        // fixed distance: a few points too far and the heading leaves the top
+        // of the view again, and `labels` only holds what a frame painted.
         let wheel = |delta: f32| {
             vec![
                 Event::PointerMoved(pos2(590.0, 400.0)),
@@ -675,9 +678,28 @@ mod tests {
                 },
             ]
         };
-        for _ in 0..6 {
-            frame(&mut app, &mut tour, &ctx, wheel(-320.0));
+        // The heading and the first category it writes, with both switches
+        // between them, have to share one frame for the order to mean
+        // anything.
+        let on_screen = |tour: &Tour| {
+            [
+                "Privacy",
+                "Send read receipts",
+                "Show when you are typing",
+                "Last seen",
+            ]
+            .iter()
+            .all(|label| tour.labels.contains_key(*label))
+        };
+        let mut frames = 0;
+        while !on_screen(&tour) && frames < 40 {
+            frame(&mut app, &mut tour, &ctx, wheel(-160.0));
+            frames += 1;
         }
+        assert!(
+            on_screen(&tour),
+            "the Privacy section and its switches are on screen"
+        );
         let privacy = *tour.labels.get("Privacy").expect("Privacy section");
         let last_seen = *tour.labels.get("Last seen").expect("account last seen");
         let receipts = *tour
