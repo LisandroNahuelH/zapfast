@@ -317,9 +317,8 @@ pub struct Settings {
     /// egui zoom factor.
     pub zoom: f32,
     pub sidebar_width: f32,
-    /// Width of the right inspector pane.
-    #[serde(default = "default_inspector_width")]
-    pub inspector_width: f32,
+    /// Width of the search pane beside the open chat.
+    pub search_pane_width: f32,
     /// Hiding the chat list collapses it to avatars instead of removing it.
     pub collapse_chat_list: bool,
     /// Whether Enter sends and Shift+Enter adds a line. Off swaps them.
@@ -391,10 +390,6 @@ pub struct Settings {
     pub chat_lock_hint_dismissed: bool,
 }
 
-fn default_inspector_width() -> f32 {
-    380.0
-}
-
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -405,7 +400,7 @@ impl Default for Settings {
             system_theme_cache: None,
             zoom: 1.0,
             sidebar_width: 320.0,
-            inspector_width: default_inspector_width(),
+            search_pane_width: 380.0,
             collapse_chat_list: false,
             enter_sends: true,
             send_read_receipts: true,
