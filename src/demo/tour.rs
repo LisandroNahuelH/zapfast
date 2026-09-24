@@ -650,6 +650,29 @@ mod tests {
     }
 
     #[test]
+    fn the_settings_search_finds_account_privacy_rows() {
+        let mut app = super::super::tests::app();
+        app.page = Page::Settings;
+        app.settings_search = "profile photo".into();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut tour = Tour::new(None, None);
+        for _ in 0..3 {
+            frame(&mut app, &mut tour, &ctx, Vec::new());
+        }
+        assert!(tour.labels.contains_key("Profile photo"));
+        assert!(!tour.labels.contains_key("Last seen"));
+        assert!(!tour.labels.contains_key("Enter sends"));
+        // The section title keeps every row in it.
+        app.settings_search = "privacy".into();
+        for _ in 0..3 {
+            frame(&mut app, &mut tour, &ctx, Vec::new());
+        }
+        assert!(tour.labels.contains_key("Last seen"));
+        assert!(tour.labels.contains_key("Send read receipts"));
+    }
+
+    #[test]
     fn receipts_and_typing_sit_in_settings_privacy() {
         let mut app = super::super::tests::app();
         app.page = Page::Settings;

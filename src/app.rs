@@ -224,8 +224,6 @@ pub struct App {
     pub account_receipts_off: bool,
     /// Last account privacy snapshot from the phone.
     pub account_privacy: crate::privacy::Snapshot,
-    /// Chats picked in the Except dialog while it is open.
-    pub privacy_picked: HashSet<ChatId>,
     /// Receipts of the message whose "Message info" is open.
     pub message_receipts: Option<crate::model::MessageReceipts>,
     /// The group message the backend is following receipts for.
@@ -611,7 +609,6 @@ impl App {
             presence: HashMap::new(),
             account_receipts_off: false,
             account_privacy: crate::privacy::Snapshot::default(),
-            privacy_picked: HashSet::new(),
             message_receipts: None,
             receipts_watch: None,
             invite: None,
@@ -1884,12 +1881,8 @@ impl App {
                     conversation.complete = false;
                 }
                 Event::ReceiptsPrivacy { disabled } => self.account_receipts_off = disabled,
-                Event::AccountPrivacy {
-                    values,
-                    lists,
-                    failed,
-                } => {
-                    self.account_privacy.apply_fetch(values, lists, failed);
+                Event::AccountPrivacy { values, failed } => {
+                    self.account_privacy.apply_fetch(values, failed);
                     // The account value wins over the local switch: it is what
                     // the phone and the other linked devices enforce.
                     if let Some(choice) = self
@@ -1900,9 +1893,12 @@ impl App {
                             choice != crate::privacy::PrivacyChoice::Everyone;
                     }
                 }
-                Event::AccountPrivacySaved { kind, dhash, ids } => {
-                    self.account_privacy.finish_set(kind, dhash, ids);
-                    if kind == crate::privacy::PrivacyKind::ReadReceipts {
+                Event::AccountPrivacySaved { kind } => {
+                    // A confirmation nothing waits for belongs to an account
+                    // that has since been unlinked.
+                    if self.account_privacy.finish_set(kind)
+                        && kind == crate::privacy::PrivacyKind::ReadReceipts
+                    {
                         self.account_receipts_off = self.account_privacy.get(kind)
                             != Some(crate::privacy::PrivacyChoice::Everyone);
                     }
@@ -3015,6 +3011,11 @@ impl App {
         match action {
             Action::Open(page) => {
                 let opens_chats = page == Page::Chats;
+                // Privacy can change on the phone at any time, and nothing
+                // announces it: read it again whenever Settings opens.
+                if page == Page::Settings && self.page != Page::Settings && self.is_connected() {
+                    self.backend.send(Command::FetchAccountPrivacy);
+                }
                 self.page = page;
                 self.dialog = None;
                 self.emoji_start = None;
@@ -3840,11 +3841,6 @@ impl App {
                 if matches!(&dialog, Dialog::Forward { .. }) {
                     self.forward_search.clear();
                 }
-                if let Dialog::PrivacyExcept { kind } = &dialog {
-                    self.forward_search.clear();
-                    self.privacy_picked =
-                        self.account_privacy.list(*kind).ids.into_iter().collect();
-                }
                 if dialog == Dialog::PairWithPhone {
                     self.pair_phone.clear();
                 }
@@ -4188,53 +4184,15 @@ impl App {
             }
             Action::SettingsChanged => self.mark_settings_dirty(),
             Action::SetAccountPrivacy { kind, choice } => {
-                // The value lives on the phone, so there is nothing to write
-                // without a connection.
-                if !self.is_connected() {
-                    return;
-                }
-                if choice == crate::privacy::PrivacyChoice::Except {
-                    self.actions
-                        .push(Action::ShowDialog(Dialog::PrivacyExcept { kind }));
-                    return;
-                }
-                if self.account_privacy.get(kind) == Some(choice)
-                    || self.account_privacy.pending(kind)
+                // The value lives on the phone: nothing is written without a
+                // connection and a snapshot to write against.
+                if self.is_connected()
+                    && self.account_privacy.editable()
+                    && self.account_privacy.begin_set(kind, choice)
                 {
-                    return;
+                    self.backend
+                        .send(Command::SetAccountPrivacy { kind, choice });
                 }
-                self.account_privacy.begin_set(kind, choice);
-                self.backend
-                    .send(Command::SetAccountPrivacy { kind, choice });
-            }
-            Action::SavePrivacyExcept { kind, ids } => {
-                self.dialog = None;
-                self.forward_search.clear();
-                if !self.is_connected() || self.account_privacy.pending(kind) {
-                    return;
-                }
-                let current = self.account_privacy.list(kind);
-                let (add, remove) = crate::privacy::except_diff(&current.ids, &ids);
-                let already =
-                    self.account_privacy.get(kind) == Some(crate::privacy::PrivacyChoice::Except);
-                // Nothing changed, or an empty list was picked for a category
-                // that is not on Except yet: neither is worth a write.
-                if add.is_empty() && remove.is_empty() && already {
-                    return;
-                }
-                if !already && ids.is_empty() {
-                    return;
-                }
-                self.account_privacy
-                    .begin_set(kind, crate::privacy::PrivacyChoice::Except);
-                self.account_privacy.lists.entry(kind).or_default().ids = ids.clone();
-                self.backend.send(Command::SetPrivacyExcept {
-                    kind,
-                    add,
-                    remove,
-                    dhash: current.dhash,
-                    ids,
-                });
             }
             Action::SetNotificationSound { mention, sound } => {
                 if mention {

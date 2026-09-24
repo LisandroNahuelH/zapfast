@@ -434,9 +434,15 @@ fn sections(app: &App) -> Vec<Section> {
 
     let mut privacy = Section::new(translated(locale, "Privacy"));
     let receipts_note = if app.account_receipts_off {
-        "Read receipts are disabled for your WhatsApp account (Settings, Privacy). Direct chats will not send them. When this switch is on, groups still do. Read state syncs between your devices either way."
+        translated(
+            locale,
+            "Read receipts are off for your WhatsApp account (see Read receipts below). Direct chats will not send them. When this switch is on, groups still do. Read state syncs between your devices either way.",
+        )
     } else {
-        "Let people see when you read messages or play voice messages on this copy. Your WhatsApp account setting in Privacy still applies. Read state syncs between your devices either way."
+        translated(
+            locale,
+            "Let people see when you read messages or play voice messages here. The account setting below still applies. Read state syncs between your devices either way.",
+        )
     };
     privacy.toggle("Send read receipts", receipts_note, |settings| {
         &mut settings.send_read_receipts
@@ -444,23 +450,55 @@ fn sections(app: &App) -> Vec<Section> {
     privacy.toggle("Show when you are typing", "", |settings| {
         &mut settings.send_typing
     });
-    if app.account_privacy.fetch_failed {
+    // The account values live on the phone: they are shown once fetched and
+    // edited only while connected with a fresh snapshot.
+    let editable = app.is_connected() && app.account_privacy.editable();
+    let note = if app.account_privacy.fetch_failed {
+        Some(crate::i18n::gettext(
+            locale,
+            "Could not load your account privacy. It loads again when ZapFast reconnects.",
+        ))
+    } else if !app.is_connected() {
+        Some(crate::i18n::gettext(
+            locale,
+            "Connect to WhatsApp to see and change your account privacy.",
+        ))
+    } else if !app.account_privacy.loaded {
+        Some(crate::i18n::gettext(
+            locale,
+            "Loading your account privacy…",
+        ))
+    } else {
+        None
+    };
+    if let Some(note) = note {
         privacy.block(Vec::new(), move |ui, _app| {
-            widgets::rich_text(
-                ui,
-                "Could not load privacy settings. They load again when ZapFast reconnects.",
-                theme::regular(12.5),
-                palette.secondary,
-            );
-            ui.add_space(8.0);
+            widgets::rich_text(ui, &note, theme::regular(12.5), palette.secondary);
+            ui.add_space(10.0);
         });
     }
-    // The values live on the phone, so they need a connection and a loaded
-    // snapshot to be edited.
-    let ready = app.is_connected() && app.account_privacy.loaded;
     for kind in PrivacyKind::ALL {
-        privacy.row(kind.label(), kind.hint(), move |ui, app| {
-            ui.add_enabled_ui(ready, |ui| privacy_control(ui, app, kind));
+        let Some(current) = app.account_privacy.get(kind) else {
+            continue;
+        };
+        let title = Text {
+            shown: kind.label(locale),
+            source: kind.label(Locale::English),
+        };
+        let mut description = Text {
+            shown: kind.hint(locale),
+            source: kind.hint(Locale::English),
+        };
+        // The people an Except list leaves out are chosen on the phone.
+        if current == PrivacyChoice::Except {
+            let note = translated(locale, "Change who is excluded on your phone.");
+            description = Text {
+                shown: format!("{} {}", description.shown, note.shown).into(),
+                source: format!("{} {}", description.source, note.source).into(),
+            };
+        }
+        privacy.row(title, description, move |ui, app| {
+            ui.add_enabled_ui(editable, |ui| privacy_control(ui, app, kind));
         });
     }
 
@@ -1316,7 +1354,8 @@ fn sound_control(ui: &mut egui::Ui, app: &mut App, mention: bool) {
 fn privacy_control(ui: &mut egui::Ui, app: &mut App, kind: PrivacyKind) {
     let palette = app.palette;
     let current = app.account_privacy.get(kind);
-    let selected = current.map(PrivacyChoice::label).unwrap_or("\u{2014}");
+    let locale = app.locale;
+    let selected = current.map_or(Cow::Borrowed("\u{2014}"), |choice| choice.label(locale));
     let pending = app.account_privacy.pending(kind);
     ui.add_enabled_ui(!pending, |ui| {
         ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
@@ -1326,7 +1365,12 @@ fn privacy_control(ui: &mut egui::Ui, app: &mut App, kind: PrivacyKind) {
                 .width(220.0_f32.min(ui.available_width()))
                 .show_ui(ui, |ui| {
                     for choice in kind.choices() {
-                        if theme_option(ui, &palette, choice.label(), current == Some(*choice)) {
+                        if theme_option(
+                            ui,
+                            &palette,
+                            &choice.label(locale),
+                            current == Some(*choice),
+                        ) {
                             app.actions.push(Action::SetAccountPrivacy {
                                 kind,
                                 choice: *choice,
@@ -1337,7 +1381,7 @@ fn privacy_control(ui: &mut egui::Ui, app: &mut App, kind: PrivacyKind) {
             let rect = response.response.rect;
             let text = widgets::line(
                 ui,
-                selected,
+                &selected,
                 theme::regular(14.0),
                 palette.text,
                 rect.width() - 36.0,
@@ -1352,9 +1396,9 @@ fn privacy_control(ui: &mut egui::Ui, app: &mut App, kind: PrivacyKind) {
                 let mut info = egui::WidgetInfo::labeled(
                     egui::WidgetType::ComboBox,
                     ui.is_enabled(),
-                    kind.label(),
+                    kind.label(locale),
                 );
-                info.current_text_value = Some(selected.to_owned());
+                info.current_text_value = Some(selected.to_string());
                 info
             });
         });

@@ -883,7 +883,7 @@ pub fn populate(app: &mut App) {
     }
     // The privacy rows read like a linked account, so the sample shows them
     // filled instead of disabled.
-    app.account_privacy = crate::privacy::Snapshot::demo(ada.to_owned());
+    app.account_privacy = crate::privacy::Snapshot::demo();
     app.scroll_to_bottom = true;
     app.focus_composer = false;
 }
@@ -1879,18 +1879,6 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                     chat,
                     messages: vec!["ada-format".to_owned()],
                 });
-            }
-            "privacy-except" => {
-                app.page = Page::Settings;
-                app.dialog = Some(Dialog::PrivacyExcept {
-                    kind: crate::privacy::PrivacyKind::LastSeen,
-                });
-                app.privacy_picked = app
-                    .account_privacy
-                    .list(crate::privacy::PrivacyKind::LastSeen)
-                    .ids
-                    .into_iter()
-                    .collect();
             }
             "unlink" => app.dialog = Some(Dialog::ConfirmUnlink),
             "toasts" => {
@@ -3641,7 +3629,6 @@ mod tests {
             "failed",
             "info",
             "forward",
-            "privacy-except",
             "unlink",
             "toasts",
             "delete-chat",
@@ -4806,7 +4793,6 @@ mod tests {
             !commands.iter().any(|command| matches!(
                 command,
                 crate::backend::Command::SetAccountPrivacy { .. }
-                    | crate::backend::Command::SetPrivacyExcept { .. }
             )),
             "opening Settings must not write privacy"
         );
@@ -4834,6 +4820,49 @@ mod tests {
             )),
             "picking a value writes it to the phone"
         );
+        // A second pick waits for the first, and an Except list is never
+        // written from here.
+        for choice in [
+            crate::privacy::PrivacyChoice::Everyone,
+            crate::privacy::PrivacyChoice::Except,
+        ] {
+            app.actions.push(crate::model::Action::SetAccountPrivacy {
+                kind: crate::privacy::PrivacyKind::Profile,
+                choice,
+            });
+        }
+        app.actions.push(crate::model::Action::SetAccountPrivacy {
+            kind: crate::privacy::PrivacyKind::About,
+            choice: crate::privacy::PrivacyChoice::Except,
+        });
+        render(&mut app, &ctx);
+        assert!(
+            !app.backend
+                .take_demo_commands()
+                .iter()
+                .any(|command| matches!(
+                    command,
+                    crate::backend::Command::SetAccountPrivacy { .. }
+                )),
+            "nothing else is written"
+        );
+    }
+
+    #[test]
+    fn opening_settings_reads_account_privacy_again() {
+        let mut app = app();
+        app.backend.record_demo_commands();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        app.actions
+            .push(crate::model::Action::Open(crate::model::Page::Settings));
+        render(&mut app, &ctx);
+        assert!(
+            app.backend
+                .take_demo_commands()
+                .iter()
+                .any(|command| matches!(command, crate::backend::Command::FetchAccountPrivacy))
+        );
     }
 
     #[test]
@@ -4845,7 +4874,6 @@ mod tests {
                 crate::privacy::PrivacyKind::LastSeen,
                 crate::privacy::PrivacyChoice::Nobody,
             )],
-            Vec::new(),
             false,
         );
         assert_eq!(
@@ -4854,40 +4882,6 @@ mod tests {
             Some(crate::privacy::PrivacyChoice::Nobody)
         );
         assert!(app.account_privacy.loaded);
-    }
-
-    #[test]
-    fn privacy_except_save_sends_the_added_people_and_the_dhash() {
-        let mut app = app();
-        app.backend.record_demo_commands();
-        let ada = sample_ids()[0].to_owned();
-        let grace = sample_ids()[2].to_owned();
-        let ctx = egui::Context::default();
-        app.attach(&ctx);
-        app.actions.push(crate::model::Action::SavePrivacyExcept {
-            kind: crate::privacy::PrivacyKind::LastSeen,
-            ids: vec![ada.clone(), grace.clone()],
-        });
-        render(&mut app, &ctx);
-        let commands = app.backend.take_demo_commands();
-        let Some(crate::backend::Command::SetPrivacyExcept {
-            add,
-            remove,
-            dhash,
-            ids,
-            ..
-        }) = commands
-            .into_iter()
-            .find(|command| matches!(command, crate::backend::Command::SetPrivacyExcept { .. }))
-        else {
-            panic!("expected SetPrivacyExcept");
-        };
-        // Only the person the sample did not already exclude is added.
-        assert_eq!(dhash, "demo");
-        assert_eq!(add, vec![grace]);
-        assert!(remove.is_empty());
-        assert_eq!(ids.len(), 2);
-        assert_eq!(ids[0], ada);
     }
 
     #[test]
