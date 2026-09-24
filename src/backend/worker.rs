@@ -4911,6 +4911,11 @@ impl Worker {
                 let _ =
                     self.archive
                         .set_group_info(&chat, name.as_deref(), &participants, read_only);
+                // Metadata that lists us again means we are back in, so a
+                // remembered leave no longer holds.
+                if participants.iter().any(|id| self.is_me(id)) {
+                    let _ = self.archive.set_left(&chat, false);
+                }
                 if let Some(expiration) = ephemeral_expiration {
                     let _ = self.archive.set_ephemeral(
                         &chat,
@@ -4988,6 +4993,9 @@ impl Worker {
             .filter(|id| !self.is_me(id))
             .collect();
         let _ = self.archive.set_group_info(chat, None, &participants, true);
+        // A mark of its own, so a later metadata refresh cannot make the chat
+        // writable again or bring Leave back.
+        let _ = self.archive.set_left(chat, true);
         if archive {
             let _ = self.archive.set_archived(chat, true);
             self.tell_phone(chat, move |client, jid| async move {

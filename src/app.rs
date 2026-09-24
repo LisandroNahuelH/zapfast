@@ -2063,6 +2063,13 @@ impl App {
         if chat.locked && !self.locked_folder_open() {
             self.hide_locked_chat(&chat.id);
         }
+        // Leaving with "and archive" archives the chat once the phone agreed,
+        // so this is where the open conversation closes, not before. Only a
+        // chat that just became archived: a message arriving in one that was
+        // already archived does not close it.
+        if is_open && chat.archived && self.chat(&chat.id).is_none_or(|known| !known.archived) {
+            self.actions.push(Action::CloseChat);
+        }
         match self.chats.iter_mut().find(|known| known.id == chat.id) {
             Some(existing) => *existing = chat,
             None => self.chats.push(chat),
@@ -3737,18 +3744,15 @@ impl App {
                 let me = self.me.clone();
                 if let Some(known) = self.chat_mut(&chat) {
                     known.read_only = true;
+                    known.left = true;
                     if let Some(me) = me.as_deref() {
                         known.participants.retain(|id| id != me);
                     }
                 }
-                if archive {
-                    if let Some(known) = self.chat_mut(&chat) {
-                        known.archived = true;
-                    }
-                    if self.open_chat.as_deref() == Some(chat.as_str()) {
-                        self.apply(Action::CloseChat, ctx);
-                    }
-                }
+                // Archiving and closing the open conversation both wait for the
+                // phone: a refused leave rolls the mark back, and a chat that
+                // archived and closed itself would not come back. The
+                // confirmed update does both.
                 self.backend.send(Command::LeaveGroup { chat, archive });
             }
             Action::SetArchived(chat, archived) => {
@@ -5463,8 +5467,19 @@ mod tests {
             &ctx,
         );
         let chat = app.chat(&id).expect("chat");
-        assert!(chat.archived);
-        assert!(app.open_chat.is_none());
+        assert!(!chat.archived, "the archive waits for the phone");
+        assert_eq!(
+            app.open_chat.as_deref(),
+            Some(id.as_str()),
+            "and the conversation stays open until then"
+        );
+        // The phone agreed, so the archive lands and the open chat closes.
+        let mut confirmed = chat.clone();
+        confirmed.archived = true;
+        app.handle_chat_updated(confirmed);
+        app.apply_actions(&ctx);
+        assert!(app.chat(&id).expect("chat").archived);
+        assert!(app.open_chat.is_none(), "the confirmed archive closes it");
     }
 
     #[test]
@@ -5493,6 +5508,7 @@ mod tests {
         app.handle_chat_updated(chat);
         let chat = app.chat(&id).expect("chat");
         assert!(!chat.read_only, "the refused leave is rolled back");
+        assert!(!chat.left, "and so is the leave itself");
         assert!(chat.participants.iter().any(|id| id == me));
         assert!(
             chat.can_leave(app.me.as_deref()),
@@ -5530,8 +5546,19 @@ mod tests {
             &ctx,
         );
         let chat = app.chat(&id).expect("chat");
-        assert!(chat.archived);
-        assert!(app.open_chat.is_none());
+        assert!(!chat.archived, "the archive waits for the phone");
+        assert_eq!(
+            app.open_chat.as_deref(),
+            Some(id.as_str()),
+            "and the conversation stays open until then"
+        );
+        // The phone agreed, so the archive lands and the open chat closes.
+        let mut confirmed = chat.clone();
+        confirmed.archived = true;
+        app.handle_chat_updated(confirmed);
+        app.apply_actions(&ctx);
+        assert!(app.chat(&id).expect("chat").archived);
+        assert!(app.open_chat.is_none(), "the confirmed archive closes it");
     }
 
     #[test]

@@ -112,6 +112,10 @@ pub struct Chat {
     pub participants: Vec<String>,
     /// Whether this is an announcement group where we cannot post.
     pub read_only: bool,
+    /// Whether we confirmed leaving this group or channel. Kept apart from
+    /// `read_only`, which an announcement group also carries and which a later
+    /// metadata refresh rewrites.
+    pub left: bool,
     /// Hidden while WhatsApp chat lock is enabled on the phone.
     pub locked: bool,
     /// Disappearing-message duration in seconds, if enabled.
@@ -150,6 +154,7 @@ impl Chat {
             last: None,
             participants: Vec::new(),
             read_only: false,
+            left: false,
             locked: false,
             ephemeral_expiration: None,
             labels: Vec::new(),
@@ -159,7 +164,7 @@ impl Chat {
 
     /// Newsletter publishing permissions are not supported by this client.
     pub fn can_send(&self) -> bool {
-        !self.locked && !self.read_only && self.kind != ChatKind::Broadcast
+        !self.locked && !self.read_only && !self.left && self.kind != ChatKind::Broadcast
     }
 
     /// A followed WhatsApp channel (newsletter).
@@ -180,6 +185,12 @@ impl Chat {
     /// membership is not known yet, so the group still offers it. A channel
     /// stays leaveable until leaving marks it read-only.
     pub fn can_leave(&self, me: Option<&str>) -> bool {
+        // A chat we already left has nothing to leave, even when the phone
+        // never told us who was in it. `read_only` cannot say this on its own:
+        // an announcement group we are still in carries it too.
+        if self.left {
+            return false;
+        }
         if self.is_channel() {
             return !self.read_only;
         }
@@ -1433,6 +1444,22 @@ pub enum Action {
 #[cfg(test)]
 mod tests {
     use super::StickerCrop;
+
+    #[test]
+    fn a_left_chat_stops_offering_leave_even_without_members() {
+        let me = "me@s.whatsapp.net";
+        let mut chat = super::Chat::new("1-2@g.us".into(), "Rust".into());
+        // An empty member list means the phone never told us who is in, which
+        // is exactly when the old check kept offering Leave after a leave.
+        assert!(chat.can_leave(Some(me)));
+        chat.left = true;
+        assert!(!chat.can_leave(Some(me)), "we already left");
+        assert!(!chat.can_send(), "and we cannot post in it");
+        // Being a member again clears it, so a rejoin is leaveable once more.
+        chat.left = false;
+        chat.participants = vec![me.into()];
+        assert!(chat.can_leave(Some(me)));
+    }
 
     #[test]
     fn looks_unread_covers_counts_and_the_empty_dot() {
