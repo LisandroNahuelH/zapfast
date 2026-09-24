@@ -853,6 +853,15 @@ impl App {
         );
     }
 
+    /// Every id a member list may name us by: the phone number and, before
+    /// the worker knows the pair, the privacy id.
+    pub fn our_ids(&self) -> Vec<&str> {
+        [self.me.as_deref(), self.me_lid.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     /// Whether a message mentions us or replies to one of our messages. A
     /// mention may name us by phone number or by privacy id; the worker files
     /// both under the phone number once it knows the pair, and the raw token
@@ -3777,13 +3786,11 @@ impl App {
             }
             Action::LeaveGroup { chat, archive } => {
                 self.dialog = None;
-                let me = self.me.clone();
+                let ours: Vec<String> = self.our_ids().into_iter().map(str::to_owned).collect();
                 if let Some(known) = self.chat_mut(&chat) {
                     known.read_only = true;
                     known.left = true;
-                    if let Some(me) = me.as_deref() {
-                        known.participants.retain(|id| id != me);
-                    }
+                    known.participants.retain(|id| !ours.contains(id));
                 }
                 // Archiving and closing the open conversation both wait for the
                 // phone: a refused leave rolls the mark back, and a chat that
@@ -5518,7 +5525,7 @@ mod tests {
         assert_eq!(app.open_chat.as_deref(), Some(id.as_str()));
         assert!(app.dialog.is_none());
         // The chat no longer offers leave once we are out of it.
-        assert!(!chat.can_leave(app.me.as_deref()));
+        assert!(!chat.can_leave(&app.our_ids()));
         app.apply(
             Action::LeaveGroup {
                 chat: id.clone(),
@@ -5570,10 +5577,7 @@ mod tests {
         assert!(!chat.read_only, "the refused leave is rolled back");
         assert!(!chat.left, "and so is the leave itself");
         assert!(chat.participants.iter().any(|id| id == me));
-        assert!(
-            chat.can_leave(app.me.as_deref()),
-            "and it can be tried again"
-        );
+        assert!(chat.can_leave(&app.our_ids()), "and it can be tried again");
     }
 
     #[test]
@@ -5597,7 +5601,7 @@ mod tests {
         assert!(!chat.archived);
         assert_eq!(app.open_chat.as_deref(), Some(id.as_str()));
         assert!(app.dialog.is_none());
-        assert!(!chat.can_leave(app.me.as_deref()));
+        assert!(!chat.can_leave(&app.our_ids()));
         app.apply(
             Action::LeaveGroup {
                 chat: id.clone(),

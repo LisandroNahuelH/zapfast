@@ -1302,7 +1302,7 @@ fn context_menu(app: &mut App, ui: &mut egui::Ui, chat: &Chat, palette: &Palette
     } else {
         crate::i18n::gettext(app.locale, "Leave group")
     };
-    if chat.can_leave(app.me.as_deref())
+    if chat.can_leave(&app.our_ids())
         && widgets::menu_item(ui, palette, Some(Icon::LogOut), leave_label.as_ref())
     {
         app.actions

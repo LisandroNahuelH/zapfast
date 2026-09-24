@@ -181,10 +181,11 @@ impl Chat {
         self.unread > 0 || self.marked_unread
     }
 
-    /// Whether Leave is offered. An empty group member list means the
-    /// membership is not known yet, so the group still offers it. A channel
-    /// stays leaveable until leaving marks it read-only.
-    pub fn can_leave(&self, me: Option<&str>) -> bool {
+    /// Whether Leave is offered. `ours` holds every id we may be listed
+    /// under (phone number and privacy id). An empty group member list, or no
+    /// known id of ours, means the membership is not known yet, so the group
+    /// still offers it. A channel stays leaveable until leaving marks it.
+    pub fn can_leave(&self, ours: &[&str]) -> bool {
         // A chat we already left has nothing to leave, even when the phone
         // never told us who was in it. `read_only` cannot say this on its own:
         // an announcement group we are still in carries it too.
@@ -197,11 +198,14 @@ impl Chat {
         if !self.is_group() {
             return false;
         }
-        match me {
-            None => true,
-            Some(_) if self.participants.is_empty() => true,
-            Some(me) => self.participants.iter().any(|id| id == me),
-        }
+        ours.is_empty() || self.participants.is_empty() || self.lists_any(ours)
+    }
+
+    /// Whether the member list names any of `ours`.
+    pub fn lists_any(&self, ours: &[&str]) -> bool {
+        self.participants
+            .iter()
+            .any(|id| ours.contains(&id.as_str()))
     }
 
     pub fn muted(&self, now: i64) -> bool {
@@ -1456,14 +1460,14 @@ mod tests {
         let mut chat = super::Chat::new("1-2@g.us".into(), "Rust".into());
         // An empty member list means the phone never told us who is in, which
         // is exactly when the old check kept offering Leave after a leave.
-        assert!(chat.can_leave(Some(me)));
+        assert!(chat.can_leave(&[me]));
         chat.left = true;
-        assert!(!chat.can_leave(Some(me)), "we already left");
+        assert!(!chat.can_leave(&[me]), "we already left");
         assert!(!chat.can_send(), "and we cannot post in it");
         // Being a member again clears it, so a rejoin is leaveable once more.
         chat.left = false;
         chat.participants = vec![me.into()];
-        assert!(chat.can_leave(Some(me)));
+        assert!(chat.can_leave(&[me]));
     }
 
     #[test]
@@ -1643,15 +1647,19 @@ mod tests {
         let me = "me@s.whatsapp.net";
         let mut chat = Chat::new("1-2@g.us".into(), "Rust".into());
         assert!(
-            chat.can_leave(Some(me)),
+            chat.can_leave(&[me]),
             "unknown membership still offers leave"
         );
         chat.participants = vec![me.into(), "other@s.whatsapp.net".into()];
-        assert!(chat.can_leave(Some(me)));
+        assert!(chat.can_leave(&[me]));
         chat.participants.retain(|id| id != me);
-        assert!(!chat.can_leave(Some(me)));
-        assert!(!Chat::new("1@s.whatsapp.net".into(), "Ada".into()).can_leave(Some(me)));
-        assert!(!Chat::new("1@broadcast".into(), "List".into()).can_leave(Some(me)));
+        assert!(!chat.can_leave(&[me]));
+        // Before the worker knows our own pair, the list may name our privacy id.
+        chat.participants.push("98765@lid".into());
+        assert!(chat.can_leave(&[me, "98765@lid"]));
+        assert!(!chat.can_leave(&[me]));
+        assert!(!Chat::new("1@s.whatsapp.net".into(), "Ada".into()).can_leave(&[me]));
+        assert!(!Chat::new("1@broadcast".into(), "List".into()).can_leave(&[me]));
     }
 
     #[test]
@@ -1659,9 +1667,9 @@ mod tests {
         let me = "me@s.whatsapp.net";
         let mut chat = Chat::new("1@newsletter".into(), "News".into());
         assert!(chat.is_channel());
-        assert!(chat.can_leave(Some(me)));
+        assert!(chat.can_leave(&[me]));
         chat.read_only = true;
-        assert!(!chat.can_leave(Some(me)));
+        assert!(!chat.can_leave(&[me]));
     }
 
     #[test]

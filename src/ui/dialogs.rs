@@ -1078,7 +1078,14 @@ fn confirm_leave_group(app: &mut App, ui: &mut egui::Ui, id: &str) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if theme::pill_button(ui, &palette, "Cancel", false).clicked() {
+            if theme::pill_button(
+                ui,
+                &palette,
+                crate::i18n::gettext(locale, "Cancel").as_ref(),
+                false,
+            )
+            .clicked()
+            {
                 app.actions.push(Action::CloseDialog);
             }
         });
@@ -1336,17 +1343,14 @@ fn chat_info(app: &mut App, ui: &mut egui::Ui, id: &str) {
         .unwrap_or_else(|| crate::model::Chat::new(id.to_owned(), app.display_name(id)));
     let has_chat = app.chat(id).is_some();
     let name = app.chat_title(&chat);
-    title(
-        ui,
-        app,
-        if chat.is_group() {
-            "Group"
-        } else if chat.is_channel() {
-            "Channel"
-        } else {
-            "Contact"
-        },
-    );
+    let heading = if chat.is_group() {
+        crate::i18n::gettext(app.locale, "Group")
+    } else if chat.is_channel() {
+        crate::i18n::gettext(app.locale, "Channel")
+    } else {
+        crate::i18n::gettext(app.locale, "Contact")
+    };
+    title(ui, app, heading.as_ref());
     // Scale the photo and member list to fit the window.
     let window = ui.ctx().content_rect().height();
     let photo = (window * 0.34).clamp(120.0, 240.0);
@@ -1357,7 +1361,7 @@ fn chat_info(app: &mut App, ui: &mut egui::Ui, id: &str) {
     let mut editing = app.contact_edit.take().filter(|_| editable);
     let mut saved = None;
     let mut leave = false;
-    let can_leave = chat.can_leave(app.me.as_deref());
+    let can_leave = chat.can_leave(&app.our_ids());
     ui.vertical_centered(|ui| {
         super::widgets::avatar(ui, &palette, &name, id, photo, picture.as_deref());
         ui.add_space(6.0);

@@ -651,11 +651,12 @@ mod tests {
                 "the dialog offers archiving in the same step"
             );
             // Cancelling leaves the chat alone.
-            click(&mut app, &mut tour, &ctx, "Cancel");
+            let cancel = crate::i18n::gettext(locale, "Cancel").to_string();
+            click(&mut app, &mut tour, &ctx, &cancel);
             assert!(app.dialog.is_none(), "cancel closes the dialog");
             let chat = app.chat(&id).expect("chat");
             assert!(!chat.read_only, "cancelling does not leave the chat");
-            assert!(chat.can_leave(app.me.as_deref()), "and it stays leaveable");
+            assert!(chat.can_leave(&app.our_ids()), "and it stays leaveable");
         }
     }
 

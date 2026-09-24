@@ -353,7 +353,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                                     .push(Action::SetArchived(chat.id.clone(), !chat.archived));
                             }
                             widgets::menu_separator(ui, &palette);
-                            if chat.can_leave(app.me.as_deref())
+                            if chat.can_leave(&app.our_ids())
                                 && widgets::menu_item(
                                     ui,
                                     &palette,
@@ -837,7 +837,7 @@ fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                     ui.vertical_centered(|ui| {
                         theme::text(
                             ui,
-                            if chat.read_only {
+                            if chat.left {
                                 crate::i18n::gettext(app.locale, "You left this channel")
                             } else {
                                 crate::i18n::gettext(
@@ -863,12 +863,11 @@ fn composer(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                     // A group we left says so instead of blaming the admins:
                     // either we left it here, or the phone says we are no
                     // longer a member.
+                    let ours = app.our_ids();
                     let left = chat.left
-                        || (app
-                            .me
-                            .as_deref()
-                            .is_some_and(|me| !chat.participants.iter().any(|id| id == me))
-                            && !chat.participants.is_empty());
+                        || (!ours.is_empty()
+                            && !chat.participants.is_empty()
+                            && !chat.lists_any(&ours));
                     if left {
                         theme::text(
                             ui,
