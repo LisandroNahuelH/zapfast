@@ -766,6 +766,9 @@ impl Archive {
             return Ok(None);
         };
         media.path = path.map(Path::to_path_buf);
+        if path.is_some() {
+            media.clear_retry();
+        }
         self.set_content(chat, id, &message.content, message.edited)?;
         Ok(Some(message))
     }
@@ -785,6 +788,61 @@ impl Archive {
             ))
         })?;
         rows.collect()
+    }
+
+    /// Oldest due attachment in `chat` with no local file, size at most
+    /// `max_size`, and a first failure younger than thirty days.
+    pub fn undownloaded_media(
+        &self,
+        chat: &str,
+        max_size: u64,
+        now: i64,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        let cutoff = now.saturating_sub(crate::model::MEDIA_RETRY_TTL_SECS);
+        let mut statement = self.connection.prepare(
+            "SELECT id FROM messages
+             WHERE chat = ?1
+               AND json_extract(content, '$.media.size') IS NOT NULL
+               AND json_extract(content, '$.media.size') <= ?2
+               AND (json_extract(content, '$.media.path') IS NULL
+                    OR json_extract(content, '$.media.path') = '')
+               AND (json_extract(content, '$.media.retry_from') IS NULL
+                    OR json_extract(content, '$.media.retry_from') > ?3)
+               AND (json_extract(content, '$.media.retry_at') IS NULL
+                    OR json_extract(content, '$.media.retry_at') <= ?4)
+             ORDER BY timestamp ASC, rowid ASC
+             LIMIT ?5",
+        )?;
+        let rows = statement.query_map(
+            params![chat, max_size as i64, cutoff, now, limit as i64],
+            |row| row.get(0),
+        )?;
+        rows.collect()
+    }
+
+    /// Records a failed download so the background can try it again later.
+    /// `reset` opens a new thirty-day window, as a manual retry does.
+    pub fn set_media_retry(
+        &self,
+        chat: &str,
+        id: &str,
+        now: i64,
+        reset: bool,
+    ) -> Result<Option<String>> {
+        let Some(mut message) = self.message(chat, id)? else {
+            return Ok(None);
+        };
+        let Some(media) = message.content.media_mut() else {
+            return Ok(None);
+        };
+        if !reset && media.retry_given_up(now) {
+            return Ok(Some(crate::model::MEDIA_NO_LONGER.to_owned()));
+        }
+        media.schedule_retry(now, reset);
+        let from = media.retry_from.unwrap_or(now);
+        self.set_content(chat, id, &message.content, message.edited)?;
+        Ok(Some(crate::model::media_retry_notice(from, now).to_owned()))
     }
 
     /// Includes each carousel attachment separately so moves and cache cleanup
@@ -1866,10 +1924,7 @@ pub(crate) mod tests {
         let media = || crate::model::Media {
             mime: "application/pdf".into(),
             size: 1,
-            width: None,
-            height: None,
-            path: None,
-            state: crate::model::MediaState::Idle,
+            ..Default::default()
         };
         let mut plain = message("1@s.whatsapp.net", "m1", 10, false);
         plain.content = Content::text("The Difference Engine assembles");
@@ -2207,10 +2262,7 @@ pub(crate) mod tests {
             media: crate::model::Media {
                 mime: "image/jpeg".into(),
                 size: 1,
-                width: None,
-                height: None,
-                path: None,
-                state: crate::model::MediaState::Idle,
+                ..Default::default()
             },
         };
         archive.insert_message(&image, None).expect("insert");
@@ -2374,7 +2426,7 @@ pub(crate) mod tests {
             width: None,
             height: None,
             path: Some(PathBuf::from(format!("/cache/zapfast/media/{name}.jpg"))),
-            state: Default::default(),
+            ..Default::default()
         };
         let card = |image: crate::model::Media| crate::model::InteractiveCard {
             image: Some(image),
@@ -3037,7 +3089,7 @@ pub(crate) mod tests {
                 width: None,
                 height: None,
                 path: None,
-                state: Default::default(),
+                ..Default::default()
             },
         };
         archive.insert_message(&picture, None).expect("insert");
@@ -3071,7 +3123,7 @@ pub(crate) mod tests {
 #[cfg(test)]
 mod sticker_tests {
     use super::*;
-    use crate::model::{Content, Delivery, Media, MediaState};
+    use crate::model::{Content, Delivery, Media};
 
     fn sticker(chat: &str, id: &str, timestamp: i64, path: Option<&str>) -> Message {
         Message {
@@ -3088,7 +3140,7 @@ mod sticker_tests {
                     width: Some(512),
                     height: Some(512),
                     path: path.map(std::path::PathBuf::from),
-                    state: MediaState::Idle,
+                    ..Default::default()
                 },
                 animated: false,
             },
@@ -3192,7 +3244,7 @@ mod sticker_tests {
 #[cfg(test)]
 mod media_path_tests {
     use super::*;
-    use crate::model::{Content, Delivery, Media, MediaState};
+    use crate::model::{Content, Delivery, Media};
 
     fn picture(id: &str) -> Message {
         Message {
@@ -3206,10 +3258,7 @@ mod media_path_tests {
                 media: Media {
                     mime: "image/jpeg".into(),
                     size: 10,
-                    width: None,
-                    height: None,
-                    path: None,
-                    state: MediaState::Idle,
+                    ..Default::default()
                 },
                 caption: None,
             },
@@ -3223,6 +3272,90 @@ mod media_path_tests {
             forwarded: false,
             thumbnail: None,
         }
+    }
+
+    #[test]
+    fn undownloaded_media_skips_filed_and_oversize_rows() {
+        let archive = Archive::in_memory().expect("opens");
+        archive.ensure_chat("a@s.whatsapp.net", "A").expect("chat");
+        archive
+            .insert_message(&picture("p1"), None)
+            .expect("inserted");
+        let mut huge = picture("p2");
+        huge.timestamp = 2;
+        if let Content::Image { media, .. } = &mut huge.content {
+            media.size = 65 * 1024 * 1024;
+        }
+        archive.insert_message(&huge, None).expect("inserted");
+        let mut filed = picture("p3");
+        filed.timestamp = 3;
+        if let Content::Image { media, .. } = &mut filed.content {
+            media.path = Some(std::path::PathBuf::from("/tmp/p3.jpg"));
+        }
+        archive.insert_message(&filed, None).expect("inserted");
+        assert_eq!(
+            archive
+                .undownloaded_media("a@s.whatsapp.net", 64 * 1024 * 1024, 0, 8)
+                .expect("listed"),
+            vec!["p1".to_owned()]
+        );
+    }
+
+    #[test]
+    fn undownloaded_media_honours_the_backoff_and_the_thirty_day_window() {
+        let archive = Archive::in_memory().expect("opens");
+        archive.ensure_chat("a@s.whatsapp.net", "A").expect("chat");
+        archive
+            .insert_message(&picture("p1"), None)
+            .expect("inserted");
+        let notice = archive
+            .set_media_retry("a@s.whatsapp.net", "p1", 1_000, false)
+            .expect("retry")
+            .expect("row");
+        assert_eq!(notice, crate::model::MEDIA_STILL_TRYING);
+        assert!(
+            archive
+                .undownloaded_media("a@s.whatsapp.net", 64 * 1024 * 1024, 1_010, 8)
+                .expect("listed")
+                .is_empty()
+        );
+        assert_eq!(
+            archive
+                .undownloaded_media("a@s.whatsapp.net", 64 * 1024 * 1024, 1_030, 8)
+                .expect("listed"),
+            vec!["p1".to_owned()]
+        );
+        let late = 1_000 + crate::model::MEDIA_RETRY_TTL_SECS;
+        assert!(
+            archive
+                .undownloaded_media("a@s.whatsapp.net", 64 * 1024 * 1024, late, 8)
+                .expect("listed")
+                .is_empty()
+        );
+        let notice = archive
+            .set_media_retry("a@s.whatsapp.net", "p1", late, true)
+            .expect("reset")
+            .expect("row");
+        assert_eq!(notice, crate::model::MEDIA_STILL_TRYING);
+        // A fresh window waits its first backoff before the file is due again.
+        let due = late + crate::model::media_retry_delay_secs(1);
+        assert_eq!(
+            archive
+                .undownloaded_media("a@s.whatsapp.net", 64 * 1024 * 1024, due, 8)
+                .expect("listed"),
+            vec!["p1".to_owned()]
+        );
+        archive
+            .set_media_path("a@s.whatsapp.net", "p1", Path::new("/tmp/p1.jpg"))
+            .expect("filed");
+        let stored = archive
+            .message("a@s.whatsapp.net", "p1")
+            .expect("read")
+            .expect("row");
+        let media = stored.content.media().expect("media");
+        assert_eq!(media.retry_from, None);
+        assert_eq!(media.retry_at, None);
+        assert_eq!(media.retry_fails, 0);
     }
 
     #[test]

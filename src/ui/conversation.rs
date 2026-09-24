@@ -5103,15 +5103,20 @@ fn picture(
                     .circle_filled(disc.center(), 22.0, Color32::from_black_alpha(120));
                 theme::paint_spinner(ui, disc, 22.0, Color32::WHITE);
             }
-            MediaState::Failed(_) => {
+            MediaState::Failed(error) => {
                 ui.painter()
                     .circle_filled(disc.center(), 22.0, Color32::from_black_alpha(120));
                 theme::paint_icon(ui, Icon::CircleAlert, disc, 22.0, palette.danger);
-                ui.painter().text(
-                    rect.center() + vec2(0.0, 34.0),
-                    Align2::CENTER_CENTER,
-                    "Download failed. Click to retry.",
-                    theme::regular(11.5),
+                // The worker's notice says what happened and whether it will
+                // try again, so it is shown as it arrives.
+                let wrap = (rect.width() - 16.0).max(80.0);
+                let text = widgets::line(ui, error, theme::regular(11.5), Color32::WHITE, wrap, 3);
+                text.paint(
+                    ui,
+                    egui::pos2(
+                        rect.center().x - text.size().x / 2.0,
+                        rect.center().y + 22.0,
+                    ),
                     Color32::WHITE,
                 );
             }
@@ -5712,7 +5717,7 @@ fn attachment(
                     ui.set_width((card - 70.0).max(0.0));
                     widgets::rich_text(ui, title, theme::medium(14.0), palette.text);
                     let detail = match &media.state {
-                        MediaState::Failed(error) => format!("{error}. Click to retry."),
+                        MediaState::Failed(error) => error.clone(),
                         _ => detail.to_owned(),
                     };
                     theme::text(ui, detail, theme::regular(12.0), palette.secondary);
@@ -5938,7 +5943,7 @@ fn voice_player(
                         .unwrap_or_else(|| crate::util::bytes(media.size)),
                 };
                 let text = match &media.state {
-                    MediaState::Failed(error) => format!("{error}. Click to retry."),
+                    MediaState::Failed(error) => error.clone(),
                     _ => shown,
                 };
                 theme::text(ui, text, theme::regular(11.5), palette.secondary);
@@ -6179,8 +6184,7 @@ mod tests {
             size: 1,
             width: w,
             height: h,
-            path: None,
-            state: MediaState::Idle,
+            ..Default::default()
         }
     }
 

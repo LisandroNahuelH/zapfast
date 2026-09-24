@@ -757,6 +757,7 @@ impl App {
         // A hand-edited speed snaps to a supported one, so a speed control
         // always shows the speed that plays.
         app.settings.voice_speed = app.player.set_speed(app.settings.voice_speed);
+        app.sync_prefetch();
         app
     }
 
@@ -2706,6 +2707,7 @@ impl App {
             self.settings.last_chat = Some(id);
             self.mark_settings_dirty();
         }
+        self.sync_prefetch();
     }
 
     /// Returns keyboard focus to the open conversation when no search or
@@ -3003,6 +3005,18 @@ impl App {
         self.settings_dirty = true;
     }
 
+    /// Tells the worker how much older history the background may fetch, and
+    /// which chat is open so it goes first.
+    fn sync_prefetch(&mut self) {
+        self.backend.send(Command::SetHistoryPrefetch {
+            mode: self.settings.history_prefetch,
+            focused: self
+                .open_chat
+                .clone()
+                .or_else(|| self.settings.last_chat.clone()),
+        });
+    }
+
     fn save_settings(&mut self) {
         self.settings_dirty = false;
         self.last_settings_save = Instant::now();
@@ -3193,6 +3207,7 @@ impl App {
                 self.reaction_target = None;
                 self.reaction_anchor = None;
                 self.emoji_jump = None;
+                self.sync_prefetch();
             }
             Action::SendText {
                 chat,
@@ -4247,6 +4262,11 @@ impl App {
                 self.settings.interface_language = choice;
                 self.locale = crate::i18n::resolve(choice);
                 self.mark_settings_dirty();
+            }
+            Action::SetHistoryPrefetch(mode) => {
+                self.settings.history_prefetch = mode;
+                self.mark_settings_dirty();
+                self.sync_prefetch();
             }
             Action::SetCustomTheme(filename) => {
                 if let Some(theme) = self.custom_themes.find(&filename) {
@@ -6744,7 +6764,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: path.map(PathBuf::from),
-                state: MediaState::Idle,
+                ..Default::default()
             },
             seconds: Some(3),
             voice_note: true,
@@ -6949,10 +6969,9 @@ mod tests {
                 media: Media {
                     mime: "image/jpeg".into(),
                     size: 100,
-                    width: None,
-                    height: None,
                     path,
                     state,
+                    ..Default::default()
                 },
             },
             ..message(chat, "picture", 1)
@@ -7006,7 +7025,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: None,
-                state: MediaState::Idle,
+                ..Default::default()
             },
             seconds: Some(3),
             gif: false,
@@ -7064,7 +7083,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: None,
-                state: MediaState::Idle,
+                ..Default::default()
             },
         };
         app.conversations
@@ -7126,7 +7145,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: None,
-                state: MediaState::Idle,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -7533,7 +7552,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: None,
-                state: MediaState::Idle,
+                ..Default::default()
             },
         };
         app.conversations

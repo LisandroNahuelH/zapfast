@@ -46,6 +46,43 @@ impl ThemeChoice {
     }
 }
 
+/// How much older phone history and its files are fetched in the background.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryPrefetch {
+    /// Nothing is fetched in the background.
+    Off,
+    /// Only the chat that is open.
+    Focused,
+    /// Every pinned chat and the ten most recently active ones.
+    #[default]
+    RecentAndPinned,
+}
+
+impl HistoryPrefetch {
+    /// The choices, in the order the picker shows them.
+    pub const ALL: [HistoryPrefetch; 3] = [Self::Off, Self::Focused, Self::RecentAndPinned];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Focused => "Current chat",
+            Self::RecentAndPinned => "Recent and pinned",
+        }
+    }
+
+    /// What the choice does, shown while the pointer rests on it.
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::Off => "Do not fetch older messages in the background.",
+            Self::Focused => "Fetch older messages and files for the open chat only.",
+            Self::RecentAndPinned => {
+                "Fetch older history for pinned chats and the ten most recent ones."
+            }
+        }
+    }
+}
+
 /// Background colours offered by WhatsApp's wallpaper picker.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -388,6 +425,9 @@ pub struct Settings {
     pub chat_lock_code_hash: Option<String>,
     /// The one-time locked-chat code hint has been opened.
     pub chat_lock_hint_dismissed: bool,
+    /// How much older phone history and its files are fetched in the
+    /// background. Local: nothing here reaches WhatsApp.
+    pub history_prefetch: HistoryPrefetch,
 }
 
 impl Default for Settings {
@@ -433,6 +473,7 @@ impl Default for Settings {
             chat_lock_code: None,
             chat_lock_code_hash: None,
             chat_lock_hint_dismissed: false,
+            history_prefetch: HistoryPrefetch::RecentAndPinned,
         }
     }
 }
@@ -597,6 +638,16 @@ mod tests {
             !parsed.collapse_chat_list,
             "hiding the list keeps removing it until asked otherwise"
         );
+        assert_eq!(parsed.history_prefetch, HistoryPrefetch::RecentAndPinned);
+    }
+
+    #[test]
+    fn history_prefetch_names_its_modes_and_what_they_fetch() {
+        assert_eq!(HistoryPrefetch::ALL.len(), 3);
+        assert_eq!(HistoryPrefetch::Focused.label(), "Current chat");
+        assert!(HistoryPrefetch::Off.hint().contains("Do not fetch"));
+        assert!(HistoryPrefetch::Focused.hint().contains("open chat"));
+        assert!(HistoryPrefetch::RecentAndPinned.hint().contains("pinned"));
     }
 
     #[test]

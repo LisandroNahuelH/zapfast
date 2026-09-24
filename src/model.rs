@@ -790,7 +790,7 @@ pub(crate) const ATTACHMENT_DOWNLOAD_LIMIT: u64 = 64 * 1024 * 1024;
 
 /// Attachment metadata, download state, and optional local file. Download keys
 /// remain in the archive's raw message.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Media {
     pub mime: String,
     pub size: u64,
@@ -799,9 +799,87 @@ pub struct Media {
     /// Decrypted downloaded file.
     #[serde(default)]
     pub path: Option<PathBuf>,
+    /// First failed download, in Unix seconds. The background gives up
+    /// thirty days later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_from: Option<i64>,
+    /// When the background tries this file again, in Unix seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_at: Option<i64>,
+    /// Failed attempts since `retry_from`, which set the backoff.
+    #[serde(default, skip_serializing_if = "u32_is_zero")]
+    pub retry_fails: u32,
     /// Non-persisted download state.
     #[serde(skip)]
     pub state: MediaState,
+}
+
+fn u32_is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
+/// The background gives up this long after a file's first failed download.
+pub const MEDIA_RETRY_TTL_SECS: i64 = 30 * 24 * 60 * 60;
+/// Shown on a file the background is still trying to fetch.
+pub const MEDIA_STILL_TRYING: &str =
+    "We are still trying to get this file automatically. Click to retry manually.";
+/// Shown on a file whose download window has passed.
+pub const MEDIA_NO_LONGER: &str = "No longer available on WhatsApp's servers";
+
+/// Delay before the next background attempt: 30 s doubling to 15 min, then
+/// an hour.
+pub fn media_retry_delay_secs(fails: u32) -> i64 {
+    match fails {
+        0 | 1 => 30,
+        2 => 60,
+        3 => 120,
+        4 => 240,
+        5 => 480,
+        6 => 900,
+        _ => 3600,
+    }
+}
+
+/// The line a failed download shows: still trying, or given up.
+pub fn media_retry_notice(retry_from: i64, now: i64) -> &'static str {
+    if now.saturating_sub(retry_from) >= MEDIA_RETRY_TTL_SECS {
+        MEDIA_NO_LONGER
+    } else {
+        MEDIA_STILL_TRYING
+    }
+}
+
+impl Media {
+    /// Forgets the failure window once the file is here.
+    pub fn clear_retry(&mut self) {
+        self.retry_from = None;
+        self.retry_at = None;
+        self.retry_fails = 0;
+    }
+
+    /// Records a failed attempt and when the next one is due. `reset` starts
+    /// a new window, as a click on the bubble does.
+    pub fn schedule_retry(&mut self, now: i64, reset: bool) {
+        let from = if reset {
+            now
+        } else {
+            self.retry_from.unwrap_or(now)
+        };
+        let fails = if reset {
+            1
+        } else {
+            self.retry_fails.saturating_add(1)
+        };
+        self.retry_from = Some(from);
+        self.retry_fails = fails;
+        self.retry_at = Some(now.saturating_add(media_retry_delay_secs(fails)));
+    }
+
+    /// Whether the file's thirty-day window has passed.
+    pub fn retry_given_up(&self, now: i64) -> bool {
+        self.retry_from
+            .is_some_and(|from| now.saturating_sub(from) >= MEDIA_RETRY_TTL_SECS)
+    }
 }
 
 impl Media {
@@ -1465,6 +1543,7 @@ pub enum Action {
     SetCustomTheme(String),
     SetWallpaperColor(crate::settings::WallpaperColor),
     SetWallpaperDoodles(bool),
+    SetHistoryPrefetch(crate::settings::HistoryPrefetch),
     ReloadThemes,
     OpenThemesFolder,
     SettingsChanged,
@@ -1698,10 +1777,8 @@ mod tests {
         let image = |path: Option<&str>| Media {
             mime: "image/jpeg".into(),
             size: 1,
-            width: None,
-            height: None,
             path: path.map(PathBuf::from),
-            state: MediaState::Idle,
+            ..Default::default()
         };
         let content = |main: Option<&str>, cards: [Option<&str>; 2]| Content::Interactive {
             text: String::new(),
@@ -1750,10 +1827,7 @@ mod tests {
         Media {
             mime: "image/jpeg".into(),
             size: 1,
-            width: None,
-            height: None,
-            path: None,
-            state: MediaState::Idle,
+            ..Default::default()
         }
     }
 

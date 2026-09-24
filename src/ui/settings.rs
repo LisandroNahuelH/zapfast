@@ -354,6 +354,11 @@ fn sections(app: &App) -> Vec<Section> {
         "Download non-sticker attachments up to 64 MiB when they enter view. Visible stickers also download automatically up to this limit. When off, click an attachment up to this limit to download it.",
         |settings| &mut settings.auto_download,
     );
+    chats.row(
+        "Download older history in the background",
+        "Slowly fetch older messages and their files, up to 64 MiB each, so scrolling up does not hit WhatsApp's rate limit. The phone is asked for one chat every twenty seconds, and files that fail are tried again for thirty days.",
+        history_prefetch_control,
+    );
     chats.toggle(
         translated(locale, "Show labels as chips"),
         translated(
@@ -1346,6 +1351,29 @@ fn sound_control(ui: &mut egui::Ui, app: &mut App, mention: bool) {
                 app.actions.push(Action::PickNotificationSound { mention });
             }
         });
+}
+
+/// How much older history the background fetches. Each choice explains
+/// itself while the pointer rests on it.
+fn history_prefetch_control(ui: &mut egui::Ui, app: &mut App) {
+    use crate::settings::HistoryPrefetch;
+    let current = app.settings.history_prefetch;
+    egui::ComboBox::from_id_salt("history_prefetch")
+        .selected_text(current.label())
+        .width(200.0_f32.min(ui.available_width()))
+        .show_ui(ui, |ui| {
+            for choice in HistoryPrefetch::ALL {
+                if ui
+                    .selectable_label(current == choice, choice.label())
+                    .on_hover_text(choice.hint())
+                    .clicked()
+                {
+                    app.actions.push(Action::SetHistoryPrefetch(choice));
+                }
+            }
+        })
+        .response
+        .on_hover_text(current.hint());
 }
 
 /// One account privacy category's picker: what the phone holds, and the

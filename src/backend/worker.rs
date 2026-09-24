@@ -41,6 +41,7 @@ mod interactive;
 mod link_watch;
 mod poll_history;
 mod polls;
+mod prefetch;
 mod stickers;
 
 use super::{Command, Event, LinkStatus, Refusal, Unsent, Waker, read_sync::ReadSync};
@@ -48,7 +49,8 @@ use crate::app::PAGE;
 use crate::archive::Archive;
 use crate::model::{
     ATTACHMENT_DOWNLOAD_LIMIT, Chat, ChatId, ChatKind, Contact, Content, Delivery, Gif, GifError,
-    LIVE_LOCATION_LIMIT, LinkPreview, Media, MentionRef, Message, Quoted, Reaction,
+    LIVE_LOCATION_LIMIT, LinkPreview, MEDIA_STILL_TRYING, Media, MentionRef, Message, Quoted,
+    Reaction,
 };
 use crate::paths::AppDirs;
 use crate::privacy::{self, PrivacyChoice, PrivacyKind};
@@ -271,6 +273,14 @@ fn spawn_pin_limit_check(
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+}
+
+/// Unix seconds, for the retry window a failed download carries.
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 fn account_allows_receipts(
@@ -516,6 +526,8 @@ pub async fn run(
         poll_decrypting: 0,
         poll_history: Default::default(),
         poll_sending: HashSet::new(),
+        prefetch: prefetch::State::default(),
+        prefetch_older: HashSet::new(),
         interactive_sending: HashMap::new(),
         receipts_watch: None,
         receipts_pruned: Instant::now(),
@@ -575,6 +587,7 @@ pub async fn run(
                 worker.pump_favorite_chats();
                 worker.pump_poll_votes();
                 worker.pump_poll_history();
+                worker.pump_prefetch();
                 worker.prune_waiting_receipts();
             }
         }
@@ -711,6 +724,10 @@ struct Worker {
     receipts_pruned: Instant,
     /// Notices a link that stays open after a sleep but carries nothing.
     link_watch: link_watch::LinkWatch,
+    /// Serial background phone-history and attachment prefetch.
+    prefetch: prefetch::State,
+    /// Phone-history requests started by prefetch, not by a reader scrolling.
+    prefetch_older: HashSet<ChatId>,
     dirs: AppDirs,
     events: std::sync::mpsc::Sender<Event>,
     commands: mpsc::UnboundedSender<Command>,
@@ -1076,6 +1093,10 @@ impl Worker {
     fn set_status(&mut self, status: LinkStatus) {
         if self.status != status {
             log::info!("link: {}", status.log_label());
+            if matches!(status, LinkStatus::Connected) {
+                // The phone may have history for us again.
+                self.prefetch.on_connected();
+            }
             self.status = status.clone();
             self.emit(Event::Link(status));
         }
@@ -2448,6 +2469,8 @@ impl Worker {
         self.poll_sending.clear();
         self.interactive_sending.clear();
         self.poll_history = Default::default();
+        self.prefetch.reset_session();
+        self.prefetch_older.clear();
         self.pending_older.clear();
         self.pending_avatars.clear();
         self.me_pn = None;
@@ -3833,22 +3856,27 @@ impl Worker {
                 self.emit(Event::OlderFetched { chat, more });
                 continue;
             };
-            match self
-                .archive
-                .messages(&chat, Some((before_time, &before_id)), 500)
-            {
-                Ok(mut messages) => {
-                    for message in &mut messages {
-                        self.polish(message);
+            // A background request fills the archive without moving the view.
+            let silent = self.prefetch_older.remove(&chat);
+            self.prefetch.finish_history(&chat, more, Instant::now());
+            if !silent {
+                match self
+                    .archive
+                    .messages(&chat, Some((before_time, &before_id)), 500)
+                {
+                    Ok(mut messages) => {
+                        for message in &mut messages {
+                            self.polish(message);
+                        }
+                        self.emit(Event::Messages {
+                            chat: chat.clone(),
+                            messages,
+                            older: true,
+                            complete: false,
+                        })
                     }
-                    self.emit(Event::Messages {
-                        chat: chat.clone(),
-                        messages,
-                        older: true,
-                        complete: false,
-                    })
+                    Err(error) => log::warn!("could not read older messages: {error}"),
                 }
-                Err(error) => log::warn!("could not read older messages: {error}"),
             }
             self.emit(Event::OlderFetched { chat, more });
         }
@@ -3864,12 +3892,14 @@ impl Worker {
             .collect();
         for chat in expired {
             self.pending_older.remove(&chat);
+            let silent = self.prefetch_older.remove(&chat);
+            self.prefetch.fail_history(&chat, Instant::now());
             self.emit(Event::OlderFetched {
                 chat: chat.clone(),
                 more: true,
             });
             // Report the timeout once per chat; later retries back off silently.
-            if self.older_warned.insert(chat) {
+            if !silent && self.older_warned.insert(chat) {
                 self.emit(Event::Error(
                     "Your phone did not send older messages. Check that it is online".to_owned(),
                 ));
@@ -3877,14 +3907,21 @@ impl Worker {
         }
     }
 
-    fn fetch_older(&mut self, chat: ChatId) {
+    /// Asks the phone for messages before the archive's earliest one.
+    /// `background` marks the request as prefetch: it never moves the view,
+    /// it waits for the phone to be free, and its failures stay quiet.
+    /// Returns whether the request was sent.
+    fn fetch_older(&mut self, chat: ChatId, background: bool) -> bool {
         if self.pending_older.contains_key(&chat) {
-            return;
+            return false;
+        }
+        if background && !self.pending_older.is_empty() {
+            return false;
         }
         let (Some(client), Some(jid)) = (self.client.clone(), Self::jid_of(&chat)) else {
             // Offline requests retry after reconnection; the banner shows state.
             self.emit(Event::OlderFetched { chat, more: true });
-            return;
+            return false;
         };
         // Chats without messages request history from the current time.
         let (id, from_me, timestamp) = match self.archive.oldest(&chat) {
@@ -3893,6 +3930,9 @@ impl Worker {
         };
         self.pending_older
             .insert(chat.clone(), (Instant::now(), (timestamp, id.clone())));
+        if background {
+            self.prefetch_older.insert(chat.clone());
+        }
         let commands = self.commands.clone();
         tokio::spawn(async move {
             if let Err(error) = client
@@ -3908,6 +3948,61 @@ impl Worker {
                 });
             }
         });
+        true
+    }
+
+    /// Fills the archive and the disk slowly: one phone-history request every
+    /// twenty seconds and one attachment every three, so a reader scrolling up
+    /// does not run into the phone's rate limit.
+    fn pump_prefetch(&mut self) {
+        if !self.status.is_connected()
+            || self.prefetch.mode == crate::settings::HistoryPrefetch::Off
+        {
+            return;
+        }
+        let now = Instant::now();
+        let chats = match self.archive.chats() {
+            Ok(chats) => chats,
+            Err(error) => {
+                log::warn!("prefetch chats: {error}");
+                return;
+            }
+        };
+        let targets =
+            prefetch::targets(&chats, self.prefetch.mode, self.prefetch.focused.as_deref());
+        if self.prefetch.next_media_ready(now) {
+            'media: for chat in &targets {
+                match self
+                    .archive
+                    .undownloaded_media(chat, prefetch::MEDIA_MAX, unix_now(), 8)
+                {
+                    Ok(ids) => {
+                        for id in ids {
+                            if self.prefetch.skip_media(chat, &id) {
+                                continue;
+                            }
+                            self.prefetch.start_media(chat.clone(), id.clone());
+                            if !self.download(chat.clone(), id.clone()) {
+                                let _ = self.prefetch.finish_media(chat, &id, now);
+                                let _ = self.archive.set_media_retry(chat, &id, unix_now(), false);
+                                continue;
+                            }
+                            break 'media;
+                        }
+                    }
+                    Err(error) => log::warn!("prefetch media: {error}"),
+                }
+            }
+        }
+        let Some(chat) = self
+            .prefetch
+            .next_history(now, !self.pending_older.is_empty(), &targets)
+        else {
+            return;
+        };
+        if self.fetch_older(chat.clone(), true) {
+            self.prefetch.start_history(chat);
+        }
     }
 
     // --- commands --------------------------------------------------------
@@ -4067,7 +4162,13 @@ impl Worker {
                 }
             }
             Command::LoadChat { chat, before } => self.load_chat(chat, before),
-            Command::FetchOlder(chat) => self.fetch_older(chat),
+            Command::FetchOlder(chat) => {
+                self.prefetch_older.remove(&chat);
+                let _ = self.fetch_older(chat, false);
+            }
+            Command::SetHistoryPrefetch { mode, focused } => {
+                self.prefetch.configure(mode, focused);
+            }
             Command::LoadUntil { chat, id, before } => self.load_until(chat, id, before),
             Command::SearchMessages { query } => self.search_messages(query),
             Command::SearchChatMessages {
@@ -4098,7 +4199,9 @@ impl Worker {
                 card,
                 chat,
                 message,
-            } => self.download_media(chat, message, card),
+            } => {
+                let _ = self.download_media(chat, message, card);
+            }
             Command::FetchAvatar { id, full } => self.fetch_avatar(id, full),
             Command::EditText {
                 chat,
@@ -4976,8 +5079,12 @@ impl Worker {
             Command::Shutdown => {}
             Command::OlderFailed { chat, error } => {
                 self.pending_older.remove(&chat);
+                let silent = self.prefetch_older.remove(&chat);
+                self.prefetch.fail_history(&chat, Instant::now());
                 self.emit(Event::OlderFetched { chat, more: true });
-                self.emit(Event::Error(error));
+                if !silent {
+                    self.emit(Event::Error(error));
+                }
             }
             Command::GroupInfoFailed { chat, permanent } => {
                 self.handle_failed_group(chat, permanent);
@@ -5530,17 +5637,20 @@ impl Worker {
         }
     }
 
-    fn download(&mut self, chat: ChatId, id: String) {
-        self.download_media(chat, id, None);
+    /// Downloads the message's attachment. Returns whether the download
+    /// started: a request already in flight, a missing connection or a message
+    /// with no file answers `false`, and reports itself through `downloaded`.
+    fn download(&mut self, chat: ChatId, id: String) -> bool {
+        self.download_media(chat, id, None)
     }
 
-    fn download_media(&mut self, chat: ChatId, id: String, card: Option<usize>) {
+    fn download_media(&mut self, chat: ChatId, id: String, card: Option<usize>) -> bool {
         if !self.downloads.insert((chat.clone(), id.clone(), card)) {
-            return;
+            return false;
         }
         let Some(client) = self.client.clone() else {
             self.downloaded(chat, id, card, Err("Not connected to WhatsApp".to_owned()));
-            return;
+            return false;
         };
         let raw = self.archive.raw(&chat, &id).ok().flatten();
         let Some(message) = raw.and_then(|raw| wa::Message::decode_from_slice(&raw).ok()) else {
@@ -5550,7 +5660,7 @@ impl Worker {
                 card,
                 Err("Attachment download keys are missing".to_owned()),
             );
-            return;
+            return false;
         };
         let original = message.get_base_message();
         let base = match interactive::image_at(original, card) {
@@ -5566,7 +5676,7 @@ impl Worker {
                     card,
                     Err("This card has no downloadable image".to_owned()),
                 );
-                return;
+                return false;
             }
         };
         let (downloadable, mime, file_name): (Box<dyn Downloadable>, String, Option<String>) =
@@ -5611,11 +5721,11 @@ impl Worker {
                     card,
                     Err("This message has no downloadable file".to_owned()),
                 );
-                return;
+                return false;
             };
         if attachment_is_too_large(downloadable.file_length()) {
             self.downloaded(chat, id, card, Err(ATTACHMENT_LIMIT_ERROR.to_owned()));
-            return;
+            return false;
         }
         // Keep metadata needed for one media re-upload request and retry.
         let media_key = base
@@ -5737,6 +5847,7 @@ impl Worker {
                 result,
             });
         });
+        true
     }
 
     /// Files the result and releases any picker request that started it.
@@ -5747,9 +5858,27 @@ impl Worker {
         card: Option<usize>,
         result: Result<PathBuf, String>,
     ) {
-        if let Ok(path) = &result {
-            let _ = self.archive.put_media_path_at(&chat, &id, card, Some(path));
-        }
+        // A background download that failed is due again after a backoff; a
+        // click on the bubble opens a fresh thirty-day window.
+        let background = self.prefetch.finish_media(&chat, &id, Instant::now());
+        let result = match result {
+            Ok(path) => {
+                let _ = self
+                    .archive
+                    .put_media_path_at(&chat, &id, card, Some(path.as_path()));
+                Ok(path)
+            }
+            Err(_) if card.is_none() => {
+                let notice = self
+                    .archive
+                    .set_media_retry(&chat, &id, unix_now(), !background)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| MEDIA_STILL_TRYING.to_owned());
+                Err(notice)
+            }
+            Err(error) => Err(error),
+        };
         self.downloads.remove(&(chat.clone(), id.clone(), card));
         let for_picker = self.sticker_downloads.remove(&(chat.clone(), id.clone()));
         self.emit(Event::Media {
@@ -5808,7 +5937,7 @@ impl Worker {
             Ok(list) => {
                 for (chat, id) in list {
                     if self.sticker_downloads.insert((chat.clone(), id.clone())) {
-                        self.download(chat, id);
+                        let _ = self.download(chat, id);
                     }
                 }
             }
@@ -6738,8 +6867,7 @@ fn media(
         size: size.unwrap_or(0),
         width,
         height,
-        path: None,
-        state: Default::default(),
+        ..Default::default()
     }
 }
 
@@ -9760,6 +9888,8 @@ mod receipt_tests {
             poll_decrypting: 0,
             poll_history: Default::default(),
             poll_sending: HashSet::new(),
+            prefetch: prefetch::State::default(),
+            prefetch_older: HashSet::new(),
             interactive_sending: HashMap::new(),
             receipts_watch: None,
             receipts_pruned: Instant::now(),

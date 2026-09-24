@@ -208,6 +208,11 @@ pub enum Command {
     },
     /// Requests messages before the archive's earliest message.
     FetchOlder(ChatId),
+    /// Background history mode and the chat the reader last opened.
+    SetHistoryPrefetch {
+        mode: crate::settings::HistoryPrefetch,
+        focused: Option<ChatId>,
+    },
     Download {
         card: Option<usize>,
         chat: ChatId,
