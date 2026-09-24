@@ -33,9 +33,16 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   flash; Escape closes the calendar, then the pane. The pane can be dragged
   wider, and in a narrow window it lies over the conversation instead of
   squeezing it. The newest 80 matches are listed, and the pane says when there
-  are more.
-  Filter the list to unread, private (one-to-one), or group chats with the
-  chips under the search bar; a chip with unread chats shows how many it has.
+  are more. Right-click a group or a followed channel and choose **Leave group**
+  or **Leave channel** to leave it, with the option to archive it in the same
+  step; the local history stays on this computer and the chat keeps its
+  messages.
+  Filter the list to unread, private (one-to-one), favorites, or group chats
+  with the chips under the search bar; a chip with unread chats shows how many
+  it has. Right-click a chat and choose **Add to favorites** to mark it.
+  Favorites sync with your phone both ways, and the **Favorites** chip lists
+  them in the phone's order below any pinned chats. A chat added here goes to
+  the end of the list; channels cannot be favorites.
   Followed channels have their own **Channels** chip and stay out of the other
   filters; right-click it to mute or unmute every channel at once. **Archived**
   opens the archived chats. Right-click a chat and choose **Mark as unread**
@@ -52,6 +59,13 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   an empty cached subject remains eligible for recovery.
   Typing indicators show other participants, excluding your own linked devices.
   Newsletter channels are read-only; publishing channel posts is not supported.
+- **Account privacy.** Settings, Privacy shows who can see your last seen,
+  online status, profile photo, and About, who can add you to groups, your
+  account read receipts, and whether unknown callers are silenced, and
+  changes them on your phone, so a change applies on every linked device. A
+  category set to **My contacts except** shows as such; the people it excludes
+  are chosen on the phone. The values are read when ZapFast connects and when
+  Settings opens; without a connection they cannot be changed.
 - **Read state across devices.** Reading a chat syncs its unread badge with
   your phone and other linked devices, including when read receipts are off.
   Replies from another device clear preceding unread messages. The read-receipt

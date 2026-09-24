@@ -557,7 +557,7 @@ impl Tour {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Dialog, PickerTab};
+    use crate::model::{Dialog, Page, PickerTab};
 
     fn frame(app: &mut App, tour: &mut Tour, ctx: &egui::Context, events: Vec<Event>) {
         let input = egui::RawInput {
@@ -778,6 +778,70 @@ mod tests {
     }
 
     #[test]
+    fn leaving_is_offered_for_a_group_and_for_a_channel() {
+        for (index, leave, title, archive) in [
+            (
+                1usize,
+                "Leave group",
+                "Leave this group?",
+                "Leave group and archive",
+            ),
+            (
+                9usize,
+                "Leave channel",
+                "Leave this channel?",
+                "Leave channel and archive",
+            ),
+        ] {
+            let mut app = super::super::tests::app();
+            prepare(&mut app);
+            let ctx = egui::Context::default();
+            app.attach(&ctx);
+            let mut tour = Tour::new(None, None);
+            let id = super::super::sample_ids()[index].to_owned();
+            app.open_chat = Some(id.clone());
+            app.dialog = Some(crate::model::Dialog::ChatInfo(id.clone()));
+            for _ in 0..3 {
+                frame(&mut app, &mut tour, &ctx, Vec::new());
+            }
+            // The controls are announced in the interface language, which
+            // follows the system when Settings carries no choice of its own.
+            let locale = app.locale;
+            let leave = crate::i18n::gettext(locale, leave).to_string();
+            let title = crate::i18n::gettext(locale, title).to_string();
+            let archive = crate::i18n::gettext(locale, archive).to_string();
+            assert!(tour.labels.contains_key(&leave), "chat info offers {leave}");
+            click(&mut app, &mut tour, &ctx, &leave);
+            assert!(
+                matches!(
+                    app.dialog,
+                    Some(crate::model::Dialog::ConfirmLeaveGroup(ref open)) if *open == id
+                ),
+                "the button opens the confirm dialog for {id}"
+            );
+            for _ in 0..3 {
+                frame(&mut app, &mut tour, &ctx, Vec::new());
+            }
+            assert!(tour.labels.contains_key(&title), "the dialog asks {title}");
+            assert!(
+                tour.labels.contains_key(&leave),
+                "the dialog offers {leave}"
+            );
+            assert!(
+                tour.labels.contains_key(&archive),
+                "the dialog offers archiving in the same step"
+            );
+            // Cancelling leaves the chat alone.
+            let cancel = crate::i18n::gettext(locale, "Cancel").to_string();
+            click(&mut app, &mut tour, &ctx, &cancel);
+            assert!(app.dialog.is_none(), "cancel closes the dialog");
+            let chat = app.chat(&id).expect("chat");
+            assert!(!chat.read_only, "cancelling does not leave the chat");
+            assert!(chat.can_leave(&app.our_ids()), "and it stays leaveable");
+        }
+    }
+
+    #[test]
     fn polls_are_created_and_voted_through_real_controls() {
         let mut app = super::super::tests::app();
         app.backend.record_demo_commands();
@@ -828,6 +892,99 @@ mod tests {
             assert_eq!(state.voters, 0);
             assert!(app.poll_voting.is_empty());
         }
+    }
+
+    #[test]
+    fn the_settings_search_finds_account_privacy_rows() {
+        let mut app = super::super::tests::app();
+        app.page = Page::Settings;
+        app.settings_search = "profile photo".into();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut tour = Tour::new(None, None);
+        for _ in 0..3 {
+            frame(&mut app, &mut tour, &ctx, Vec::new());
+        }
+        assert!(tour.labels.contains_key("Profile photo"));
+        assert!(!tour.labels.contains_key("Last seen"));
+        assert!(!tour.labels.contains_key("Enter sends"));
+        // The section title keeps every row in it.
+        app.settings_search = "privacy".into();
+        for _ in 0..3 {
+            frame(&mut app, &mut tour, &ctx, Vec::new());
+        }
+        assert!(tour.labels.contains_key("Last seen"));
+        assert!(tour.labels.contains_key("Send read receipts"));
+    }
+
+    #[test]
+    fn receipts_and_typing_sit_in_settings_privacy() {
+        let mut app = super::super::tests::app();
+        app.page = Page::Settings;
+        // The section headings are translated, so pin the interface language
+        // rather than reading whatever this machine is set to.
+        app.settings.interface_language = Some(crate::i18n::Locale::English);
+        app.locale = crate::i18n::Locale::English;
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut tour = Tour::new(None, None);
+        for _ in 0..3 {
+            frame(&mut app, &mut tour, &ctx, Vec::new());
+        }
+        // Privacy sits below the fold. How far below depends on the platform's
+        // own rows, so scroll until the section is on screen instead of by a
+        // fixed distance: a few points too far and the heading leaves the top
+        // of the view again, and `labels` only holds what a frame painted.
+        let wheel = |delta: f32| {
+            vec![
+                Event::PointerMoved(pos2(590.0, 400.0)),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, delta),
+                    modifiers: Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                },
+            ]
+        };
+        // The heading and the first category it writes, with both switches
+        // between them, have to share one frame for the order to mean
+        // anything.
+        let on_screen = |tour: &Tour| {
+            [
+                "Privacy",
+                "Send read receipts",
+                "Show when you are typing",
+                "Last seen",
+            ]
+            .iter()
+            .all(|label| tour.labels.contains_key(*label))
+        };
+        let mut frames = 0;
+        while !on_screen(&tour) && frames < 40 {
+            frame(&mut app, &mut tour, &ctx, wheel(-160.0));
+            frames += 1;
+        }
+        assert!(
+            on_screen(&tour),
+            "the Privacy section and its switches are on screen"
+        );
+        let privacy = *tour.labels.get("Privacy").expect("Privacy section");
+        let last_seen = *tour.labels.get("Last seen").expect("account last seen");
+        let receipts = *tour
+            .labels
+            .get("Send read receipts")
+            .expect("read receipts");
+        let typing = *tour.labels.get("Show when you are typing").expect("typing");
+        // Both switches belong to the account, so they sit inside the Privacy
+        // section, between its heading and the first category it writes.
+        assert!(
+            privacy.y < receipts.y && receipts.y < last_seen.y,
+            "receipts at {receipts:?} should sit between Privacy {privacy:?} and Last seen {last_seen:?}"
+        );
+        assert!(
+            privacy.y < typing.y && typing.y < last_seen.y,
+            "typing at {typing:?} should sit between Privacy {privacy:?} and Last seen {last_seen:?}"
+        );
     }
 
     #[test]
