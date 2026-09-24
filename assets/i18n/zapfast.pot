@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-24 10:38+0200\n"
+"POT-Creation-Date: 2026-09-24 11:15+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -19,23 +19,27 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
-#: src/model.rs:70
+#: src/model.rs:73
 msgid "All"
 msgstr ""
 
-#: src/model.rs:71
+#: src/model.rs:74
 msgid "Unread"
 msgstr ""
 
-#: src/model.rs:72
+#: src/model.rs:75
 msgid "Private"
 msgstr ""
 
-#: src/model.rs:73
+#: src/model.rs:76 src/ui/picker.rs:1149
+msgid "Favorites"
+msgstr ""
+
+#: src/model.rs:77
 msgid "Groups"
 msgstr ""
 
-#: src/model.rs:74
+#: src/model.rs:78
 msgid "Channels"
 msgstr ""
 
@@ -146,29 +150,42 @@ msgstr ""
 msgid "Search"
 msgstr ""
 
-#: src/ui/chats.rs:369
+#: src/ui/chats.rs:370
 msgid "Archived"
 msgstr ""
 
-#: src/ui/chats.rs:386
+#: src/ui/chats.rs:387
 msgid "Locked"
 msgstr ""
 
-#: src/ui/chats.rs:766 src/app.rs:1168
+#: src/ui/chats.rs:437
+msgid "No favorites yet"
+msgstr ""
+
+#: src/ui/chats.rs:774 src/app.rs:1168
 msgid "Message yourself"
 msgstr ""
 
-#: src/ui/chats.rs:994 src/ui/chats.rs:1303 src/ui/conversation.rs:302
+#: src/ui/chats.rs:998 src/ui/chats.rs:1306 src/ui/picker.rs:1569
+msgid "Remove from favorites"
+msgstr ""
+
+#: src/ui/chats.rs:1000 src/ui/chats.rs:1308 src/ui/conversation.rs:3286
+#: src/ui/dialogs.rs:965 src/ui/picker.rs:1570
+msgid "Add to favorites"
+msgstr ""
+
+#: src/ui/chats.rs:1010 src/ui/chats.rs:1332 src/ui/conversation.rs:302
 #: src/ui/dialogs.rs:1056 src/ui/dialogs.rs:1479
 msgid "Leave group"
 msgstr ""
 
-#: src/ui/chats.rs:995 src/ui/chats.rs:1301 src/ui/conversation.rs:300
+#: src/ui/chats.rs:1011 src/ui/chats.rs:1330 src/ui/conversation.rs:300
 #: src/ui/dialogs.rs:1054 src/ui/dialogs.rs:1477
 msgid "Leave channel"
 msgstr ""
 
-#: src/ui/chats.rs:1010 src/ui/labels.rs:172 src/ui/labels.rs:223
+#: src/ui/chats.rs:1026 src/ui/labels.rs:172 src/ui/labels.rs:223
 #: src/ui/labels.rs:260
 msgid "Labels"
 msgstr ""
@@ -239,10 +256,6 @@ msgstr ""
 #: src/ui/conversation.rs:2666 src/ui/conversation.rs:3354
 #: src/ui/message_info.rs:17
 msgid "Message info"
-msgstr ""
-
-#: src/ui/conversation.rs:3286 src/ui/dialogs.rs:965 src/ui/picker.rs:1570
-msgid "Add to favorites"
 msgstr ""
 
 #: src/ui/conversation.rs:3569
@@ -547,7 +560,7 @@ msgid "Choose a file…"
 msgstr ""
 
 #. Translators: {name} is replaced by the author's name, shown as a link.
-#: src/ui/widgets.rs:631
+#: src/ui/widgets.rs:633
 #, rust-format
 msgid "Built with love by {name}"
 msgstr ""
@@ -625,30 +638,30 @@ msgstr ""
 msgid "You"
 msgstr ""
 
-#: src/app.rs:2328
+#: src/app.rs:2335
 msgid "Not sent: ZapFast is not connected to WhatsApp."
 msgstr ""
 
-#: src/app.rs:2332
+#: src/app.rs:2339
 msgid ""
 "Not sent: the message you’re replying to isn’t available on this computer. "
 "Cancel the reply to send without a quote."
 msgstr ""
 
-#: src/app.rs:3610
+#: src/app.rs:3617
 msgid "Added to favorites"
 msgstr ""
 
-#: src/app.rs:3685
+#: src/app.rs:3692
 msgid "Sending the sticker pack…"
 msgstr ""
 
-#: src/app.rs:3955 src/ui/labels.rs:294
+#: src/app.rs:3970 src/ui/labels.rs:294
 #, rust-format
 msgid "You have {limit} labels, the most ZapFast keeps."
 msgstr ""
 
-#: src/app.rs:4467
+#: src/app.rs:4482
 msgid "This video opens in your system player"
 msgstr ""
 
@@ -762,10 +775,6 @@ msgstr ""
 msgid "Recent"
 msgstr ""
 
-#: src/ui/picker.rs:1149
-msgid "Favorites"
-msgstr ""
-
 #: src/ui/picker.rs:1150
 msgid "Add stickers"
 msgstr ""
@@ -853,10 +862,6 @@ msgstr ""
 
 #: src/ui/picker.rs:1522
 msgid "Importing the pack…"
-msgstr ""
-
-#: src/ui/picker.rs:1569
-msgid "Remove from favorites"
 msgstr ""
 
 #: src/ui/picker.rs:1571

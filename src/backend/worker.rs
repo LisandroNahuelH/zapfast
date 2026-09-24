@@ -36,6 +36,7 @@ use whatsapp_rust::waproto::buffa::Message as _;
 use whatsapp_rust::{MediaRetryResult, MediaReuploadRequest};
 
 mod device_store;
+mod favorite_chats;
 mod interactive;
 mod poll_history;
 mod polls;
@@ -484,6 +485,7 @@ pub async fn run(
         favorites_recovering: false,
         downloads: HashSet::new(),
         read_sync: ReadSync::default(),
+        favorite_chats: Default::default(),
         poll_decrypting: 0,
         poll_history: Default::default(),
         poll_sending: HashSet::new(),
@@ -519,6 +521,9 @@ pub async fn run(
                 } => {
                     worker.preferences_recovered(generation, locks, complete);
                 }
+                RuntimeEvent::FavoriteChatsRead { generation, complete } => {
+                    worker.favorite_chats_read(generation, complete);
+                }
             },
             _ = async {
                 match deadline {
@@ -538,6 +543,7 @@ pub async fn run(
                 worker.retry_avatars();
                 worker.pump_group_info();
                 worker.pump_read_sync();
+                worker.pump_favorite_chats();
                 worker.pump_poll_votes();
                 worker.pump_poll_history();
                 worker.prune_waiting_receipts();
@@ -552,6 +558,11 @@ enum RuntimeEvent {
     PreferencesRecovered {
         generation: u64,
         locks: bool,
+        complete: bool,
+    },
+    /// The one-time read of the phone's favorite chats finished.
+    FavoriteChatsRead {
+        generation: u64,
         complete: bool,
     },
 }
@@ -645,6 +656,8 @@ struct Worker {
     privacy_generation: u64,
     privacy_retry: Instant,
     read_sync: ReadSync,
+    /// Sending favorite chats to the phone, and reading its list once.
+    favorite_chats: favorite_chats::FavoriteChats,
     poll_decrypting: usize,
     poll_history: poll_history::Requests,
     poll_sending: HashSet<(ChatId, String)>,
@@ -1936,6 +1949,7 @@ impl Worker {
                 self.refresh_legacy_preferences();
                 self.retry_avatars();
                 self.pump_read_sync();
+                self.pump_favorite_chats();
                 self.poll_history.reconnect(Instant::now());
                 self.push_favorites();
                 self.fetch_missing_favorites();
@@ -2124,6 +2138,7 @@ impl Worker {
             }
             E::RemoveRecentStickerUpdate(update) => self.recent_sticker_removed(update),
             E::FavoriteStickerUpdate(update) => self.favorite_sticker_update(update),
+            E::FavoritesUpdate(update) => self.favorite_chats_update(update),
             E::LockChatUpdate(update) => {
                 let chat = self.canonical(&update.jid);
                 self.ensure_chat(&chat, None);
@@ -2325,6 +2340,7 @@ impl Worker {
         self.group_info_retry.clear();
         self.presence_subscribed.clear();
         self.read_sync = ReadSync::default();
+        self.favorite_chats = Default::default();
         self.poll_sending.clear();
         self.interactive_sending.clear();
         self.poll_history = Default::default();
@@ -4710,6 +4726,12 @@ impl Worker {
                     }
                 }
             }
+            Command::SetFavorite(chat, favorite) => self.set_favorite_chat(&chat, favorite),
+            Command::FavoritesSent {
+                through,
+                at,
+                success,
+            } => self.favorites_sent(through, at, success),
             Command::SetMuted(chat, until) => {
                 let _ = self.archive.set_muted(&chat, until);
                 self.emit_chat(&chat);
@@ -9488,6 +9510,7 @@ mod receipt_tests {
             favorites_recovering: false,
             downloads: HashSet::new(),
             read_sync: ReadSync::default(),
+            favorite_chats: Default::default(),
             poll_decrypting: 0,
             poll_history: Default::default(),
             poll_sending: HashSet::new(),
