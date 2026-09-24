@@ -598,6 +598,35 @@ pub enum Command {
     ReceiptsPrivacy {
         disabled: bool,
     },
+    /// Full account privacy snapshot after connect, or a failed fetch.
+    AccountPrivacy {
+        values: Vec<(crate::privacy::PrivacyKind, crate::privacy::PrivacyChoice)>,
+        lists: Vec<(crate::privacy::PrivacyKind, crate::privacy::PrivacyList)>,
+        failed: bool,
+    },
+    /// Writes one account privacy category on the phone.
+    SetAccountPrivacy {
+        kind: crate::privacy::PrivacyKind,
+        choice: crate::privacy::PrivacyChoice,
+    },
+    /// Adds or removes people on an Except list.
+    SetPrivacyExcept {
+        kind: crate::privacy::PrivacyKind,
+        add: Vec<ChatId>,
+        remove: Vec<ChatId>,
+        dhash: String,
+        ids: Vec<ChatId>,
+    },
+    /// A confirmed SET for one category.
+    AccountPrivacySaved {
+        kind: crate::privacy::PrivacyKind,
+        dhash: Option<String>,
+        ids: Option<Vec<ChatId>>,
+    },
+    /// A failed SET; the interface restores the last snapshot.
+    AccountPrivacyFailed {
+        kind: crate::privacy::PrivacyKind,
+    },
     /// Internal: followed channels and whether each is muted on the server.
     ChannelMutes(Vec<(String, bool)>),
     /// Looks up the group behind an invite code without joining.
@@ -753,6 +782,22 @@ pub enum Event {
     /// Whether account privacy disables direct-chat read receipts.
     ReceiptsPrivacy {
         disabled: bool,
+    },
+    /// Account privacy snapshot from the phone.
+    AccountPrivacy {
+        values: Vec<(crate::privacy::PrivacyKind, crate::privacy::PrivacyChoice)>,
+        lists: Vec<(crate::privacy::PrivacyKind, crate::privacy::PrivacyList)>,
+        failed: bool,
+    },
+    /// A confirmed SET for one category.
+    AccountPrivacySaved {
+        kind: crate::privacy::PrivacyKind,
+        dhash: Option<String>,
+        ids: Option<Vec<ChatId>>,
+    },
+    /// A failed SET.
+    AccountPrivacyFailed {
+        kind: crate::privacy::PrivacyKind,
     },
     /// How many chats this account may pin: more with WhatsApp Plus.
     PinLimit(usize),

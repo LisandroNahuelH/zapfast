@@ -914,6 +914,10 @@ pub enum Dialog {
     JoinGroup,
     /// Confirms setting aside an archive whose key is gone.
     ConfirmStartOver,
+    /// Picks the 1:1 chats excluded from one account privacy category.
+    PrivacyExcept {
+        kind: crate::privacy::PrivacyKind,
+    },
     /// The stickers of a pack shared in a chat, with a button to add it.
     StickerPack,
     /// Crops a picture into a sticker.
@@ -1342,6 +1346,16 @@ pub enum Action {
     ReloadThemes,
     OpenThemesFolder,
     SettingsChanged,
+    /// Writes one WhatsApp account privacy category on the phone.
+    SetAccountPrivacy {
+        kind: crate::privacy::PrivacyKind,
+        choice: crate::privacy::PrivacyChoice,
+    },
+    /// Saves the Except list for one account privacy category.
+    SavePrivacyExcept {
+        kind: crate::privacy::PrivacyKind,
+        ids: Vec<ChatId>,
+    },
     /// Registers or removes the login entry that starts ZapFast in the tray.
     SetStartWithSystem(bool),
     /// Sets the notification sound for groups (`true`) or other chats.

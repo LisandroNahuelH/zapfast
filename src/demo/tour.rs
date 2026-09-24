@@ -557,7 +557,7 @@ impl Tour {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Dialog, PickerTab};
+    use crate::model::{Dialog, Page, PickerTab};
 
     fn frame(app: &mut App, tour: &mut Tour, ctx: &egui::Context, events: Vec<Event>) {
         let input = egui::RawInput {
@@ -647,6 +647,54 @@ mod tests {
             assert_eq!(state.voters, 0);
             assert!(app.poll_voting.is_empty());
         }
+    }
+
+    #[test]
+    fn receipts_and_typing_sit_in_settings_privacy() {
+        let mut app = super::super::tests::app();
+        app.page = Page::Settings;
+        // The section headings are translated, so pin the interface language
+        // rather than reading whatever this machine is set to.
+        app.settings.interface_language = Some(crate::i18n::Locale::English);
+        app.locale = crate::i18n::Locale::English;
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut tour = Tour::new(None, None);
+        for _ in 0..3 {
+            frame(&mut app, &mut tour, &ctx, Vec::new());
+        }
+        // Privacy sits below the fold, so scroll the page down to it.
+        let wheel = |delta: f32| {
+            vec![
+                Event::PointerMoved(pos2(590.0, 400.0)),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, delta),
+                    modifiers: Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                },
+            ]
+        };
+        for _ in 0..6 {
+            frame(&mut app, &mut tour, &ctx, wheel(-320.0));
+        }
+        let privacy = *tour.labels.get("Privacy").expect("Privacy section");
+        let last_seen = *tour.labels.get("Last seen").expect("account last seen");
+        let receipts = *tour
+            .labels
+            .get("Send read receipts")
+            .expect("read receipts");
+        let typing = *tour.labels.get("Show when you are typing").expect("typing");
+        // Both switches belong to the account, so they sit inside the Privacy
+        // section, between its heading and the first category it writes.
+        assert!(
+            privacy.y < receipts.y && receipts.y < last_seen.y,
+            "receipts at {receipts:?} should sit between Privacy {privacy:?} and Last seen {last_seen:?}"
+        );
+        assert!(
+            privacy.y < typing.y && typing.y < last_seen.y,
+            "typing at {typing:?} should sit between Privacy {privacy:?} and Last seen {last_seen:?}"
+        );
     }
 
     #[test]

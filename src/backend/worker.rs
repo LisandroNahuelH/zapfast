@@ -49,6 +49,7 @@ use crate::model::{
     LIVE_LOCATION_LIMIT, LinkPreview, Media, MentionRef, Message, Quoted, Reaction,
 };
 use crate::paths::AppDirs;
+use crate::privacy::{self, PrivacyChoice, PrivacyKind, PrivacyList};
 
 /// Delay after the last history chunk before sync is complete.
 const SYNC_QUIET: Duration = Duration::from_secs(20);
@@ -278,6 +279,85 @@ fn account_allows_receipts(
         settings.get_value(&PrivacyCategory::ReadReceipts),
         Some(PrivacyValue::All)
     )
+}
+
+/// Fetches the account privacy snapshot and the Except lists behind it, and
+/// hands both to the interface. A failed fetch is reported as such: the rows
+/// stay disabled rather than showing an invented value.
+async fn publish_account_privacy(client: &Client, commands: &mpsc::UnboundedSender<Command>) {
+    match client.fetch_privacy_settings().await {
+        Ok(settings) => {
+            let disabled = !account_allows_receipts(&settings);
+            let values = privacy::values_from_response(&settings);
+            let lists = fetch_privacy_lists(client).await;
+            let _ = commands.send(Command::AccountPrivacy {
+                values,
+                lists,
+                failed: false,
+            });
+            let _ = commands.send(Command::ReceiptsPrivacy { disabled });
+        }
+        Err(error) => {
+            log::debug!("privacy settings not fetched: {error}");
+            let _ = commands.send(Command::AccountPrivacy {
+                values: Vec::new(),
+                lists: Vec::new(),
+                failed: true,
+            });
+        }
+    }
+}
+
+/// The people excluded from each Except category, which the settings fetch
+/// does not carry.
+async fn fetch_privacy_lists(client: &Client) -> Vec<(PrivacyKind, PrivacyList)> {
+    use whatsapp_rust::MexRequest;
+    use whatsapp_rust::wacore::iq::mex_operations::get_privacy_lists;
+    let variables = get_privacy_lists::Variables {
+        input: Some(get_privacy_lists::Input {
+            query_input: Some(
+                PrivacyKind::EXCEPT
+                    .into_iter()
+                    .map(|kind| get_privacy_lists::QueryInput {
+                        jid: None,
+                        privacy_contact_list_type: Some(
+                            get_privacy_lists::PrivacyContactListType {
+                                category: Some(kind.wire_name().to_owned()),
+                                dhash: None,
+                                r#type: Some("BLACKLIST".into()),
+                            },
+                        ),
+                    })
+                    .collect(),
+            ),
+        }),
+    };
+    let request = MexRequest::new(
+        get_privacy_lists::NAME,
+        get_privacy_lists::DOC_ID,
+        get_privacy_lists::VARIABLE_KEYS,
+        variables,
+    );
+    match client.mex().query(request).await {
+        Ok(response) => response
+            .data
+            .as_ref()
+            .map(privacy::lists_from_mex)
+            .unwrap_or_default(),
+        Err(error) => {
+            log::debug!("privacy lists not fetched: {error}");
+            Vec::new()
+        }
+    }
+}
+
+/// The server code that means the list moved under us, so one refetch and one
+/// retry are worth it.
+fn privacy_conflict_code(error: &whatsapp_rust::IqError) -> Option<u16> {
+    match error {
+        whatsapp_rust::IqError::ServerError { code, .. } => Some(*code),
+        _ => None,
+    }
 }
 
 /// The library's persisted privacy value is refreshed during connection setup,
@@ -1597,6 +1677,137 @@ impl Worker {
         id.parse().ok()
     }
 
+    fn set_account_privacy(&self, kind: PrivacyKind, choice: PrivacyChoice) {
+        let Some((category, value)) = privacy::wire_set(kind, choice) else {
+            let _ = self.commands.send(Command::AccountPrivacyFailed { kind });
+            return;
+        };
+        let Some(client) = self.client.clone() else {
+            self.emit(Event::Error("Not connected to WhatsApp".into()));
+            let _ = self.commands.send(Command::AccountPrivacyFailed { kind });
+            return;
+        };
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            match client.set_privacy_setting(category, value).await {
+                Ok(_) => {
+                    let _ = commands.send(Command::AccountPrivacySaved {
+                        kind,
+                        dhash: None,
+                        ids: None,
+                    });
+                    if kind == PrivacyKind::ReadReceipts {
+                        let _ = commands.send(Command::ReceiptsPrivacy {
+                            disabled: choice != PrivacyChoice::Everyone,
+                        });
+                    }
+                }
+                Err(error) => {
+                    log::debug!("privacy setting not written: {error}");
+                    let _ = commands.send(Command::AccountPrivacyFailed { kind });
+                }
+            }
+        });
+    }
+
+    /// One entry of an Except list. A privacy id also carries the phone number
+    /// it maps to, which the server needs to match the person.
+    fn disallowed_entry(
+        &self,
+        id: &str,
+        action: whatsapp_rust::wacore::iq::privacy::DisallowedListAction,
+    ) -> Option<whatsapp_rust::wacore::iq::privacy::DisallowedListUserEntry> {
+        let jid = Self::jid_of(id)?;
+        let pn_jid = if jid.is_lid() {
+            self.lid_to_pn.get(jid.user_base()).map(Jid::pn)
+        } else {
+            None
+        };
+        Some(
+            whatsapp_rust::wacore::iq::privacy::DisallowedListUserEntry {
+                action,
+                jid,
+                pn_jid,
+            },
+        )
+    }
+
+    /// Adds and removes people on one Except list. A conflict refetches the
+    /// list's dhash once and retries, so a list edited on the phone still saves.
+    fn set_privacy_except(
+        &self,
+        kind: PrivacyKind,
+        add: Vec<ChatId>,
+        remove: Vec<ChatId>,
+        dhash: String,
+        ids: Vec<ChatId>,
+    ) {
+        use whatsapp_rust::wacore::iq::privacy::{DisallowedListAction, DisallowedListUpdate};
+        if !kind.allows_except() {
+            let _ = self.commands.send(Command::AccountPrivacyFailed { kind });
+            return;
+        }
+        let Some(client) = self.client.clone() else {
+            self.emit(Event::Error("Not connected to WhatsApp".into()));
+            let _ = self.commands.send(Command::AccountPrivacyFailed { kind });
+            return;
+        };
+        let mut users = Vec::new();
+        for id in &add {
+            if let Some(entry) = self.disallowed_entry(id, DisallowedListAction::Add) {
+                users.push(entry);
+            }
+        }
+        for id in &remove {
+            if let Some(entry) = self.disallowed_entry(id, DisallowedListAction::Remove) {
+                users.push(entry);
+            }
+        }
+        let category = kind.to_wire();
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            let mut dhash = dhash;
+            let mut retried = false;
+            loop {
+                let update = DisallowedListUpdate {
+                    dhash: dhash.clone(),
+                    users: users.clone(),
+                };
+                match client
+                    .set_privacy_disallowed_list(category.clone(), update)
+                    .await
+                {
+                    Ok(response) => {
+                        let _ = commands.send(Command::AccountPrivacySaved {
+                            kind,
+                            dhash: response.dhash,
+                            ids: Some(ids),
+                        });
+                        return;
+                    }
+                    Err(error) => {
+                        let code = privacy_conflict_code(&error).unwrap_or(0);
+                        if privacy::retry_list_after_conflict(code, retried) {
+                            retried = true;
+                            log::debug!("privacy list conflict; fetching lists again");
+                            if let Some((_, list)) = fetch_privacy_lists(&client)
+                                .await
+                                .into_iter()
+                                .find(|(found, _)| *found == kind)
+                            {
+                                dhash = list.dhash;
+                            }
+                            continue;
+                        }
+                        log::debug!("privacy list not written: {error}");
+                        let _ = commands.send(Command::AccountPrivacyFailed { kind });
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
     // --- names -----------------------------------------------------------
 
     fn contact_name(&self, id: &str) -> Option<String> {
@@ -1951,14 +2162,7 @@ impl Worker {
                         }
                     });
                     tokio::spawn(async move {
-                        // whatsapp-rust also enforces the account privacy setting.
-                        match client.fetch_privacy_settings().await {
-                            Ok(settings) => {
-                                let disabled = !account_allows_receipts(&settings);
-                                let _ = commands.send(Command::ReceiptsPrivacy { disabled });
-                            }
-                            Err(error) => log::debug!("privacy settings not fetched: {error}"),
-                        }
+                        publish_account_privacy(&client, &commands).await;
                         if let Some(me) = me {
                             match client
                                 .contacts()
@@ -4433,6 +4637,45 @@ impl Worker {
             }
             Command::ReceiptsPrivacy { disabled } => {
                 self.emit(Event::ReceiptsPrivacy { disabled });
+            }
+            Command::AccountPrivacy {
+                values,
+                lists,
+                failed,
+            } => {
+                // The lists arrive as whatever the server calls the person;
+                // the interface knows them by their canonical chat id.
+                let lists = lists
+                    .into_iter()
+                    .map(|(kind, mut list)| {
+                        list.ids = list
+                            .ids
+                            .into_iter()
+                            .map(|id| self.canonical_str(&id))
+                            .collect();
+                        (kind, list)
+                    })
+                    .collect();
+                self.emit(Event::AccountPrivacy {
+                    values,
+                    lists,
+                    failed,
+                });
+            }
+            Command::SetAccountPrivacy { kind, choice } => self.set_account_privacy(kind, choice),
+            Command::SetPrivacyExcept {
+                kind,
+                add,
+                remove,
+                dhash,
+                ids,
+            } => self.set_privacy_except(kind, add, remove, dhash, ids),
+            Command::AccountPrivacySaved { kind, dhash, ids } => {
+                self.emit(Event::AccountPrivacySaved { kind, dhash, ids });
+            }
+            Command::AccountPrivacyFailed { kind } => {
+                self.emit(Event::AccountPrivacyFailed { kind });
+                self.emit(Event::Error("Could not update privacy settings.".into()));
             }
             Command::SetOnline(online) => self.set_online(online),
             // Only meaningful while the archive cannot be opened.

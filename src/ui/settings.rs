@@ -4,6 +4,7 @@ use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Stroke, Vec2, pos2,
 
 use crate::app::App;
 use crate::model::{Action, Dialog, Page};
+use crate::privacy::{PrivacyChoice, PrivacyKind};
 use crate::settings::{ThemeChoice, WallpaperColor};
 use crate::theme::{self, Icon, Palette};
 use crate::wallpaper;
@@ -168,13 +169,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
                     section(ui, &palette, &crate::i18n::gettext(app.locale, "Chats"), |ui| {
                         toggle(ui, app, "Enter sends", "When off, Enter adds a line and Ctrl+Enter sends.", |settings| &mut settings.enter_sends);
-                        let receipts_note = if app.account_receipts_off {
-                            "Read receipts are disabled for your WhatsApp account. Direct chats will not send them. When this switch is on, groups still do. Read state syncs between your devices either way."
-                        } else {
-                            "Let people see when you read messages or play voice messages. Your WhatsApp privacy setting still applies. Read state syncs between your devices either way."
-                        };
-                        toggle(ui, app, "Send read receipts", receipts_note, |settings| &mut settings.send_read_receipts);
-                        toggle(ui, app, "Show when you are typing", "", |settings| &mut settings.send_typing);
                         toggle(ui, app, "Download attachments automatically", "Download non-sticker attachments up to 64 MiB when they enter view. Visible stickers also download automatically up to this limit. When off, click an attachment up to this limit to download it.", |settings| &mut settings.auto_download);
                         {
                             let locale = app.locale;
@@ -228,6 +222,38 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             );
                         }
                     });
+
+                    section(
+                        ui,
+                        &palette,
+                        &crate::i18n::gettext(app.locale, "Privacy"),
+                        |ui| {
+                            let receipts_note = if app.account_receipts_off {
+                                "Read receipts are disabled for your WhatsApp account (Settings, Privacy). Direct chats will not send them. When this switch is on, groups still do. Read state syncs between your devices either way."
+                            } else {
+                                "Let people see when you read messages or play voice messages on this copy. Your WhatsApp account setting in Privacy still applies. Read state syncs between your devices either way."
+                            };
+                            toggle(ui, app, "Send read receipts", receipts_note, |settings| &mut settings.send_read_receipts);
+                            toggle(ui, app, "Show when you are typing", "", |settings| &mut settings.send_typing);
+                            if app.account_privacy.fetch_failed {
+                                widgets::rich_text(
+                                    ui,
+                                    "Could not load privacy settings. They load again when ZapFast reconnects.",
+                                    theme::regular(12.5),
+                                    palette.secondary,
+                                );
+                                ui.add_space(8.0);
+                            }
+                            // The values live on the phone, so they need a
+                            // connection and a loaded snapshot to be edited.
+                            let ready = app.is_connected() && app.account_privacy.loaded;
+                            ui.add_enabled_ui(ready, |ui| {
+                                for kind in PrivacyKind::ALL {
+                                    privacy_row(ui, app, kind);
+                                }
+                            });
+                        },
+                    );
 
                     section(ui, &palette, &crate::i18n::gettext(app.locale, "Window"), |ui| {
                         toggle(ui, app, "Keep running when the window closes", "Keep ZapFast linked in the system tray. Quit from the tray menu or with Ctrl+Q.", |settings| &mut settings.keep_running_in_background);
@@ -894,6 +920,60 @@ fn sound_row(ui: &mut egui::Ui, app: &mut App, group: bool) {
 }
 
 /// Theme filenames can contain emoji, so paint them through the shared line renderer.
+/// One account privacy category: what the phone holds, and a picker to change
+/// it. While a write is in flight the row is disabled, so a second pick cannot
+/// race the first.
+fn privacy_row(ui: &mut egui::Ui, app: &mut App, kind: PrivacyKind) {
+    let palette = app.palette;
+    let current = app.account_privacy.get(kind);
+    let selected = current.map(PrivacyChoice::label).unwrap_or("\u{2014}");
+    let pending = app.account_privacy.pending(kind);
+    widgets::setting_row(ui, &palette, kind.label(), kind.hint(), |ui| {
+        ui.add_enabled_ui(!pending, |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+                let salt = format!("privacy_{}", kind.wire_name());
+                let response = egui::ComboBox::from_id_salt(salt)
+                    .selected_text(" ")
+                    .width(220.0_f32.min(ui.available_width()))
+                    .show_ui(ui, |ui| {
+                        for choice in kind.choices() {
+                            if theme_option(ui, &palette, choice.label(), current == Some(*choice))
+                            {
+                                app.actions.push(Action::SetAccountPrivacy {
+                                    kind,
+                                    choice: *choice,
+                                });
+                            }
+                        }
+                    });
+                let rect = response.response.rect;
+                let text = widgets::line(
+                    ui,
+                    selected,
+                    theme::regular(14.0),
+                    palette.text,
+                    rect.width() - 36.0,
+                    1,
+                );
+                text.paint(
+                    ui,
+                    egui::pos2(rect.left() + 8.0, rect.center().y - text.size().y / 2.0),
+                    palette.text,
+                );
+                response.response.widget_info(|| {
+                    let mut info = egui::WidgetInfo::labeled(
+                        egui::WidgetType::ComboBox,
+                        ui.is_enabled(),
+                        kind.label(),
+                    );
+                    info.current_text_value = Some(selected.to_owned());
+                    info
+                });
+            });
+        });
+    });
+}
+
 fn theme_option(ui: &mut egui::Ui, palette: &theme::Palette, text: &str, selected: bool) -> bool {
     let response = ui.add(
         egui::Button::selectable(selected, " ").min_size(egui::vec2(ui.available_width(), 28.0)),

@@ -43,6 +43,12 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   an empty cached subject remains eligible for recovery.
   Typing indicators show other participants, excluding your own linked devices.
   Newsletter channels are read-only; publishing channel posts is not supported.
+- **Account privacy.** Settings lists the privacy categories WhatsApp keeps on
+  your account (last seen, online, profile photo, about, groups, read receipts,
+  calls, and who can message you) and writes them to the phone, so a change
+  applies on every linked device and not only here. A category set to **My
+  contacts except** opens a picker for the people excluded from it. The rows
+  load when the app connects; without a connection they stay read-only.
 - **Read state across devices.** Reading a chat syncs its unread badge with
   your phone and other linked devices, including when read receipts are off.
   Replies from another device clear preceding unread messages. The read-receipt
