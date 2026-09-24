@@ -3329,7 +3329,7 @@ impl App {
                 chat,
                 message,
             } => {
-                if crate::safety::can_preview_image(&path) && path.is_file() {
+                if crate::image_preview::can_view(&path) && path.is_file() {
                     // The album is asked for as the viewer opens, so stepping
                     // through it works from the first frame.
                     self.viewer_media.clear();

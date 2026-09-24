@@ -787,6 +787,13 @@ impl Content {
     }
 }
 
+/// The viewer kind of a file on disk, from its name alone. A document that is
+/// really a photo or a clip joins the album, and the menu offers the viewer for
+/// it, so both go through the same rule.
+pub(crate) fn gallery_kind_for_path(path: &Path) -> Option<GalleryKind> {
+    gallery_file("", &path.file_name()?.to_string_lossy())
+}
+
 /// The viewer kind of a file, from its MIME type or, failing that, its name.
 fn gallery_file(mime: &str, file_name: &str) -> Option<GalleryKind> {
     let mime = mime

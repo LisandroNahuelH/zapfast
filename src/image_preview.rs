@@ -12,6 +12,15 @@ pub enum OpenTarget {
     External,
 }
 
+/// Whether the full-window viewer can open this file. It browses the chat's
+/// album, so it takes what the album holds: a photo it can decode, or a clip it
+/// can play. A clip is not an image, so `can_preview_image` alone would send it
+/// to the system player instead.
+pub fn can_view(path: &Path) -> bool {
+    crate::safety::can_preview_image(path)
+        || crate::model::gallery_kind_for_path(path) == Some(crate::model::GalleryKind::Video)
+}
+
 /// Chooses the native preview for an image rendered successfully by the conversation view.
 pub fn open_target(path: &Path, rendered: bool) -> OpenTarget {
     if rendered && crate::safety::can_preview_image(path) {
@@ -271,6 +280,19 @@ mod tests {
         preview.fit();
         preview.zoom_out();
         assert!((preview.zoom() - 0.32).abs() < 1e-6);
+    }
+
+    /// The viewer browses the album, so it opens what the album holds: a photo
+    /// it can decode, and a clip it can play. A clip is not an image, so the
+    /// image test alone would send it to the system player instead.
+    #[test]
+    fn the_viewer_opens_photos_and_clips_but_not_anything_else() {
+        assert!(can_view(Path::new("photo.png")));
+        assert!(can_view(Path::new("clip.mp4")));
+        assert!(can_view(Path::new("holiday.MOV")));
+        assert!(!can_view(Path::new("notes.pdf")));
+        assert!(!can_view(Path::new("song.mp3")));
+        assert!(!can_view(Path::new("no-extension")));
     }
 
     #[test]
