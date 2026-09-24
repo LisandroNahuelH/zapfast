@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-24 10:29+0200\n"
+"POT-Creation-Date: 2026-09-24 10:38+0200\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Russian\n"
@@ -156,20 +156,20 @@ msgstr "Заблокированные"
 msgid "Message yourself"
 msgstr "Написать себе"
 
+#: src/ui/chats.rs:994 src/ui/chats.rs:1303 src/ui/conversation.rs:302
+#: src/ui/dialogs.rs:1056 src/ui/dialogs.rs:1479
+msgid "Leave group"
+msgstr "Покинуть группу"
+
+#: src/ui/chats.rs:995 src/ui/chats.rs:1301 src/ui/conversation.rs:300
+#: src/ui/dialogs.rs:1054 src/ui/dialogs.rs:1477
+msgid "Leave channel"
+msgstr "Покинуть канал"
+
 #: src/ui/chats.rs:1010 src/ui/labels.rs:172 src/ui/labels.rs:223
 #: src/ui/labels.rs:260
 msgid "Labels"
 msgstr "Метки"
-
-#: src/ui/chats.rs:1301 src/ui/conversation.rs:300 src/ui/dialogs.rs:1054
-#: src/ui/dialogs.rs:1470
-msgid "Leave channel"
-msgstr "Покинуть канал"
-
-#: src/ui/chats.rs:1303 src/ui/conversation.rs:302 src/ui/dialogs.rs:1056
-#: src/ui/dialogs.rs:1472
-msgid "Leave group"
-msgstr "Покинуть группу"
 
 #: src/ui/conversation.rs:161
 msgid "Ctrl+K to search · ? for keyboard shortcuts"
@@ -338,7 +338,7 @@ msgstr "Эмодзи, которые его описывают, например
 msgid "Send"
 msgstr "Отправить"
 
-#: src/ui/dialogs.rs:972 src/ui/dialogs.rs:1081 src/ui/settings.rs:1062
+#: src/ui/dialogs.rs:972 src/ui/dialogs.rs:1084 src/ui/settings.rs:1062
 msgid "Cancel"
 msgstr "Отмена"
 
@@ -365,19 +365,19 @@ msgstr "Покинуть канал и архивировать"
 msgid "Leave group and archive"
 msgstr "Покинуть группу и архивировать"
 
-#: src/ui/dialogs.rs:1340
+#: src/ui/dialogs.rs:1347
 msgid "Group"
 msgstr "Группа"
 
-#: src/ui/dialogs.rs:1342
+#: src/ui/dialogs.rs:1349
 msgid "Channel"
 msgstr "Канал"
 
-#: src/ui/dialogs.rs:1344
+#: src/ui/dialogs.rs:1351
 msgid "Contact"
 msgstr "Контакт"
 
-#: src/ui/dialogs.rs:1443
+#: src/ui/dialogs.rs:1450
 #, rust-format
 msgid "{} member"
 msgid_plural "{} members"

@@ -220,7 +220,7 @@ const SAMPLES: &[Sample] = &[
     },
     Sample {
         id: "120363055566677788@newsletter",
-        name: "WhatsApp Engineering",
+        name: "Rust Weekly",
         minutes_ago: 60 * 8,
         unread: 0,
         pinned: false,
@@ -1893,6 +1893,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 let group = SAMPLES[1].id.to_owned();
                 app.open_chat = Some(group.clone());
                 app.dialog = Some(Dialog::ConfirmLeaveGroup(group));
+            }
+            "left-group" => {
+                // The chat after the phone confirmed the leave.
+                let group = SAMPLES[1].id.to_owned();
+                let ours: Vec<String> = app.our_ids().into_iter().map(str::to_owned).collect();
+                if let Some(chat) = app.chats.iter_mut().find(|chat| chat.id == group) {
+                    chat.left = true;
+                    chat.read_only = true;
+                    chat.participants.retain(|id| !ours.contains(id));
+                }
+                app.open_chat = Some(group);
             }
             "leave-channel" => {
                 let channel = SAMPLES
@@ -3655,6 +3666,7 @@ mod tests {
             "forward",
             "unlink",
             "leave-group",
+            "left-group",
             "leave-channel",
             "toasts",
             "delete-chat",
