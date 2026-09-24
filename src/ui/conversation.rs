@@ -1391,10 +1391,14 @@ fn composer_tools_menu(app: &mut App, chat: &Chat, plus: &egui::Response) {
                 if widgets::menu_item(ui, &app.palette, Some(Icon::Paperclip), &send_files) {
                     app.actions.push(Action::Attach);
                 }
-                let create_poll = crate::i18n::gettext(app.locale, "Create poll");
-                if widgets::menu_item(ui, &app.palette, Some(Icon::ListChecks), &create_poll) {
-                    app.actions
-                        .push(Action::ShowDialog(Dialog::CreatePoll(chat.id.clone())));
+                // Polls already in a chat keep working; this only hides the
+                // way to start another one.
+                if app.settings.show_poll_button {
+                    let create_poll = crate::i18n::gettext(app.locale, "Create poll");
+                    if widgets::menu_item(ui, &app.palette, Some(Icon::ListChecks), &create_poll) {
+                        app.actions
+                            .push(Action::ShowDialog(Dialog::CreatePoll(chat.id.clone())));
+                    }
                 }
             });
     }

@@ -363,6 +363,11 @@ fn sections(app: &App) -> Vec<Section> {
         |settings| &mut settings.label_chips,
     );
     chats.toggle(
+        "Show the create poll button",
+        "Offer Create poll in the composer's menu. When off, the entry is hidden and the polls already in a chat keep working.",
+        |settings| &mut settings.show_poll_button,
+    );
+    chats.toggle(
         "Show sender pictures in every chat",
         "WhatsApp shows them in groups only.",
         |settings| &mut settings.show_sender_pictures,

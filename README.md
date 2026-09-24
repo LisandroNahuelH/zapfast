@@ -239,7 +239,8 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   without asking the phone for earlier results. Polls from history or offline
   delivery automatically request earlier votes when visible. Until a usable
   snapshot arrives, results are labelled incomplete and requests retry with backoff;
-  no refresh button or relinking is needed.
+  no refresh button or relinking is needed. Settings can hide the **Create poll**
+  entry from the composer's menu; polls already in a chat keep working.
   Voting needs the original poll's key;
   if that key is missing, the message explains that voting is available on your
   phone. Creating polls in disappearing-message chats is not yet supported by
