@@ -1690,6 +1690,49 @@ pub(crate) mod tests {
         }
     }
 
+    /// `left` reads like a SQL keyword, so this pins down that it is usable as
+    /// a column name on the engine the app ships: the migration adds it to an
+    /// archive that predates it and already holds rows, and the reads and the
+    /// write the leave goes through name it bare and qualified.
+    #[test]
+    fn the_leave_column_lands_on_an_archive_that_predates_it() {
+        let connection = Connection::open_in_memory().expect("opens");
+        // The chats table as an older version of the app left it: no `left`,
+        // and rows already in it.
+        connection
+            .execute_batch(
+                "CREATE TABLE chats (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL);
+                 INSERT INTO chats (id, name, kind) VALUES ('1-2@g.us', 'Rust', 'group');
+                 INSERT INTO chats (id, name, kind) VALUES ('3@s.whatsapp.net', 'Ana', 'direct');",
+            )
+            .expect("the older schema");
+        Archive::prepare(connection).expect("the migration adds the column");
+
+        let archive = Archive::in_memory().expect("opens");
+        let id = "1-2@g.us";
+        archive.ensure_chat(id, "Rust").expect("chat");
+        // The write, then the read that goes through `CHAT_COLUMNS`.
+        archive.set_left(id, true).expect("the update");
+        assert!(archive.chat(id).expect("row").expect("chat").left);
+        archive.set_left(id, false).expect("the update back");
+        assert!(!archive.chat(id).expect("row").expect("chat").left);
+        // And the name on its own, in a select and in an update.
+        let mut statement = archive
+            .connection
+            .prepare("SELECT left FROM chats")
+            .expect("a bare left in a select");
+        assert_eq!(
+            statement
+                .query_row([], |row| row.get::<_, i64>(0))
+                .expect("the value"),
+            0
+        );
+        archive
+            .connection
+            .execute("UPDATE chats SET left = 1", [])
+            .expect("a bare left in an update");
+    }
+
     #[test]
     fn a_leave_outlives_a_group_info_refresh() {
         let archive = Archive::in_memory().expect("opens");
