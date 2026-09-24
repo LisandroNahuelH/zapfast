@@ -876,6 +876,13 @@ pub struct Gif {
     pub height: u32,
 }
 
+/// A pane that slides in from the right of the chat list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RightPane {
+    /// Search messages in the open chat.
+    Search,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Dialog {
     Shortcuts,
@@ -1053,12 +1060,16 @@ pub enum Action {
     },
     /// Opens the search bar for the open chat.
     OpenChatSearch,
+    /// Opens or focuses the right inspector. The header Search toggles it.
+    OpenRightPane(RightPane),
+    CloseRightPane,
+    /// Restricts the in-chat search to a local calendar day.
+    SetChatSearchDay(Option<jiff::civil::Date>),
     /// Closes it and drops the query.
     CloseChatSearch,
     /// Replaces the query of the open chat's search bar.
     ChatSearch(String),
     /// Moves to the next (`1`) or previous (`-1`) match in the open chat.
-    StepChatSearch(i32),
     CloseChat,
     SendText {
         chat: ChatId,

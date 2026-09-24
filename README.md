@@ -24,7 +24,11 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
 - **Links to your phone.** Scan a QR code or link with your phone number.
   Recent history is copied to this computer after linking and stored here.
 - **Chats.** See pinned, unread, muted, and archived chats, typing indicators,
-  and message status. Search chats, saved messages, and contacts.
+  and message status. Search chats, saved messages, and contacts. The open chat
+  shows a **Search** icon that opens a side pane (**Ctrl+G**) listing this
+  chat's matches, with an optional day filter; clicking a result brings it into
+  view. **Ctrl+F** opens the same pane, and **Ctrl+K** still searches the chat
+  list.
   Filter the list to unread, private (one-to-one), or group chats with the
   chips under the search bar; a chip with unread chats shows how many it has.
   Followed channels have their own **Channels** chip and stay out of the other

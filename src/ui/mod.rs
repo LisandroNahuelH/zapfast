@@ -9,6 +9,7 @@ pub mod keys;
 pub mod labels;
 pub mod login;
 pub mod message_info;
+pub mod pane;
 pub mod picker;
 pub mod polls;
 pub mod settings;
@@ -60,6 +61,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         SidebarDisplayMode::CollapsedIconsOnly => chats::compact_show(app, ui),
         SidebarDisplayMode::Hidden => {}
     }
+    pane::show(app, ui);
     egui::CentralPanel::default()
         .frame(central_frame(app))
         .show(ui, |ui| match app.page {

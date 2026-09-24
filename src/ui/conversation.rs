@@ -14,7 +14,7 @@ use crate::app::{App, Conversation, JumpHighlight};
 use crate::markup;
 use crate::model::{
     Action, Chat, ChatId, Content, Delivery, Dialog, LinkPreview, Media, MediaState, Message,
-    PickerTab,
+    PickerTab, RightPane,
 };
 use crate::theme::{self, Icon, Palette};
 use crate::wallpaper;
@@ -43,85 +43,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         wallpaper::paint(ui, app.settings.wallpaper_color_for(app.palette.dark));
     }
     header(app, ui, &chat);
-    chat_search(app, ui);
     if theme::macos_chrome(ui.ctx()) {
         super::banner(app, ui);
     }
     composer(app, ui, &chat);
     messages(app, ui, &chat);
-}
-
-/// Search within the open chat: the query, how many matches it has, and the
-/// buttons that walk them. Escape closes it, Enter goes forward.
-fn chat_search(app: &mut App, ui: &mut egui::Ui) {
-    if !app.chat_search_open {
-        return;
-    }
-    let palette = app.palette;
-    egui::Panel::top("chat-search")
-        .show_separator_line(false)
-        .frame(
-            Frame::new()
-                .fill(palette.panel)
-                .inner_margin(Margin::symmetric(14, 6)),
-        )
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.set_min_height(HEADER_ROW);
-                let controls = 150.0;
-                let width = (ui.available_width() - controls).max(120.0);
-                let id = egui::Id::new("chat-search-in-chat");
-                let mut text = app.chat_search.clone();
-                let response = widgets::search_field(
-                    ui,
-                    &palette,
-                    id,
-                    &mut text,
-                    "Search in this chat",
-                    width,
-                );
-                if text != app.chat_search {
-                    app.actions.push(Action::ChatSearch(text));
-                }
-                if app.chat_search_focus {
-                    app.chat_search_focus = false;
-                    response.request_focus();
-                }
-                let total = app.chat_search_hits.len();
-                let position = if total == 0 {
-                    0
-                } else {
-                    app.chat_search_index + 1
-                };
-                ui.label(
-                    egui::RichText::new(format!("{position} / {total}")).color(palette.secondary),
-                );
-                if theme::icon_button(
-                    ui,
-                    Icon::ChevronUp,
-                    16.0,
-                    palette.secondary,
-                    palette.text,
-                    "Previous match (Shift+Enter)",
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::StepChatSearch(-1));
-                }
-                if theme::icon_button(
-                    ui,
-                    Icon::ChevronDown,
-                    16.0,
-                    palette.secondary,
-                    palette.text,
-                    "Next match (Enter)",
-                )
-                .clicked()
-                {
-                    app.actions.push(Action::StepChatSearch(1));
-                }
-            });
-        });
 }
 
 fn empty(app: &mut App, ui: &mut egui::Ui) {
@@ -210,7 +136,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                 }
                 let picture = app.avatar(&chat.id);
                 let (subtitle, color) = subtitle(app, chat);
-                let right_controls = 52.0;
+                let right_controls = 72.0;
                 // Treat the avatar, name, and subtitle as one info button.
                 let block = ui
                     .scope(|ui| {
@@ -353,6 +279,26 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                                 app.actions.push(Action::CloseChat);
                             }
                         });
+                    if theme::icon_button(
+                        ui,
+                        Icon::Search,
+                        18.0,
+                        if app.right_pane == Some(RightPane::Search) {
+                            palette.accent
+                        } else {
+                            palette.secondary
+                        },
+                        palette.text,
+                        "Search messages (Ctrl+G)",
+                    )
+                    .clicked()
+                    {
+                        if app.right_pane == Some(RightPane::Search) {
+                            app.actions.push(Action::CloseRightPane);
+                        } else {
+                            app.actions.push(Action::OpenRightPane(RightPane::Search));
+                        }
+                    }
                 });
             });
         });

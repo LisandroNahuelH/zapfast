@@ -266,6 +266,14 @@ pub fn day_key(unix_seconds: i64) -> Option<Date> {
     zoned(unix_seconds).map(|when| when.date())
 }
 
+/// Unix-second half-open range for a local calendar day.
+pub fn day_bounds(date: Date) -> Option<(i64, i64)> {
+    let zone = jiff::tz::TimeZone::system();
+    let start = date.at(0, 0, 0, 0).to_zoned(zone.clone()).ok()?;
+    let end = date.tomorrow().ok()?.at(0, 0, 0, 0).to_zoned(zone).ok()?;
+    Some((start.timestamp().as_second(), end.timestamp().as_second()))
+}
+
 fn weekday_name(locale: Locale, weekday: jiff::civil::Weekday) -> String {
     use crate::i18n::gettext;
     // Each literal sits in its own call so xgettext can extract it.

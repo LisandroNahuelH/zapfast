@@ -2203,6 +2203,17 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 labels_sample(app);
                 app.dialog = Some(Dialog::Labels);
             }
+            "chat-search" => {
+                let chat = SAMPLES[0].id.to_owned();
+                app.open_chat = Some(chat.clone());
+                app.right_pane = Some(crate::model::RightPane::Search);
+                app.chat_search = "engine".into();
+                app.chat_search_hits = app
+                    .conversations
+                    .get(&chat)
+                    .map(|conversation| conversation.messages.clone())
+                    .unwrap_or_default();
+            }
             "unread" => app.chat_filter = crate::model::ChatFilter::Unread,
             "private" => app.chat_filter = crate::model::ChatFilter::Private,
             "groups" => app.chat_filter = crate::model::ChatFilter::Groups,
@@ -3592,6 +3603,7 @@ mod tests {
             "new-contact",
             "light",
             "archived",
+            "chat-search",
             "unread",
             "private",
             "groups",

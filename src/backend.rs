@@ -228,10 +228,12 @@ pub enum Command {
     SearchMessages {
         query: String,
     },
-    /// Searches the messages of one chat, for its own search bar.
+    /// Searches one chat, optionally inside a Unix-second day range.
     SearchChatMessages {
         chat: ChatId,
         query: String,
+        from: Option<i64>,
+        until: Option<i64>,
     },
     /// Creates an archive chat before its first message is sent.
     EnsureChat {
@@ -655,7 +657,9 @@ pub enum Event {
     ChatHits {
         chat: ChatId,
         query: String,
-        ids: Vec<String>,
+        from: Option<i64>,
+        until: Option<i64>,
+        messages: Vec<Message>,
     },
     ChatUpdated(Box<Chat>),
     /// Chat messages in ascending order. `older` prepends them; `complete`

@@ -885,36 +885,78 @@ impl Archive {
     /// Message ids in one chat whose visible text matches, oldest first so
     /// next and previous walk forward in time. Same fields as the global
     /// search, scoped to a single chat.
+    /// Searches one chat, optionally inside a Unix-second day range.
+    ///
+    /// An empty needle matches everything in the range, so the day filter
+    /// works on its own. Newest first, the order the pane lists them in.
     pub fn search_chat_messages(
         &self,
         chat: &str,
         needle: &str,
+        from: Option<i64>,
+        until: Option<i64>,
         limit: usize,
-    ) -> Result<Vec<String>> {
-        let pattern = format!(
-            "%{}%",
-            needle
-                .to_lowercase()
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_")
-        );
+    ) -> Result<Vec<Message>> {
+        let pattern = if needle.trim().is_empty() {
+            None
+        } else {
+            Some(format!(
+                "%{}%",
+                needle
+                    .to_lowercase()
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_")
+            ))
+        };
         let mut statement = self.connection.prepare(
-            "SELECT id
+            "SELECT chat, id, sender, sender_name, from_me, timestamp, content, status, quoted, reactions, edited, thumbnail, mentions, forwarded, delivered_at, read_at
              FROM messages
-             WHERE chat = ?1 AND json_valid(content) AND lower(
+             WHERE chat = ?1
+             AND (?2 IS NULL OR timestamp >= ?2)
+             AND (?3 IS NULL OR timestamp < ?3)
+             AND json_valid(content)
+             AND (?4 IS NULL OR lower(
                      coalesce(json_extract(content, '$.text'), '') || char(10) ||
                      coalesce(json_extract(content, '$.caption'), '') || char(10) ||
                      coalesce(json_extract(content, '$.file_name'), '') || char(10) ||
                      coalesce(json_extract(content, '$.question'), '') || char(10) ||
                      coalesce(json_extract(content, '$.display_name'), '') || char(10) ||
                      coalesce(json_extract(content, '$.name'), '')
-                 ) LIKE ?2 ESCAPE '\\'
-             ORDER BY timestamp ASC, rowid ASC
-             LIMIT ?3",
+                 ) LIKE ?4 ESCAPE '\\')
+             ORDER BY timestamp DESC, rowid DESC
+             LIMIT ?5",
         )?;
-        let rows = statement.query_map(params![chat, pattern, limit as i64], |row| row.get(0))?;
-        rows.collect()
+        let rows =
+            statement.query_map(params![chat, from, until, pattern, limit as i64], |row| {
+                let chat: String = row.get(0)?;
+                let content: String = row.get(6)?;
+                let quoted: Option<String> = row.get(8)?;
+                let reactions: String = row.get(9)?;
+                let mentions: String = row.get(12)?;
+                Ok(Message {
+                    id: row.get(1)?,
+                    chat,
+                    sender: row.get(2)?,
+                    sender_name: row.get(3)?,
+                    from_me: row.get(4)?,
+                    timestamp: row.get(5)?,
+                    content: serde_json::from_str(&content).unwrap_or(Content::Unsupported {
+                        what: "unreadable".into(),
+                    }),
+                    status: status_from_rank(row.get(7)?),
+                    delivered_at: row.get(14)?,
+                    read_at: row.get(15)?,
+                    quoted: quoted.and_then(|quoted| serde_json::from_str(&quoted).ok()),
+                    reactions: serde_json::from_str(&reactions).unwrap_or_default(),
+                    edited: row.get(10)?,
+                    mentions: serde_json::from_str(&mentions).unwrap_or_default(),
+                    forwarded: row.get(13)?,
+                    thumbnail: row.get(11)?,
+                })
+            })?;
+        let messages: Vec<Message> = rows.collect::<Result<_>>()?;
+        Ok(messages)
     }
 
     /// Searches visible message text, filenames, polls, contacts, and places.
@@ -1662,33 +1704,49 @@ pub(crate) mod tests {
         ] {
             archive.insert_message(&message, None).expect("insert");
         }
-        // Only this chat, oldest first, so Enter walks forward in time.
+        fn ids(hits: Vec<Message>) -> Vec<String> {
+            hits.into_iter().map(|hit| hit.id).collect()
+        }
+        // Only this chat, newest first, the order the pane lists them in.
         assert_eq!(
-            archive
-                .search_chat_messages(chat, "engine", 50)
-                .expect("search"),
-            vec!["m1".to_owned(), "m3".to_owned()]
+            ids(archive
+                .search_chat_messages(chat, "engine", None, None, 50)
+                .expect("search")),
+            vec!["m3".to_owned(), "m1".to_owned()]
         );
-        // The limit keeps the oldest matches.
+        // The limit keeps the newest matches.
         assert_eq!(
-            archive
-                .search_chat_messages(chat, "engine", 1)
-                .expect("search"),
-            vec!["m1".to_owned()]
+            ids(archive
+                .search_chat_messages(chat, "engine", None, None, 1)
+                .expect("search")),
+            vec!["m3".to_owned()]
         );
         // A chat whose messages do not match has no hits.
         assert!(
             archive
-                .search_chat_messages(other, "nothing", 50)
+                .search_chat_messages(other, "nothing", None, None, 50)
                 .expect("search")
                 .is_empty()
         );
         // Wildcards are text, like the cross-chat search.
         assert!(
             archive
-                .search_chat_messages(chat, "%", 50)
+                .search_chat_messages(chat, "%", None, None, 50)
                 .expect("search")
                 .is_empty()
+        );
+        // A day range narrows it, and an empty query matches the whole day.
+        assert_eq!(
+            ids(archive
+                .search_chat_messages(chat, "engine", Some(25), Some(100), 50)
+                .expect("day")),
+            vec!["m3".to_owned()]
+        );
+        assert_eq!(
+            ids(archive
+                .search_chat_messages(chat, "", Some(25), Some(100), 50)
+                .expect("day only")),
+            vec!["m3".to_owned()]
         );
     }
 

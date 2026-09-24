@@ -597,6 +597,57 @@ mod tests {
     }
 
     #[test]
+    fn the_chat_search_pane_lists_hits_and_opens_one() {
+        let mut app = super::super::tests::app();
+        prepare(&mut app);
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        let mut tour = Tour::new(None, None);
+        let open = super::super::sample_ids()[0].to_owned();
+        let other = super::super::sample_ids()[1].to_owned();
+        app.open_chat = Some(open);
+        app.right_pane = Some(crate::model::RightPane::Search);
+        app.chat_search = "engine".into();
+        // Hits from another chat, so their text is painted only in the pane
+        // and the click lands on the row rather than on a bubble.
+        app.chat_search_hits = app
+            .conversations
+            .get(&other)
+            .map(|conversation| conversation.messages.clone())
+            .unwrap_or_default();
+        for _ in 0..3 {
+            frame(&mut app, &mut tour, &ctx, Vec::new());
+        }
+        assert!(
+            tour.labels.contains_key("Search messages"),
+            "the pane names itself"
+        );
+        let hit = app.chat_search_hits.first().cloned().expect("a hit");
+        click(&mut app, &mut tour, &ctx, &hit.summary());
+        assert_eq!(
+            app.open_chat.as_deref(),
+            Some(hit.chat.as_str()),
+            "clicking a hit opens the chat it belongs to"
+        );
+        // The jump is consumed by the frame that scrolls to it, so the flash
+        // it leaves behind is what says the message was the one asked for.
+        assert_eq!(
+            app.jump_highlight
+                .as_ref()
+                .map(|jump| (jump.chat.as_str(), jump.message.as_str())),
+            Some((hit.chat.as_str(), hit.id.as_str())),
+            "and brings that message into view"
+        );
+        // Closing the pane puts the chat back to itself.
+        app.actions.push(crate::model::Action::CloseRightPane);
+        for _ in 0..3 {
+            frame(&mut app, &mut tour, &ctx, Vec::new());
+        }
+        assert!(app.right_pane.is_none());
+        assert!(app.chat_search.is_empty());
+    }
+
+    #[test]
     fn polls_are_created_and_voted_through_real_controls() {
         let mut app = super::super::tests::app();
         app.backend.record_demo_commands();

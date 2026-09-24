@@ -3,7 +3,7 @@
 use egui::{Key, Modifiers};
 
 use crate::app::App;
-use crate::model::{Action, Chat, Dialog, Page};
+use crate::model::{Action, Chat, Dialog, Page, RightPane};
 
 pub fn handle(app: &mut App, ctx: &egui::Context) {
     if app.image_preview.is_some() {
@@ -50,6 +50,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             && app.recording.is_none()
         {
             key(Modifiers::COMMAND, Key::L, Action::FocusComposer);
+            key(
+                Modifiers::COMMAND,
+                Key::G,
+                Action::OpenRightPane(RightPane::Search),
+            );
         }
         key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
@@ -72,8 +77,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     let escape = (!menu_open || app.reaction_target.is_some())
         && ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape));
     if escape {
-        if app.chat_search_open {
-            actions.push(Action::CloseChatSearch);
+        if app.chat_search_calendar {
+            app.chat_search_calendar = false;
+        } else if app.right_pane.is_some() {
+            actions.push(Action::CloseRightPane);
         } else if app.show_update {
             actions.push(Action::CloseUpdate);
         } else if app.dialog.is_some() {
@@ -107,24 +114,6 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             actions.push(Action::CloseChat);
         } else if app.locked_folder {
             actions.push(Action::CloseLockedFolder);
-        }
-    }
-    // Enter walks the open chat's matches while its field has focus; with the
-    // composer focused, Enter keeps sending.
-    if app.chat_search_open
-        && ctx.memory(|memory| memory.has_focus(egui::Id::new("chat-search-in-chat")))
-    {
-        let step = ctx.input_mut(|input| {
-            if input.consume_key(Modifiers::SHIFT, Key::Enter) {
-                Some(-1)
-            } else if input.consume_key(Modifiers::NONE, Key::Enter) {
-                Some(1)
-            } else {
-                None
-            }
-        });
-        if let Some(step) = step {
-            actions.push(Action::StepChatSearch(step));
         }
     }
     // Enter sends a recording because the text field is hidden.
@@ -253,7 +242,8 @@ fn find_action(app: &App) -> Action {
 /// Shortcuts shown in the help dialog.
 pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+K / Ctrl+Shift+F", "Search chats"),
-    ("Ctrl+F", "Search the open chat (Enter for the next match)"),
+    ("Ctrl+F", "Search the open chat"),
+    ("Ctrl+G", "Search the open chat in the side pane"),
     ("Ctrl+L", "Focus the message input"),
     ("Alt+↑ / Alt+↓", "Previous / next chat"),
     ("↑", "Edit the previous message (when the input is empty)"),
