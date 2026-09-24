@@ -22,7 +22,8 @@ fn zoned(unix_seconds: i64) -> Option<Zoned> {
     Some(timestamp.to_zoned(jiff::tz::TimeZone::system()))
 }
 
-fn today() -> Date {
+/// Today's local date.
+pub fn today() -> Date {
     Zoned::now().date()
 }
 
@@ -268,9 +269,21 @@ pub fn day_key(unix_seconds: i64) -> Option<Date> {
 
 /// Unix-second half-open range for a local calendar day.
 pub fn day_bounds(date: Date) -> Option<(i64, i64)> {
-    let zone = jiff::tz::TimeZone::system();
-    let start = date.at(0, 0, 0, 0).to_zoned(zone.clone()).ok()?;
-    let end = date.tomorrow().ok()?.at(0, 0, 0, 0).to_zoned(zone).ok()?;
+    day_bounds_in(date, &jiff::tz::TimeZone::system())
+}
+
+/// [`day_bounds`] in `zone`. A day starts at its first instant, so one whose
+/// midnight a clock change skips starts when the clock resumes, and the
+/// range is 23 or 25 hours long around a change.
+fn day_bounds_in(date: Date, zone: &jiff::tz::TimeZone) -> Option<(i64, i64)> {
+    let start = date.to_zoned(zone.clone()).ok()?.start_of_day().ok()?;
+    let end = date
+        .tomorrow()
+        .ok()?
+        .to_zoned(zone.clone())
+        .ok()?
+        .start_of_day()
+        .ok()?;
     Some((start.timestamp().as_second(), end.timestamp().as_second()))
 }
 
@@ -329,17 +342,14 @@ pub fn weekday_headings(locale: Locale) -> [String; 7] {
     .map(|weekday| weekday_name(locale, weekday).chars().take(2).collect())
 }
 
-/// A day's full name, for the accessible label on a day cell.
-pub fn date_label(locale: Locale, date: Date) -> String {
-    long_date(locale, date)
-}
-
-fn short_date(locale: Locale, date: Date) -> String {
+/// A date as "23 Sep 2026".
+pub fn short_date(locale: Locale, date: Date) -> String {
     let month: String = month_name(locale, date.month()).chars().take(3).collect();
     format!("{} {month} {}", date.day(), date.year())
 }
 
-fn long_date(locale: Locale, date: Date) -> String {
+/// A date with its weekday, as "Wednesday, 23 September 2026".
+pub fn long_date(locale: Locale, date: Date) -> String {
     format!(
         "{}, {} {} {}",
         weekday_name(locale, date.weekday()),
@@ -531,6 +541,40 @@ pub fn tray_template_rgba(size: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_day_filter_covers_the_local_day_across_clock_changes() {
+        use jiff::civil::date;
+        use jiff::tz::TimeZone;
+        let second = |text: &str| {
+            text.parse::<jiff::Timestamp>()
+                .expect("a timestamp")
+                .as_second()
+        };
+        // POSIX rules, so the test needs no time zone database.
+        let berlin = TimeZone::posix("CET-1CEST,M3.5.0,M10.5.0/3").expect("a zone");
+        assert_eq!(
+            super::day_bounds_in(date(2026, 9, 23), &berlin),
+            Some((
+                second("2026-09-22T22:00:00Z"),
+                second("2026-09-23T22:00:00Z")
+            )),
+            "an ordinary day runs from local midnight to local midnight"
+        );
+        let (from, until) = super::day_bounds_in(date(2026, 3, 29), &berlin).expect("a range");
+        assert_eq!(until - from, 23 * 3_600, "spring forward loses an hour");
+        let (from, until) = super::day_bounds_in(date(2026, 10, 25), &berlin).expect("a range");
+        assert_eq!(until - from, 25 * 3_600, "fall back gains one");
+        // Brazil once sprang forward at midnight: that day began at 01:00.
+        let brasilia = TimeZone::posix("<-03>3<-02>,M11.1.0/0,M2.3.0/0").expect("a zone");
+        assert_eq!(
+            super::day_bounds_in(date(2018, 11, 4), &brasilia),
+            Some((
+                second("2018-11-04T03:00:00Z"),
+                second("2018-11-05T02:00:00Z")
+            ))
+        );
+    }
+
     #[test]
     fn clock_patterns_from_every_platform_are_recognized() {
         for pattern in [

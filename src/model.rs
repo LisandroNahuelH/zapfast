@@ -547,25 +547,33 @@ impl Content {
         if needle.is_empty() {
             return None;
         }
-        self.searchable_text()
-            .lines()
+        self.searchable_fields()
+            .into_iter()
+            .flat_map(str::lines)
             .find(|line| line.to_lowercase().contains(&needle))
             .map(|line| line.trim().to_owned())
     }
 
-    /// The text fields the archive search matches, one per line, so a preview
-    /// can be built from the same set.
-    fn searchable_text(&self) -> String {
+    /// The text fields the archive search matches (its `SEARCHED_TEXT`), so
+    /// a preview is built from the same set.
+    fn searchable_fields(&self) -> Vec<&str> {
         match self {
-            Self::Text { text, .. } | Self::Interactive { text, .. } => text.clone(),
+            Self::Text { text, .. } | Self::Interactive { text, .. } => vec![text],
             Self::Image { caption, .. } | Self::Video { caption, .. } => {
-                caption.clone().unwrap_or_default()
+                caption.as_deref().into_iter().collect()
             }
-            Self::Document { file_name, .. } => file_name.clone(),
-            Self::Poll { question, .. } => question.clone(),
-            Self::Contact { display_name, .. } => display_name.clone(),
-            Self::Location { name, .. } => name.clone().unwrap_or_default(),
-            _ => String::new(),
+            Self::Document {
+                file_name, caption, ..
+            } => std::iter::once(file_name.as_str())
+                .chain(caption.as_deref())
+                .collect(),
+            Self::StickerPack { name, caption, .. } => std::iter::once(name.as_str())
+                .chain(caption.as_deref())
+                .collect(),
+            Self::Poll { question, .. } => vec![question],
+            Self::Contact { display_name, .. } => vec![display_name],
+            Self::Location { name, .. } => name.as_deref().into_iter().collect(),
+            _ => Vec::new(),
         }
     }
 
@@ -912,13 +920,6 @@ pub struct Gif {
     pub height: u32,
 }
 
-/// A pane that slides in from the right of the chat list.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RightPane {
-    /// Search messages in the open chat.
-    Search,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum Dialog {
     Shortcuts,
@@ -1094,18 +1095,14 @@ pub enum Action {
         chat: ChatId,
         message: String,
     },
-    /// Opens the search bar for the open chat.
+    /// Opens the search pane beside the open chat, or focuses its field.
     OpenChatSearch,
-    /// Opens or focuses the right inspector. The header Search toggles it.
-    OpenRightPane(RightPane),
-    CloseRightPane,
+    /// Closes the pane and drops its query and day.
+    CloseChatSearch,
+    /// Replaces the query of the open chat's search.
+    ChatSearch(String),
     /// Restricts the in-chat search to a local calendar day.
     SetChatSearchDay(Option<jiff::civil::Date>),
-    /// Closes it and drops the query.
-    CloseChatSearch,
-    /// Replaces the query of the open chat's search bar.
-    ChatSearch(String),
-    /// Moves to the next (`1`) or previous (`-1`) match in the open chat.
     CloseChat,
     SendText {
         chat: ChatId,

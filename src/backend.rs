@@ -655,7 +655,8 @@ pub enum Event {
     Labels(Vec<crate::model::Label>),
     /// Unsent text stored for each chat, sent once at startup.
     Drafts(Vec<(ChatId, String)>),
-    /// Message ids in one chat matching a search, oldest first.
+    /// Messages in one chat matching a search, newest first, echoing the
+    /// query and range asked for so a stale answer can be told apart.
     ChatHits {
         chat: ChatId,
         query: String,
