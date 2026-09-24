@@ -362,7 +362,7 @@ pub enum Command {
     PickStickerArchive,
     /// Asks for an audio file to use as a notification sound.
     PickNotificationSound {
-        group: bool,
+        mention: bool,
     },
     /// Stores a chat's own notification sound.
     SetChatSound {
@@ -650,6 +650,8 @@ pub enum Event {
     /// Linked account identity.
     Me {
         id: String,
+        /// Our privacy id (`@lid`), when known.
+        lid: Option<String>,
         name: Option<String>,
         about: Option<String>,
     },
@@ -776,7 +778,7 @@ pub enum Event {
     DownloadFolderPicked(std::path::PathBuf),
     /// An audio file chosen as a notification sound.
     NotificationSoundPicked {
-        group: bool,
+        mention: bool,
         path: std::path::PathBuf,
     },
     /// The group behind an invite link.
