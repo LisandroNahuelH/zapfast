@@ -308,6 +308,32 @@ fn month_name(locale: Locale, month: i8) -> String {
     .into_owned()
 }
 
+/// A month's name and year, for the day filter's header.
+pub fn month_heading(locale: Locale, month: Date) -> String {
+    format!("{} {}", month_name(locale, month.month()), month.year())
+}
+
+/// The two-letter weekday headings, Monday first, for the day filter's grid.
+/// Taken by character, so a name that is not ASCII is not split mid-glyph.
+pub fn weekday_headings(locale: Locale) -> [String; 7] {
+    use jiff::civil::Weekday;
+    [
+        Weekday::Monday,
+        Weekday::Tuesday,
+        Weekday::Wednesday,
+        Weekday::Thursday,
+        Weekday::Friday,
+        Weekday::Saturday,
+        Weekday::Sunday,
+    ]
+    .map(|weekday| weekday_name(locale, weekday).chars().take(2).collect())
+}
+
+/// A day's full name, for the accessible label on a day cell.
+pub fn date_label(locale: Locale, date: Date) -> String {
+    long_date(locale, date)
+}
+
 fn short_date(locale: Locale, date: Date) -> String {
     let month: String = month_name(locale, date.month()).chars().take(3).collect();
     format!("{} {month} {}", date.day(), date.year())

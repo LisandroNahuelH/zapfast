@@ -12,10 +12,6 @@ use super::widgets;
 
 const CELL: f32 = 30.0;
 
-/// Weekday headers, Monday first. The pane carries its own names so the
-/// calendar does not depend on another feature's module.
-const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if app.page != Page::Chats || app.open_chat.is_none() || app.right_pane.is_none() {
         return;
@@ -50,13 +46,19 @@ fn search(app: &mut App, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.set_min_height(32.0);
-                if theme::icon_button(ui, Icon::X, 18.0, palette.secondary, palette.text, "Close")
+                let close = crate::i18n::gettext(app.locale, "Close");
+                if theme::icon_button(ui, Icon::X, 18.0, palette.secondary, palette.text, &close)
                     .clicked()
                 {
                     app.actions.push(Action::CloseRightPane);
                 }
                 ui.add_space(6.0);
-                theme::text(ui, "Search messages", theme::semibold(16.0), palette.text);
+                theme::text(
+                    ui,
+                    crate::i18n::gettext(app.locale, "Search messages"),
+                    theme::semibold(16.0),
+                    palette.text,
+                );
             });
             ui.add_space(10.0);
             ui.horizontal(|ui| {
@@ -71,7 +73,7 @@ fn search(app: &mut App, ui: &mut egui::Ui) {
                         palette.secondary
                     },
                     palette.text,
-                    "Filter by date",
+                    &crate::i18n::gettext(app.locale, "Filter by date"),
                 );
                 calendar_btn = calendar.rect;
                 if calendar.clicked() {
@@ -85,7 +87,7 @@ fn search(app: &mut App, ui: &mut egui::Ui) {
                     &palette,
                     egui::Id::new("chat-message-search"),
                     &mut text,
-                    "Search",
+                    &crate::i18n::gettext(app.locale, "Search"),
                     width,
                 );
                 if text != app.chat_search {
@@ -103,12 +105,11 @@ fn search(app: &mut App, ui: &mut egui::Ui) {
     let empty = app.chat_search.trim().is_empty() && app.chat_search_day.is_none();
     if empty {
         ui.centered_and_justified(|ui| {
-            theme::text(
-                ui,
-                format!("Search messages with {title}"),
-                theme::regular(13.5),
-                palette.dim,
-            );
+            // The whole sentence is translated, with the chat's name filled
+            // in: word order differs between languages.
+            let hint =
+                crate::i18n::gettext(app.locale, "Search messages with {}").replace("{}", &title);
+            theme::text(ui, hint, theme::regular(13.5), palette.dim);
         });
         return;
     }
@@ -119,8 +120,8 @@ fn search(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             Icon::Search,
-            "No messages found",
-            "Try another word or pick a different day.",
+            &crate::i18n::gettext(app.locale, "No messages found"),
+            &crate::i18n::gettext(app.locale, "Try another word or pick a different day."),
         );
         return;
     }
@@ -130,6 +131,20 @@ fn search(app: &mut App, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             for hit in &hits {
                 hit_row(app, ui, hit, &query);
+            }
+            if app.chat_search_truncated {
+                // The list is capped, so say so rather than dropping the rest
+                // without a word.
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(14.0);
+                    let notice = crate::i18n::gettext(
+                        app.locale,
+                        "Only the newest {} matches are listed. Narrow the search or pick a day.",
+                    )
+                    .replace("{}", &hits.len().to_string());
+                    theme::text(ui, notice, theme::regular(11.5), palette.dim);
+                });
             }
             ui.add_space(8.0);
         });
@@ -177,7 +192,12 @@ fn calendar_popup(app: &mut App, ui: &mut egui::Ui, palette: &Palette, button: R
 fn month_header(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
     let month = app.chat_search_month;
     ui.horizontal(|ui| {
-        theme::text(ui, month_label(month), theme::medium(14.5), palette.text);
+        theme::text(
+            ui,
+            util::month_heading(app.locale, month),
+            theme::medium(14.5),
+            palette.text,
+        );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if theme::icon_button(
                 ui,
@@ -185,7 +205,7 @@ fn month_header(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
                 16.0,
                 palette.secondary,
                 palette.text,
-                "Next month",
+                &crate::i18n::gettext(app.locale, "Next month"),
             )
             .clicked()
             {
@@ -197,7 +217,7 @@ fn month_header(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
                 16.0,
                 palette.secondary,
                 palette.text,
-                "Previous month",
+                &crate::i18n::gettext(app.locale, "Previous month"),
             )
             .clicked()
             {
@@ -221,14 +241,15 @@ fn month_grid(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
     }
     let left = rect.center().x - block / 2.0;
     let top = rect.top() + head + 4.0;
-    for (offset, name) in WEEKDAYS.iter().enumerate() {
+    let headings = util::weekday_headings(app.locale);
+    for (offset, name) in headings.iter().enumerate() {
         ui.painter().text(
             pos2(
                 left + CELL * offset as f32 + CELL / 2.0,
                 rect.top() + head / 2.0,
             ),
             Align2::CENTER_CENTER,
-            &name[..2],
+            name,
             theme::regular(11.0),
             palette.dim,
         );
@@ -251,6 +272,13 @@ fn month_grid(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
             Sense::click(),
         );
         let selected = app.chat_search_day == Some(date);
+        // Reachable and announced like every other button: the keyboard walks
+        // to each day and a screen reader reads the date it selects.
+        theme::reveal_focus(&response);
+        let label = util::date_label(app.locale, date);
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, &label)
+        });
         if selected {
             ui.painter()
                 .circle_filled(cell.center(), CELL / 2.0 - 1.0, palette.accent);
@@ -291,46 +319,35 @@ fn month_step(month: Date, direction: i32) -> Date {
     Date::new(year, number, 1).unwrap_or(month)
 }
 
-fn month_label(month: Date) -> String {
-    const NAMES: [&str; 12] = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ];
-    let name = NAMES
-        .get(usize::try_from(month.month() - 1).unwrap_or(0))
-        .copied()
-        .unwrap_or("January");
-    format!("{name} {}", month.year())
-}
-
 fn hit_row(app: &mut App, ui: &mut egui::Ui, hit: &Message, query: &str) {
     let palette = app.palette;
     // One allocation that both lays the row out and takes the click, the way
     // the chat list rows do it.
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), Sense::click());
+    let stamp = util::chat_stamp(app.locale, hit.timestamp);
+    // The preview comes from the line the query matched: the archive searches
+    // the whole text, so a hit on a later line would otherwise preview a first
+    // line the query is nowhere in.
+    let snippet = hit.text_matching(query).unwrap_or_else(|| hit.summary());
+    theme::reveal_focus(&response);
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("{stamp} {snippet}"),
+        )
+    });
     if ui.is_rect_visible(rect) {
         if response.hovered() {
             ui.painter().rect_filled(rect, 0.0, palette.surface_hover);
         }
-        let stamp = util::chat_stamp(app.locale, hit.timestamp);
         ui.painter().text(
             pos2(rect.left() + 14.0, rect.top() + 10.0),
             Align2::LEFT_TOP,
-            stamp,
+            &stamp,
             theme::regular(11.5),
             palette.dim,
         );
-        let snippet = hit.summary();
         let mut x = rect.left() + 14.0;
         let line_y = rect.top() + 28.0;
         if hit.from_me {

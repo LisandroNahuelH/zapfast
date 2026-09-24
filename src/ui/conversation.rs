@@ -289,7 +289,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                             palette.secondary
                         },
                         palette.text,
-                        "Search messages (Ctrl+G)",
+                        &crate::i18n::gettext(app.locale, "Search messages (Ctrl+G)"),
                     )
                     .clicked()
                     {
