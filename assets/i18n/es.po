@@ -596,11 +596,11 @@ msgstr "{name} (Tú)"
 msgid "You"
 msgstr "Tú"
 
-#: src/app.rs:2312
+#: src/app.rs:2319
 msgid "Not sent: ZapFast is not connected to WhatsApp."
 msgstr "No enviado: ZapFast no está conectado a WhatsApp."
 
-#: src/app.rs:2316
+#: src/app.rs:2323
 msgid ""
 "Not sent: the message you’re replying to isn’t available on this computer. "
 "Cancel the reply to send without a quote."
@@ -608,20 +608,20 @@ msgstr ""
 "No enviado: el mensaje al que respondes no está disponible en este equipo. "
 "Cancela la respuesta para enviarlo sin cita."
 
-#: src/app.rs:3594
+#: src/app.rs:3601
 msgid "Added to favorites"
 msgstr "Añadido a favoritos"
 
-#: src/app.rs:3669
+#: src/app.rs:3676
 msgid "Sending the sticker pack…"
 msgstr "Enviando el paquete de stickers…"
 
-#: src/app.rs:3931 src/ui/labels.rs:294
+#: src/app.rs:3940 src/ui/labels.rs:294
 #, rust-format
 msgid "You have {limit} labels, the most ZapFast keeps."
 msgstr "Tienes {limit} etiquetas, el máximo que guarda ZapFast."
 
-#: src/app.rs:4443
+#: src/app.rs:4452
 msgid "This video opens in your system player"
 msgstr "Este vídeo se abre en el reproductor del sistema"
 

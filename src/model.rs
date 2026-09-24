@@ -49,7 +49,7 @@ pub enum ChatFilter {
     Unread,
     /// One-to-one chats: neither groups nor broadcasts.
     Private,
-    /// Chats marked as a favorite on this computer.
+    /// Chats marked as a favorite, here or on the phone.
     Favorites,
     Groups,
     /// Followed channels (newsletters), kept out of the other filters as in
@@ -113,9 +113,11 @@ pub struct Chat {
     pub muted_until: Option<i64>,
     /// Latest message shown in the chat list.
     pub last: Option<LastMessage>,
-    /// Local favorite flag. It is not a WhatsApp pin and never leaves this
-    /// computer.
+    /// Whether the chat is one of the favorites, which sync with the phone.
+    /// It is not a WhatsApp pin.
     pub favorite: bool,
+    /// Place in the phone's favorites list, which orders the Favorites chip.
+    pub favorite_position: u32,
     /// Canonical group-member ids, empty until loaded.
     pub participants: Vec<String>,
     /// Whether this is an announcement group where we cannot post.
@@ -157,6 +159,7 @@ impl Chat {
             muted_until: None,
             last: None,
             favorite: false,
+            favorite_position: 0,
             participants: Vec::new(),
             read_only: false,
             locked: false,
@@ -1290,7 +1293,7 @@ pub enum Action {
     /// Deletes a chat here and on the phone.
     DeleteChat(ChatId),
     SetPinned(ChatId, bool),
-    /// Marks a chat as a favorite, or removes the mark. Local only.
+    /// Marks a chat as a favorite, or removes the mark, here and on the phone.
     SetFavorite(ChatId, bool),
     ShowDialog(Dialog),
     CloseDialog,
