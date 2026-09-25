@@ -304,16 +304,16 @@ pub struct Settings {
     pub custom_theme: Option<String>,
     #[serde(
         default,
-        deserialize_with = "crate::theme::custom::read_cached_theme",
+        deserialize_with = "fastframe_theme::read_cached_theme",
         skip_serializing_if = "Option::is_none"
     )]
-    pub custom_theme_cache: Option<crate::theme::custom::CustomTheme>,
+    pub custom_theme_cache: Option<crate::theme::CustomTheme>,
     #[serde(
         default,
-        deserialize_with = "crate::theme::custom::read_cached_theme",
+        deserialize_with = "fastframe_theme::read_cached_theme",
         skip_serializing_if = "Option::is_none"
     )]
-    pub system_theme_cache: Option<crate::theme::custom::CustomTheme>,
+    pub system_theme_cache: Option<crate::theme::CustomTheme>,
     /// egui zoom factor.
     pub zoom: f32,
     pub sidebar_width: f32,

@@ -4,7 +4,6 @@
 //! work. Commands and events cross channels, and events wake the UI.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -114,7 +113,7 @@ pub struct CreatedPoll {
     pub recipients: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Command {
     RefreshPoll {
         chat: ChatId,
@@ -653,16 +652,12 @@ pub enum Command {
     /// Ask GitHub whether a newer release exists.
     CheckForUpdates,
     InspectUpdate,
-    /// Look for a verified payload an earlier run left behind. Reading it
-    /// hashes the file, which can be gigabytes, so it is done here rather than
-    /// on the interface thread.
-    AdoptPendingUpdate,
     DownloadUpdate {
         release: crate::updates::Release,
         source: crate::updates::Source,
     },
     InstallUpdate {
-        prepared: Box<crate::updates::install::Prepared>,
+        prepared: Box<crate::updates::Prepared>,
         arguments: Vec<String>,
     },
 }
@@ -862,23 +857,12 @@ pub enum Event {
         version: String,
         url: String,
     },
-    UpdateSupport(Result<crate::updates::install::Installation, String>),
-    /// A verified payload an earlier run left behind, with the installation it
-    /// belongs to. `Ok(None)` when there is nothing waiting.
-    PendingUpdate(
-        Result<
-            Option<(
-                crate::updates::install::Installation,
-                Box<crate::updates::install::Prepared>,
-            )>,
-            String,
-        >,
-    ),
+    UpdateSupport(Result<crate::updates::Installation, String>),
     UpdateProgress {
         received: u64,
         total: u64,
     },
-    UpdateDownloaded(Result<Box<crate::updates::install::Prepared>, String>),
+    UpdateDownloaded(Result<Box<crate::updates::Prepared>, String>),
     UpdateInstalling(Result<(), String>),
     /// A send was refused before anything left this computer. It returns
     /// what was being sent so the user loses neither text nor a recording.
@@ -922,32 +906,8 @@ pub enum Unsent {
     Gif,
 }
 
-/// Cross-thread window wake handle.
-#[derive(Clone, Default)]
-pub struct Waker(Arc<std::sync::Mutex<Option<egui::Context>>>);
-
-impl Waker {
-    pub fn attach(&self, ctx: &egui::Context) {
-        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = Some(ctx.clone());
-    }
-
-    pub fn detach(&self) {
-        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = None;
-    }
-
-    pub fn wake(&self) {
-        if let Some(ctx) = self.0.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
-            ctx.request_repaint();
-        }
-    }
-
-    /// Schedules a delayed repaint.
-    pub fn wake_after(&self, delay: std::time::Duration) {
-        if let Some(ctx) = self.0.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
-            ctx.request_repaint_after(delay);
-        }
-    }
-}
+/// Cross-thread window wake handle: repaints whichever window exists.
+pub use fastframe_shell::Waker;
 
 /// UI handle to the backend runtime.
 pub struct Backend {

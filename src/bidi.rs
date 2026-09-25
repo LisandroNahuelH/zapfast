@@ -1424,7 +1424,7 @@ mod tests {
             );
         let path = path.to_str().expect("utf-8 font path");
         let mut fonts = FontDefinitions::default();
-        let inter = include_bytes!("../assets/fonts/InterVariable.ttf");
+        let inter = fastframe_fonts::INTER;
         fonts
             .font_data
             .insert("inter".into(), Arc::new(FontData::from_static(inter)));

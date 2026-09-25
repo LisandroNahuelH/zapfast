@@ -4730,29 +4730,15 @@ impl Worker {
                 });
                 self.emit(Event::InviteJoined { code, result });
             }
-            Command::AdoptPendingUpdate => {
-                let events = self.events.clone();
-                let waker = self.waker.clone();
-                tokio::task::spawn_blocking(move || {
-                    let result = crate::updates::install::detect()
-                        .map_err(|error| format!("{error:#}"))
-                        .and_then(|installation| {
-                            crate::updates::install::load_pending(&installation)
-                                .map(|pending| {
-                                    pending.map(|prepared| (installation, Box::new(prepared)))
-                                })
-                                .map_err(|error| format!("{error:#}"))
-                        });
-                    let _ = events.send(Event::PendingUpdate(result));
-                    waker.wake();
-                });
-            }
             Command::InspectUpdate => {
                 let events = self.events.clone();
                 let waker = self.waker.clone();
                 tokio::task::spawn_blocking(move || {
-                    let result =
-                        crate::updates::install::detect().map_err(|error| format!("{error:#}"));
+                    let result = crate::updates::updater()
+                        .map_err(|error| format!("{error:#}"))
+                        .and_then(|updater| {
+                            updater.installation().map_err(|reason| reason.to_string())
+                        });
                     let _ = events.send(Event::UpdateSupport(result));
                     waker.wake();
                 });
@@ -4761,12 +4747,17 @@ impl Worker {
                 let events = self.events.clone();
                 let waker = self.waker.clone();
                 tokio::task::spawn_blocking(move || {
-                    let result = crate::updates::download(&release, &source, |received, total| {
-                        let _ = events.send(Event::UpdateProgress { received, total });
-                        waker.wake();
-                    })
-                    .map(Box::new)
-                    .map_err(|error| format!("{error:#}"));
+                    let result = crate::updates::updater()
+                        .and_then(|updater| {
+                            updater
+                                .with_source(source)
+                                .download(&release, |received, total| {
+                                    let _ = events.send(Event::UpdateProgress { received, total });
+                                    waker.wake();
+                                })
+                        })
+                        .map(Box::new)
+                        .map_err(|error| format!("{error:#}"));
                     let _ = events.send(Event::UpdateDownloaded(result));
                     waker.wake();
                 });
@@ -4778,7 +4769,8 @@ impl Worker {
                 let events = self.events.clone();
                 let waker = self.waker.clone();
                 tokio::task::spawn_blocking(move || {
-                    let result = crate::updates::install::handoff(&prepared, arguments)
+                    let result = crate::updates::updater()
+                        .and_then(|updater| updater.handoff(*prepared, arguments))
                         .map_err(|error| format!("{error:#}"));
                     let _ = events.send(Event::UpdateInstalling(result));
                     waker.wake();
@@ -4787,17 +4779,19 @@ impl Worker {
             Command::CheckForUpdates => {
                 let events = self.events.clone();
                 let waker = self.waker.clone();
-                tokio::task::spawn_blocking(move || match crate::updates::newer_release() {
-                    Ok(Some(release)) => {
-                        let _ = events.send(Event::UpdateAvailable {
-                            version: release.version,
-                            url: release.url,
-                        });
-                        waker.wake();
-                    }
-                    Ok(None) => log::debug!("this is the newest release"),
-                    Err(error) => {
-                        log::debug!("could not check for a newer release: {error:#}")
+                tokio::task::spawn_blocking(move || {
+                    match crate::updates::updater().and_then(|updater| updater.check()) {
+                        Ok(Some(release)) => {
+                            let _ = events.send(Event::UpdateAvailable {
+                                version: release.version,
+                                url: release.url,
+                            });
+                            waker.wake();
+                        }
+                        Ok(None) => log::debug!("this is the newest release"),
+                        Err(error) => {
+                            log::debug!("could not check for a newer release: {error:#}")
+                        }
                     }
                 });
             }
@@ -10034,7 +10028,7 @@ mod receipt_tests {
             dirs: AppDirs::under(&root),
             events,
             commands,
-            waker: Waker(Arc::new(std::sync::Mutex::new(None))),
+            waker: Waker::default(),
             archive: Archive::in_memory().expect("archive"),
             client: None,
             handle: None,

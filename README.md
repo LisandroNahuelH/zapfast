@@ -328,12 +328,14 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   zero removes it.
 - **Update notices.** ZapFast checks GitHub once a day and shows a download
   link when a newer release is available. You can turn this off in Settings.
-  With **Download updates automatically** on, a verified release installs when
-  ZapFast next quits or starts, so there is nothing to click; the toast is
-  there for installing it right away.
+  With **Download updates automatically** on, a verified download installs
+  itself when ZapFast quits, so there is nothing to click; the toast is there
+  for installing it right away.
 - **Themes.** Light, dark, follow the system, or a local JSON palette. Native
   Linux packages can follow Omarchy colors without restarting the app. Zoom with
-  Ctrl+plus and Ctrl+minus.
+  Ctrl+plus and Ctrl+minus. On Linux text is hinted and antialiased as the
+  desktop asks (its font settings through the desktop portal, else
+  fontconfig), and follows changes to them without a restart.
 - **Copy text.** Select part of a message or copy across messages in
   WhatsApp's `[time, date] Name:` format. Contact names and numbers are also
   selectable, with Brazilian numbers shown as `(DDD) XXXX-XXXX` or
@@ -591,8 +593,8 @@ English. `Ctrl+F` on the Settings page focuses the field, and `Esc` clears it.
 ### Interface language
 
 **Settings > Appearance > Language** chooses the interface language. **Auto**
-follows the operating system's language and falls back to English when ZapFast
-has no translation for it. Brazilian Portuguese, German, Spanish, Italian,
+follows the first of the operating system's preferred languages that ZapFast
+has a translation for, and falls back to English when it has none. Brazilian Portuguese, German, Spanish, Italian,
 French, and Russian cover the chat list, search, composer, shortcut hints,
 Settings, and dates. Translations are compiled from gettext PO
 files at build time, with no runtime parsing or network access. Message
@@ -674,14 +676,15 @@ light/dark preference and does not read host theme files or install desktop hook
 ZapFast checks GitHub once a day when **Check for updates** is enabled.
 Click **Update** in the banner to download and verify a newer release, then
 **Restart to update** when convenient. **Download updates automatically** is
-optional and off by default; with it on, a verified release is recorded beside
-the install and installs the next time ZapFast quits or starts, without a click,
-and quitting before that no longer throws the download away. Downloads contact
-GitHub's API and release-asset hosts and are checked against the release's
-SHA-256 checksums. Before downloading a package,
+optional and off by default; with it on, a verified download installs itself
+when ZapFast quits, without a click, instead of being thrown away with the
+process. Downloads contact GitHub's API and release-asset hosts and are checked
+against the release's SHA-256 checksums. Before downloading a package,
 the updater verifies the checksum manifest's Ed25519 publisher signature using
 its embedded public key. Missing or invalid signatures stop the update.
-The updater keeps a backup and restores it if the updated app cannot start.
+The updater keeps a backup and restores it if the updated app cannot start;
+its helper writes what it did to `helper.log` in the update's staging folder
+beside the app.
 Release builds also carry GitHub provenance attestations, independently
 verifiable with `gh attestation verify FILE -R crmne/zapfast`.
 See [update signing](packaging/UPDATE_SIGNING.md) for key custody and recovery.

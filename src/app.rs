@@ -20,7 +20,6 @@ use crate::paths::AppDirs;
 use crate::settings::{NotificationSound, Settings, ThemeChoice};
 use crate::single_instance::{ControlCommand, Guard};
 use crate::theme::{self, Palette};
-use crate::tray::{TrayCommand, TrayService};
 
 /// Initial and incremental message-page size.
 pub const PAGE: usize = 60;
@@ -166,7 +165,7 @@ pub struct App {
     last_settings_save: Instant,
     pub backend: Backend,
     pub palette: Palette,
-    pub custom_themes: theme::custom::Catalog,
+    pub custom_themes: theme::Catalog,
     applied_dark: Option<bool>,
     zoom_applied: bool,
 
@@ -406,14 +405,8 @@ pub struct App {
     last_update_check: Option<Instant>,
     pub show_update: bool,
     pub update_download: crate::updates::DownloadState,
-    pub update_support: Option<Result<crate::updates::install::Installation, String>>,
+    pub update_support: Option<Result<crate::updates::Installation, String>>,
     update_inspecting: bool,
-    /// The worker is reading the payload an earlier run left beside the
-    /// install. A download started now would replace that folder under the
-    /// read, so downloads wait for the answer (`Event::PendingUpdate`).
-    update_adopting: bool,
-    /// A download that was asked for while that payload was being read.
-    update_download_queued: bool,
     pub update_arguments: Vec<String>,
     /// Whether to scroll the conversation to its newest message.
     pub scroll_to_bottom: bool,
@@ -437,7 +430,7 @@ pub struct App {
     pub start_with_system: Option<bool>,
     /// Cross-thread window repaint handle.
     waker: Waker,
-    tray: Option<TrayService>,
+    tray: Option<fastframe_tray::Tray>,
     /// Whether the app is running without a window.
     pub window_hidden: bool,
     /// Whether window close should keep the process running.
@@ -521,6 +514,80 @@ impl Pending {
     }
 }
 
+/// The app outlives its window: closing it with "keep running" on hides
+/// ZapFast, and the tray, a notification or another launch brings it back.
+impl fastframe_shell::Resident for App {
+    fn closed(&self) -> fastframe_shell::Closed {
+        if !self.quit_requested && self.hide_intent {
+            fastframe_shell::Closed::Hide
+        } else {
+            fastframe_shell::Closed::Quit
+        }
+    }
+
+    fn window_gone(&mut self) {
+        App::window_gone(self);
+    }
+
+    fn headless_frame(&mut self, ctx: &egui::Context) -> fastframe_shell::Headless {
+        self.background_frame(ctx);
+        if self.quit_requested {
+            fastframe_shell::Headless::Quit
+        } else if self.wants_show {
+            fastframe_shell::Headless::Show
+        } else {
+            fastframe_shell::Headless::Wait
+        }
+    }
+
+    /// Without a tray there is no way back to a hidden window, so show it.
+    fn start_hidden(&mut self) -> bool {
+        if !self.hides_to_tray() {
+            return false;
+        }
+        App::start_hidden(self);
+        true
+    }
+
+    fn shutdown(&mut self) {
+        App::shutdown(self);
+    }
+}
+
+const TRAY_SHOW: &str = "show";
+const TRAY_QUIT: &str = "quit";
+
+/// What a tray click asks for: a left click on Linux and macOS, or the menu's
+/// first entry, toggles the window; a left click on Windows and a Dock click
+/// on macOS show it.
+fn tray_action(event: fastframe_tray::Event, window_hidden: bool) -> Option<Action> {
+    use fastframe_tray::Event;
+    Some(match event {
+        Event::Show => Action::ShowWindow,
+        Event::Toggle | Event::Menu(TRAY_SHOW) if window_hidden => Action::ShowWindow,
+        Event::Toggle | Event::Menu(TRAY_SHOW) => Action::HideWindow,
+        Event::Menu(TRAY_QUIT) => Action::Quit,
+        Event::Menu(_) => return None,
+    })
+}
+
+/// The tray item: ZapFast's icon, and a menu to show or hide the window and
+/// to quit.
+fn tray_config() -> fastframe_tray::Config {
+    use fastframe_tray::MenuItem;
+    fastframe_tray::Config {
+        id: "zapfast",
+        title: "ZapFast".into(),
+        icon: crate::util::app_icon_rgba,
+        template_icon: Some(crate::util::tray_template_rgba),
+        menu: vec![
+            MenuItem::action(TRAY_SHOW, "Show or hide ZapFast"),
+            MenuItem::Separator,
+            MenuItem::action(TRAY_QUIT, "Quit"),
+        ],
+    }
+}
+
 /// Process-level app services.
 #[derive(Clone, Copy, Debug)]
 pub struct AppOptions {
@@ -541,11 +608,19 @@ impl App {
         let mut app = Self::with_backend(dirs, settings, backend, waker.clone());
         app.pauses_media = true;
         app.badge = Some(Default::default());
-        app.custom_themes.enable_desktop_themes();
+        app.custom_themes
+            .enable_desktop_themes(crate::theme::DESKTOP_THEMES);
         app.load_custom_themes();
+        // Reading the desktop's font settings may wait on D-Bus; keep it off
+        // the first frame.
+        let text_waker = waker.clone();
+        std::thread::Builder::new()
+            .name("text-rendering".into())
+            .spawn(move || crate::theme::follow_text_rendering(move || text_waker.wake()))
+            .ok();
         if options.tray {
             let waker = waker.clone();
-            app.tray = TrayService::spawn(move || waker.wake());
+            app.tray = fastframe_tray::Tray::spawn(tray_config(), move || waker.wake());
         }
         // The clock preference may run a helper on Linux; keep it off the
         // first frame.
@@ -561,12 +636,6 @@ impl App {
         if crate::autostart::supported() {
             app.start_with_system = Some(crate::autostart::enabled());
         }
-        // The payload an earlier run left behind is read by the worker: the
-        // hash check reads the whole file, which can be gigabytes, and this
-        // runs before the first frame. Downloads wait for its answer: they
-        // replace the same folder it is reading.
-        app.update_adopting = true;
-        app.backend.send(Command::AdoptPendingUpdate);
         app
     }
 
@@ -611,7 +680,7 @@ impl App {
             last_settings_save: Instant::now(),
             backend,
             palette,
-            custom_themes: theme::custom::Catalog::default(),
+            custom_themes: theme::Catalog::default(),
             applied_dark: None,
             zoom_applied: false,
             link: LinkStatus::Starting,
@@ -756,8 +825,6 @@ impl App {
             update_download: Default::default(),
             update_support: None,
             update_inspecting: false,
-            update_adopting: false,
-            update_download_queued: false,
             update_arguments: Vec::new(),
             scroll_to_bottom: true,
             at_bottom: true,
@@ -803,9 +870,6 @@ impl App {
         self.window_focused = false;
         self.hide_intent = false;
         self.wants_show = false;
-        if let Some(tray) = &mut self.tray {
-            tray.hidden();
-        }
     }
 
     /// Whether window close keeps the app in the tray.
@@ -814,20 +878,15 @@ impl App {
     }
 
     fn handle_tray(&mut self) {
-        let Some(commands) = self.tray.as_ref().map(TrayService::drain_commands) else {
+        let Some(events) = self.tray.as_ref().map(fastframe_tray::Tray::events) else {
             return;
         };
-        for command in commands {
-            match command {
-                TrayCommand::Show => self.actions.push(Action::ShowWindow),
-                TrayCommand::ShowHide => self.actions.push(if self.window_hidden {
-                    Action::ShowWindow
-                } else {
-                    Action::HideWindow
-                }),
-                TrayCommand::Quit => self.actions.push(Action::Quit),
-            }
-        }
+        let hidden = self.window_hidden;
+        self.actions.extend(
+            events
+                .into_iter()
+                .filter_map(|event| tray_action(event, hidden)),
+        );
     }
 
     fn handle_control_commands(&mut self) {
@@ -2106,26 +2165,6 @@ impl App {
                     self.update_inspecting = false;
                     self.maybe_download_update();
                 }
-                Event::PendingUpdate(result) => {
-                    self.update_adopting = false;
-                    match result {
-                        Ok(Some((installation, prepared))) => {
-                            // The payload is the download the checks would
-                            // have asked for; nothing else needs to start.
-                            self.update_download_queued = false;
-                            self.adopt_pending_installation(installation, *prepared);
-                        }
-                        // Nothing to adopt, so a download that waited for the
-                        // read can go ahead: the automatic one the release
-                        // check asked for, and one the reader asked for while
-                        // the read was running.
-                        Ok(None) => self.resume_update_download(),
-                        Err(error) => {
-                            log::debug!("could not read the pending update: {error}");
-                            self.resume_update_download();
-                        }
-                    }
-                }
                 Event::UpdateProgress { received, total } => {
                     self.update_download =
                         crate::updates::DownloadState::Downloading { received, total };
@@ -3008,33 +3047,6 @@ impl App {
         }
     }
 
-    /// Installs a verified payload left by an earlier run.
-    ///
-    /// A download that was never installed is still on disk, and nothing else
-    /// would pick it up: without this the next start would fetch it again.
-    fn adopt_pending_installation(
-        &mut self,
-        installation: crate::updates::install::Installation,
-        prepared: crate::updates::install::Prepared,
-    ) {
-        // Automatic downloads are the setting that says "do this without me".
-        // With it off, a pending file waits for the toast like any other
-        // download.
-        if !self.settings.check_for_updates || !self.settings.download_updates_automatically {
-            return;
-        }
-        self.update = Some(crate::updates::Release {
-            version: prepared.version.clone(),
-            url: format!(
-                "https://github.com/crmne/zapfast/releases/tag/v{}",
-                prepared.version
-            ),
-        });
-        self.update_support = Some(Ok(installation));
-        self.update_download = crate::updates::DownloadState::Ready(Box::new(prepared));
-        self.actions.push(Action::InstallUpdate);
-    }
-
     fn maybe_download_update(&mut self) {
         if !self.settings.check_for_updates
             || !self.settings.download_updates_automatically
@@ -3057,32 +3069,16 @@ impl App {
         {
             return;
         }
-        if self.update_adopting {
-            // The payload an earlier run left is being read from the same
-            // folder right now, and a download would replace it under the
-            // read. It starts when the read answers (`Event::PendingUpdate`).
-            self.update_download_queued = true;
-            return;
-        }
         if let Some(release) = self.update.clone() {
-            self.update_download_queued = false;
             self.update_download = crate::updates::DownloadState::Downloading {
                 received: 0,
                 total: 0,
             };
             self.backend.send(Command::DownloadUpdate {
                 release,
-                source: crate::updates::Source::GitHub,
+                source: crate::updates::Source::github(),
             });
         }
-    }
-
-    /// Lets downloads go ahead once the pending payload has been read.
-    fn resume_update_download(&mut self) {
-        if std::mem::take(&mut self.update_download_queued) {
-            self.download_update();
-        }
-        self.maybe_download_update();
     }
 
     pub fn mark_settings_dirty(&mut self) {
@@ -3098,10 +3094,11 @@ impl App {
     }
 
     pub fn load_custom_themes(&mut self) {
+        let waker = self.waker.clone();
         self.custom_themes.start(
             self.dirs.config.join("themes"),
             self.settings.custom_theme.clone(),
-            &self.waker,
+            &fastframe_theme::Waker::new(move || waker.wake()),
         );
     }
 
@@ -3109,9 +3106,14 @@ impl App {
         if self.custom_themes.needs_reload() {
             self.load_custom_themes();
         }
-        if !self.custom_themes.poll() {
-            return;
+        if self.custom_themes.poll() {
+            self.cache_custom_themes();
         }
+    }
+
+    /// Keeps the selected and the desktop's palettes in settings, so the
+    /// last usable appearance survives a missing file or a slow scan.
+    fn cache_custom_themes(&mut self) {
         let mut changed = false;
         if let Some(filename) = &self.settings.custom_theme
             && let Some(theme) = self.custom_themes.find(filename)
@@ -3160,6 +3162,9 @@ impl App {
                 Palette::light()
             }
         });
+        if crate::theme::apply_text_rendering_change(ctx) {
+            self.applied_dark = None;
+        }
         if self.applied_dark.is_none() || self.palette != palette {
             self.palette = palette;
             crate::theme::apply(ctx, &self.palette);
@@ -5858,6 +5863,33 @@ mod tests {
         assert_eq!(started.try_recv(), Ok(()));
     }
 
+    /// The shell asks the app what a closed window means and what each
+    /// headless tick wants; without a tray a hidden start opens the window.
+    #[test]
+    fn the_shell_hides_shows_and_quits_as_the_app_asks() {
+        use fastframe_shell::{Closed, Headless, Resident};
+        let mut app = app();
+        assert_eq!(app.closed(), Closed::Quit);
+        app.hide_intent = true;
+        assert_eq!(app.closed(), Closed::Hide);
+        app.quit_requested = true;
+        assert_eq!(app.closed(), Closed::Quit);
+        app.quit_requested = false;
+        Resident::window_gone(&mut app);
+        assert!(!app.hide_intent && !app.wants_show);
+        let ctx = egui::Context::default();
+        assert_eq!(app.headless_frame(&ctx), Headless::Wait);
+        app.wants_show = true;
+        assert_eq!(app.headless_frame(&ctx), Headless::Show);
+        app.quit_requested = true;
+        assert_eq!(app.headless_frame(&ctx), Headless::Quit);
+
+        let mut app = self::app();
+        assert!(app.tray.is_none());
+        assert!(!Resident::start_hidden(&mut app), "no tray, no way back");
+        assert!(!app.hide_intent);
+    }
+
     #[test]
     fn unsupported_media_falls_back_to_the_external_opener() {
         let ctx = egui::Context::default();
@@ -6264,8 +6296,41 @@ mod tests {
     }
 
     #[test]
+    fn tray_clicks_show_hide_and_quit() {
+        use fastframe_tray::Event;
+        assert!(matches!(
+            super::tray_action(Event::Show, false),
+            Some(Action::ShowWindow)
+        ));
+        for event in [Event::Toggle, Event::Menu(super::TRAY_SHOW)] {
+            assert!(matches!(
+                super::tray_action(event, true),
+                Some(Action::ShowWindow)
+            ));
+            assert!(matches!(
+                super::tray_action(event, false),
+                Some(Action::HideWindow)
+            ));
+        }
+        assert!(matches!(
+            super::tray_action(Event::Menu(super::TRAY_QUIT), false),
+            Some(Action::Quit)
+        ));
+        assert!(super::tray_action(Event::Menu("other"), false).is_none());
+        let menu = super::tray_config().menu;
+        assert_eq!(
+            menu,
+            [
+                fastframe_tray::MenuItem::action(super::TRAY_SHOW, "Show or hide ZapFast"),
+                fastframe_tray::MenuItem::Separator,
+                fastframe_tray::MenuItem::action(super::TRAY_QUIT, "Quit"),
+            ]
+        );
+    }
+
+    #[test]
     fn custom_theme_cache_survives_a_missing_file_and_follows_system_updates() {
-        use crate::theme::custom::{Catalog, CustomTheme};
+        use crate::theme::{Catalog, CustomTheme};
         let mut app = app();
         let ctx = egui::Context::default();
         let mut first = CustomTheme {
@@ -6273,7 +6338,7 @@ mod tests {
             palette: Palette::dark(),
         };
         first.palette.accent = egui::Color32::RED;
-        app.custom_themes = Catalog::from_themes(vec![first.clone()]);
+        app.custom_themes = Catalog::preview(vec![first.clone()], false);
         app.apply(Action::SetCustomTheme(first.filename.clone()), &ctx);
         assert_eq!(app.palette.accent, egui::Color32::RED);
         // Cached selection remains usable while the file is temporarily missing.
@@ -6287,14 +6352,9 @@ mod tests {
         let mut system = first;
         system.filename = "omarchy.json".into();
         system.palette.accent = egui::Color32::GREEN;
-        app.custom_themes
-            .load_system_test(Some(system.clone()), true);
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while app.settings.system_theme_cache.as_ref() != Some(&system) {
-            app.poll_custom_themes();
-            assert!(Instant::now() < deadline);
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        app.custom_themes = Catalog::preview(vec![system.clone()], true);
+        app.cache_custom_themes();
+        assert_eq!(app.settings.system_theme_cache.as_ref(), Some(&system));
         app.apply_theme(&ctx);
         assert_eq!(app.palette.accent, egui::Color32::GREEN);
         app.apply(Action::SetTheme(ThemeChoice::Light), &ctx);
@@ -6303,10 +6363,7 @@ mod tests {
 
     #[test]
     fn automatic_updates_require_opt_in_and_explicit_restart() {
-        use crate::updates::{
-            DownloadState,
-            install::{Installation, Kind, Prepared},
-        };
+        use crate::updates::{DownloadState, Installation, Kind, Prepared};
         let mut app = app();
         let ctx = egui::Context::default();
         app.update = Some(crate::updates::Release {
@@ -6331,13 +6388,8 @@ mod tests {
             app.update_download,
             DownloadState::Downloading { .. }
         ));
-        app.update_download = DownloadState::Ready(Box::new(Prepared {
-            installation,
-            directory: "/fixture/staging".into(),
-            payload: "/fixture/staging/next".into(),
-            sha256: String::new(),
-            version: "99.0.0".into(),
-        }));
+        app.update_download =
+            DownloadState::Ready(Box::new(Prepared::sample(installation, "99.0.0")));
         app.maybe_download_update();
         assert!(matches!(app.update_download, DownloadState::Ready(_)));
         assert!(!app.quit_requested);
@@ -6346,43 +6398,18 @@ mod tests {
         assert!(!app.quit_requested, "wait for the helper before closing");
     }
 
-    fn fixture_prepared(version: &str) -> crate::updates::install::Prepared {
-        use crate::updates::install::{Installation, Kind, Prepared};
-        Prepared {
-            installation: Installation {
+    /// A stand-in for the payload a download leaves ready, for the quit path.
+    /// `Prepared::sample` is what the crate offers for exactly this, and a real
+    /// handoff refuses it, so the backend of these tests never installs it.
+    fn fixture_prepared(version: &str) -> crate::updates::Prepared {
+        use crate::updates::{Installation, Kind, Prepared};
+        Prepared::sample(
+            Installation {
                 executable: PathBuf::from("/fixture/zapfast"),
                 kind: Kind::Portable,
             },
-            directory: "/fixture/staging".into(),
-            payload: "/fixture/staging/next".into(),
-            sha256: String::new(),
-            version: version.into(),
-        }
-    }
-
-    /// Writes a real pending payload beside a fixture executable, so the hash
-    /// check in `load_pending` is the one under test.
-    fn write_pending_update() -> (tempfile::TempDir, crate::updates::install::Installation) {
-        use crate::updates::install::{self, Installation, Kind, Prepared};
-        let root = tempfile::tempdir().unwrap();
-        let executable = root.path().join("zapfast");
-        std::fs::write(&executable, b"old").unwrap();
-        let installation = Installation {
-            executable,
-            kind: Kind::Portable,
-        };
-        let stage = install::staging(&installation).unwrap();
-        let payload = stage.join("next");
-        std::fs::write(&payload, b"new").unwrap();
-        install::save_prepared(&Prepared {
-            installation: installation.clone(),
-            directory: stage,
-            payload: payload.clone(),
-            sha256: install::hash(&payload).unwrap(),
-            version: "99.0.0".into(),
-        })
-        .unwrap();
-        (root, installation)
+            version,
+        )
     }
 
     #[test]
@@ -6427,119 +6454,6 @@ mod tests {
         app.update_download = DownloadState::Idle;
         app.apply(Action::Quit, &ctx);
         assert!(app.quit_requested);
-    }
-
-    #[test]
-    fn a_pending_payload_installs_on_the_next_start_when_auto_download_is_on() {
-        use crate::updates::DownloadState;
-        let (_root, installation) = write_pending_update();
-        let mut app = app();
-        app.settings.check_for_updates = true;
-        app.settings.download_updates_automatically = true;
-        let prepared = crate::updates::install::load_pending(&installation)
-            .expect("reads")
-            .expect("a pending payload");
-        app.adopt_pending_installation(installation, prepared);
-        assert_eq!(
-            app.update.as_ref().map(|release| release.version.as_str()),
-            Some("99.0.0"),
-            "the notice names the payload that was found"
-        );
-        let ctx = egui::Context::default();
-        app.apply_actions(&ctx);
-        assert!(matches!(app.update_download, DownloadState::Installing));
-    }
-
-    #[test]
-    fn a_pending_payload_waits_when_auto_download_is_off() {
-        use crate::updates::DownloadState;
-        let (_root, installation) = write_pending_update();
-        let mut app = app();
-        app.settings.download_updates_automatically = false;
-        let prepared = crate::updates::install::load_pending(&installation)
-            .expect("reads")
-            .expect("a pending payload");
-        app.adopt_pending_installation(installation, prepared);
-        assert!(matches!(app.update_download, DownloadState::Idle));
-        assert!(app.update.is_none());
-    }
-
-    /// A download the release check asked for waits while the payload an
-    /// earlier run left is still being read: both work in the same folder, and
-    /// a download would replace it under the read.
-    #[test]
-    fn a_download_waits_while_the_pending_payload_is_being_read() {
-        use crate::updates::DownloadState;
-        let mut app = app();
-        let (backend, mut commands, events) = Backend::recording_with_events();
-        app.backend = backend;
-        app.settings.check_for_updates = true;
-        app.settings.download_updates_automatically = true;
-        app.update = Some(crate::updates::Release {
-            version: "99.0.0".into(),
-            url: "https://example.invalid/release".into(),
-        });
-        app.update_support = Some(Ok(crate::updates::install::Installation {
-            executable: PathBuf::from("/fixture/zapfast"),
-            kind: crate::updates::install::Kind::Portable,
-        }));
-        app.update_adopting = true;
-
-        app.maybe_download_update();
-        assert!(
-            matches!(app.update_download, DownloadState::Idle),
-            "the download waits for the read to answer"
-        );
-        assert!(commands.try_recv().is_err(), "nothing goes out meanwhile");
-
-        // The read found nothing to adopt, so the download goes ahead.
-        events.send(Event::PendingUpdate(Ok(None))).unwrap();
-        app.handle_events();
-        assert!(matches!(
-            app.update_download,
-            DownloadState::Downloading { .. }
-        ));
-        assert!(matches!(
-            commands.try_recv(),
-            Ok(Command::DownloadUpdate { .. })
-        ));
-    }
-
-    /// A download the reader asked for while the payload was being read starts
-    /// when the read answers, even with automatic downloads off: the click is
-    /// not lost to the wait.
-    #[test]
-    fn a_download_asked_for_during_the_read_starts_when_it_answers() {
-        use crate::updates::DownloadState;
-        let mut app = app();
-        let (backend, mut commands, events) = Backend::recording_with_events();
-        app.backend = backend;
-        app.settings.check_for_updates = true;
-        app.settings.download_updates_automatically = false;
-        app.update = Some(crate::updates::Release {
-            version: "99.0.0".into(),
-            url: "https://example.invalid/release".into(),
-        });
-        app.update_support = Some(Ok(crate::updates::install::Installation {
-            executable: PathBuf::from("/fixture/zapfast"),
-            kind: crate::updates::install::Kind::Portable,
-        }));
-        app.update_adopting = true;
-
-        app.download_update();
-        assert!(matches!(app.update_download, DownloadState::Idle));
-        assert!(commands.try_recv().is_err(), "nothing goes out meanwhile");
-
-        events.send(Event::PendingUpdate(Ok(None))).unwrap();
-        app.handle_events();
-        assert!(matches!(
-            app.update_download,
-            DownloadState::Downloading { .. }
-        ));
-        assert!(matches!(
-            commands.try_recv(),
-            Ok(Command::DownloadUpdate { .. })
-        ));
     }
 
     #[test]
