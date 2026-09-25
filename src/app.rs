@@ -406,6 +406,12 @@ pub struct App {
     pub update_download: crate::updates::DownloadState,
     pub update_support: Option<Result<crate::updates::install::Installation, String>>,
     update_inspecting: bool,
+    /// The worker is reading the payload an earlier run left beside the
+    /// install. A download started now would replace that folder under the
+    /// read, so downloads wait for the answer (`Event::PendingUpdate`).
+    update_adopting: bool,
+    /// A download that was asked for while that payload was being read.
+    update_download_queued: bool,
     pub update_arguments: Vec<String>,
     /// Whether to scroll the conversation to its newest message.
     pub scroll_to_bottom: bool,
@@ -555,7 +561,9 @@ impl App {
         }
         // The payload an earlier run left behind is read by the worker: the
         // hash check reads the whole file, which can be gigabytes, and this
-        // runs before the first frame.
+        // runs before the first frame. Downloads wait for its answer: they
+        // replace the same folder it is reading.
+        app.update_adopting = true;
         app.backend.send(Command::AdoptPendingUpdate);
         app
     }
@@ -735,6 +743,8 @@ impl App {
             update_download: Default::default(),
             update_support: None,
             update_inspecting: false,
+            update_adopting: false,
+            update_download_queued: false,
             update_arguments: Vec::new(),
             scroll_to_bottom: true,
             at_bottom: true,
@@ -2087,16 +2097,26 @@ impl App {
                     self.update_inspecting = false;
                     self.maybe_download_update();
                 }
-                Event::PendingUpdate(result) => match result {
-                    Ok(Some((installation, prepared))) => {
-                        self.adopt_pending_installation(installation, *prepared);
+                Event::PendingUpdate(result) => {
+                    self.update_adopting = false;
+                    match result {
+                        Ok(Some((installation, prepared))) => {
+                            // The payload is the download the checks would
+                            // have asked for; nothing else needs to start.
+                            self.update_download_queued = false;
+                            self.adopt_pending_installation(installation, *prepared);
+                        }
+                        // Nothing to adopt, so a download that waited for the
+                        // read can go ahead: the automatic one the release
+                        // check asked for, and one the reader asked for while
+                        // the read was running.
+                        Ok(None) => self.resume_update_download(),
+                        Err(error) => {
+                            log::debug!("could not read the pending update: {error}");
+                            self.resume_update_download();
+                        }
                     }
-                    Ok(None) => {}
-                    // A payload that cannot be read is not installed, and the
-                    // toast that would have offered it is not worth a dialog:
-                    // the next check fetches the release again.
-                    Err(error) => log::debug!("could not read the pending update: {error}"),
-                },
+                }
                 Event::UpdateProgress { received, total } => {
                     self.update_download =
                         crate::updates::DownloadState::Downloading { received, total };
@@ -3028,7 +3048,15 @@ impl App {
         {
             return;
         }
+        if self.update_adopting {
+            // The payload an earlier run left is being read from the same
+            // folder right now, and a download would replace it under the
+            // read. It starts when the read answers (`Event::PendingUpdate`).
+            self.update_download_queued = true;
+            return;
+        }
         if let Some(release) = self.update.clone() {
+            self.update_download_queued = false;
             self.update_download = crate::updates::DownloadState::Downloading {
                 received: 0,
                 total: 0,
@@ -3038,6 +3066,14 @@ impl App {
                 source: crate::updates::Source::GitHub,
             });
         }
+    }
+
+    /// Lets downloads go ahead once the pending payload has been read.
+    fn resume_update_download(&mut self) {
+        if std::mem::take(&mut self.update_download_queued) {
+            self.download_update();
+        }
+        self.maybe_download_update();
     }
 
     pub fn mark_settings_dirty(&mut self) {
@@ -6250,6 +6286,84 @@ mod tests {
         app.adopt_pending_installation(installation, prepared);
         assert!(matches!(app.update_download, DownloadState::Idle));
         assert!(app.update.is_none());
+    }
+
+    /// A download the release check asked for waits while the payload an
+    /// earlier run left is still being read: both work in the same folder, and
+    /// a download would replace it under the read.
+    #[test]
+    fn a_download_waits_while_the_pending_payload_is_being_read() {
+        use crate::updates::DownloadState;
+        let mut app = app();
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        app.settings.check_for_updates = true;
+        app.settings.download_updates_automatically = true;
+        app.update = Some(crate::updates::Release {
+            version: "99.0.0".into(),
+            url: "https://example.invalid/release".into(),
+        });
+        app.update_support = Some(Ok(crate::updates::install::Installation {
+            executable: PathBuf::from("/fixture/zapfast"),
+            kind: crate::updates::install::Kind::Portable,
+        }));
+        app.update_adopting = true;
+
+        app.maybe_download_update();
+        assert!(
+            matches!(app.update_download, DownloadState::Idle),
+            "the download waits for the read to answer"
+        );
+        assert!(commands.try_recv().is_err(), "nothing goes out meanwhile");
+
+        // The read found nothing to adopt, so the download goes ahead.
+        events.send(Event::PendingUpdate(Ok(None))).unwrap();
+        app.handle_events();
+        assert!(matches!(
+            app.update_download,
+            DownloadState::Downloading { .. }
+        ));
+        assert!(matches!(
+            commands.try_recv(),
+            Ok(Command::DownloadUpdate { .. })
+        ));
+    }
+
+    /// A download the reader asked for while the payload was being read starts
+    /// when the read answers, even with automatic downloads off: the click is
+    /// not lost to the wait.
+    #[test]
+    fn a_download_asked_for_during_the_read_starts_when_it_answers() {
+        use crate::updates::DownloadState;
+        let mut app = app();
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        app.settings.check_for_updates = true;
+        app.settings.download_updates_automatically = false;
+        app.update = Some(crate::updates::Release {
+            version: "99.0.0".into(),
+            url: "https://example.invalid/release".into(),
+        });
+        app.update_support = Some(Ok(crate::updates::install::Installation {
+            executable: PathBuf::from("/fixture/zapfast"),
+            kind: crate::updates::install::Kind::Portable,
+        }));
+        app.update_adopting = true;
+
+        app.download_update();
+        assert!(matches!(app.update_download, DownloadState::Idle));
+        assert!(commands.try_recv().is_err(), "nothing goes out meanwhile");
+
+        events.send(Event::PendingUpdate(Ok(None))).unwrap();
+        app.handle_events();
+        assert!(matches!(
+            app.update_download,
+            DownloadState::Downloading { .. }
+        ));
+        assert!(matches!(
+            commands.try_recv(),
+            Ok(Command::DownloadUpdate { .. })
+        ));
     }
 
     #[test]
