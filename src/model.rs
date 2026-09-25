@@ -919,8 +919,6 @@ pub enum SidebarDisplayMode {
     Expanded,
     /// Avatars and unread badges only, in a narrow column.
     CollapsedIconsOnly,
-    /// Nothing at all.
-    Hidden,
 }
 
 /// Which list the sticker tab shows.
@@ -1438,10 +1436,13 @@ pub enum Action {
         last: String,
     },
     /// Checks a number, optionally saves it, and opens its chat.
+    /// `to_phone` is the dialog's "Save to phone" choice; `None` uses the
+    /// last one.
     NewContact {
         phone: String,
         first: String,
         last: String,
+        to_phone: Option<bool>,
     },
     /// Searches GIFs or lists trending results for an empty query.
     SearchGifs(String),
@@ -1502,7 +1503,7 @@ pub enum Action {
     /// Filters the Settings page to the rows matching this text.
     SearchSettings(String),
     FocusComposer,
-    HideShortcutHints,
+    SetShortcutHints(bool),
     DismissChatLockHint,
     OpenLockedFolder,
     UnlockLockedFolder(String),

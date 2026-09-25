@@ -285,7 +285,7 @@ fn main() -> eframe::Result<()> {
                 .unwrap_or_else(|p| p.into_inner())
                 .as_mut()
                 .expect("application state present")
-                .hide_intent = true;
+                .start_hidden();
         } else {
             let creator_slot = std::sync::Arc::clone(&slot);
             let creator_waker = waker.clone();

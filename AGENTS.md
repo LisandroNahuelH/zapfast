@@ -226,8 +226,9 @@ protocol. These notes are for coding agents and new contributors.
   when a new window is made. `src/tray.rs` is the Linux status notifier
   (ksni), `src/tray_native.rs` the Windows and macOS item (tray-icon; on
   macOS made with the first window and pumped by `tray::idle` while none
-  exists). `src/single_instance.rs` holds a loopback port so a second
-  launch surfaces the first. `src/notify.rs` sends desktop notifications
+  exists). `src/single_instance.rs` holds a lock file in the runtime
+  directory, and a second launch asks the first to surface over a private
+  socket (a token-checked loopback port on Windows). `src/notify.rs` sends desktop notifications
   for `Event::Incoming` (live messages from others, not history) when the
   reader is away from that chat; a click carries the chat and the message
   id, so the reader lands on the announced message. macOS has no title bar:
