@@ -3307,28 +3307,24 @@ impl App {
                 chat,
                 message,
             } => {
-                // The album reaches messages the transcript has not paged in,
-                // so the message the action names is not always loaded here.
-                // The worker reads the download keys from the archive, so the
-                // command goes out either way; only the local guard needs the
-                // row, and it is skipped when there is none.
-                if let Some(media) = self
+                let Some(media) = self
                     .conversations
                     .get_mut(&chat)
                     .and_then(|conversation| conversation.message_mut(&message))
                     .and_then(|message| message.content.media_at_mut(card))
-                {
-                    if !media.is_within_download_limit() {
-                        media.state = MediaState::Failed(
-                            "This attachment is larger than the 64 MiB download limit".into(),
-                        );
-                        return;
-                    }
-                    if matches!(media.state, MediaState::Downloading) {
-                        return;
-                    }
-                    media.state = MediaState::Downloading;
+                else {
+                    return;
+                };
+                if !media.is_within_download_limit() {
+                    media.state = MediaState::Failed(
+                        "This attachment is larger than the 64 MiB download limit".into(),
+                    );
+                    return;
                 }
+                if matches!(media.state, MediaState::Downloading) {
+                    return;
+                }
+                media.state = MediaState::Downloading;
                 self.backend.send(Command::Download {
                     card,
                     chat,
@@ -5844,34 +5840,6 @@ mod tests {
             app.viewer_media[2].path.as_deref(),
             Some(std::path::Path::new("/fixture/2.png")),
             "and so does the album"
-        );
-    }
-
-    /// The album reaches messages the transcript has not paged in, so a
-    /// download from the viewer has to reach the backend even when the message
-    /// is not loaded: the worker reads its keys from the archive.
-    #[test]
-    fn a_download_from_the_viewer_reaches_a_message_that_is_not_loaded() {
-        let mut app = app_with_album(3);
-        let ctx = egui::Context::default();
-        app.backend.record_demo_commands();
-        app.apply(
-            Action::Download {
-                card: None,
-                chat: "1@s.whatsapp.net".into(),
-                message: "m2".into(),
-            },
-            &ctx,
-        );
-        assert!(
-            app.backend
-                .take_demo_commands()
-                .iter()
-                .any(|command| matches!(
-                    command,
-                    crate::backend::Command::Download { message, .. } if message == "m2"
-                )),
-            "the download goes out for a message the transcript does not hold"
         );
     }
 
