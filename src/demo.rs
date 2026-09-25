@@ -1843,7 +1843,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             "wallpaper" => app.page = Page::Wallpaper,
             "omarchy" | "omarchy-light" => {
-                let mut themes: Vec<_> = crate::theme::presets::themes().collect();
+                let mut themes: Vec<_> = crate::theme::presets().collect();
                 let filename = if part == "omarchy-light" {
                     "Catppuccin Latte.json"
                 } else {
@@ -1859,10 +1859,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 app.settings.custom_theme = None;
                 app.settings.system_theme_cache = Some(system.clone());
                 themes.push(system);
-                app.custom_themes = crate::theme::custom::Catalog::preview(themes, true);
+                app.custom_themes = crate::theme::Catalog::preview(themes, true);
             }
             choice if choice.starts_with("theme=") => {
-                let themes: Vec<_> = crate::theme::presets::themes().collect();
+                let themes: Vec<_> = crate::theme::presets().collect();
                 if let Some(theme) = themes
                     .iter()
                     .find(|theme| Some(theme.filename.as_str()) == choice.strip_prefix("theme="))
@@ -1870,10 +1870,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                     app.settings.custom_theme = Some(theme.filename.clone());
                     app.settings.custom_theme_cache = Some(theme.clone());
                 }
-                app.custom_themes = crate::theme::custom::Catalog::preview(themes, false);
+                app.custom_themes = crate::theme::Catalog::preview(themes, false);
             }
             "themes" => {
-                use crate::theme::custom::{Catalog, CustomTheme};
+                use crate::theme::{Catalog, CustomTheme};
                 let mut palette = crate::theme::Palette::dark();
                 palette.accent = egui::Color32::from_rgb(137, 180, 250);
                 palette.bubble_out = egui::Color32::from_rgb(41, 57, 84);
@@ -1881,7 +1881,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                     filename: "Moonlight 🌙.json".into(),
                     palette,
                 };
-                let mut themes: Vec<_> = crate::theme::presets::themes().collect();
+                let mut themes: Vec<_> = crate::theme::presets().collect();
                 themes.push(theme.clone());
                 app.custom_themes = Catalog::preview(themes, false);
                 app.settings.custom_theme = Some(theme.filename.clone());
@@ -1890,10 +1890,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             "update" | "update-downloading" | "update-ready" | "update-failed"
             | "update-managed" => {
-                use crate::updates::{
-                    DownloadState,
-                    install::{Installation, Kind, Prepared},
-                };
+                use crate::updates::{DownloadState, Installation, Kind, Prepared};
                 app.update = Some(crate::updates::Release {
                     version: "99.0.0".to_owned(),
                     url: "https://github.com/crmne/zapfast/releases/latest".to_owned(),
@@ -1909,13 +1906,9 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                         received: 8_000_000,
                         total: 20_000_000,
                     },
-                    "update-ready" => DownloadState::Ready(Box::new(Prepared {
-                        installation,
-                        directory: "/demo/staging".into(),
-                        payload: "/demo/staging/next".into(),
-                        sha256: String::new(),
-                        version: "99.0.0".into(),
-                    })),
+                    "update-ready" => {
+                        DownloadState::Ready(Box::new(Prepared::sample(installation, "99.0.0")))
+                    }
                     "update-failed" => DownloadState::Failed(
                         "The download could not be verified. Try downloading it again.".into(),
                     ),
