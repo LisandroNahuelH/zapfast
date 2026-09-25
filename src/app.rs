@@ -1925,9 +1925,16 @@ impl App {
                     }
                 }
                 Event::SyncProgress(percent) => self.sync_percent = Some(percent),
-                Event::OlderFetched { chat, more } => {
+                Event::OlderFetched { chat, more, silent } => {
                     let conversation = self.conversations.entry(chat).or_default();
                     conversation.fetching_phone = false;
+                    if silent {
+                        // A background page is not an answer to a request the
+                        // reader made: it must not count against the phone, or
+                        // every successful prefetch would look like a miss and
+                        // back off the next scroll.
+                        continue;
+                    }
                     conversation.phone_exhausted = !more;
                     conversation.phone_answered = Some(Instant::now());
                     if conversation.phone_delivered {
@@ -5247,6 +5254,60 @@ mod tests {
 
     /// Demo and test runs share the machine with a linked ZapFast, whose real
     /// taskbar badge they must not overwrite.
+    /// A background page is not an answer to a request the reader made.
+    /// Counting it as one would look like the phone missing, and back off the
+    /// next scroll by the miss cooldown.
+    #[test]
+    fn a_silent_page_does_not_count_against_the_phone() {
+        let mut app = app();
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        let chat = "peer@s.whatsapp.net";
+        {
+            let conversation = app.conversations.entry(chat.into()).or_default();
+            conversation.fetching_phone = true;
+            conversation.phone_misses = 2;
+            conversation.complete = true;
+        }
+
+        events
+            .send(Event::OlderFetched {
+                chat: chat.into(),
+                more: true,
+                silent: true,
+            })
+            .unwrap();
+        app.handle_events();
+
+        let conversation = app.conversations.get(chat).expect("the chat");
+        assert_eq!(
+            conversation.phone_misses, 2,
+            "a background page is not a miss"
+        );
+        assert!(
+            conversation.complete,
+            "and it does not send the view back to the archive"
+        );
+        assert!(
+            !conversation.fetching_phone,
+            "the request it belonged to is finished"
+        );
+
+        // A page the reader asked for still counts.
+        events
+            .send(Event::OlderFetched {
+                chat: chat.into(),
+                more: false,
+                silent: false,
+            })
+            .unwrap();
+        app.handle_events();
+        let conversation = app.conversations.get(chat).expect("the chat");
+        assert_eq!(conversation.phone_misses, 3);
+        assert!(conversation.phone_exhausted);
+        assert!(!conversation.complete);
+    }
+
     #[test]
     fn demo_and_test_runs_do_not_publish_a_taskbar_badge() {
         assert!(app().badge.is_none());

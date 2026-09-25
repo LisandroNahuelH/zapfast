@@ -3351,12 +3351,16 @@ impl Worker {
             let sender = message.sender.clone();
             self.remember_push_name(&sender, push_name);
         }
-        let is_new = self
-            .archive
-            .message(&chat, &message.id)
-            .ok()
-            .flatten()
-            .is_none();
+        let existing = self.archive.message(&chat, &message.id).ok().flatten();
+        let is_new = existing.is_none();
+        let mut message = message;
+        // A duplicate delivery or a history replay reclassifies the same
+        // message. Carry what the row already knew about its files over, or
+        // the insert below replaces the content with a fresh classification
+        // that has no downloaded path and no retry bookkeeping.
+        if let Some(existing) = &existing {
+            message.content.keep_local_paths(&existing.content);
+        }
         if let Err(error) = self.archive.insert_message(&message, raw.as_deref()) {
             log::warn!("could not store a message: {error}");
             return;
@@ -3852,8 +3856,14 @@ impl Worker {
         for (chat, count, more_on_phone) in filed {
             let more = count > 0 && more_on_phone != Some(false);
             let Some((_, (before_time, before_id))) = self.pending_older.remove(&chat) else {
-                // Late responses are already archived; tell the app to page again.
-                self.emit(Event::OlderFetched { chat, more });
+                // Late responses are already archived; tell the app to page
+                // again. Nothing is waiting on it, so it is not a page the
+                // reader asked for.
+                self.emit(Event::OlderFetched {
+                    chat,
+                    more,
+                    silent: true,
+                });
                 continue;
             };
             // A background request fills the archive without moving the view.
@@ -3878,7 +3888,7 @@ impl Worker {
                     Err(error) => log::warn!("could not read older messages: {error}"),
                 }
             }
-            self.emit(Event::OlderFetched { chat, more });
+            self.emit(Event::OlderFetched { chat, more, silent });
         }
     }
 
@@ -3897,6 +3907,7 @@ impl Worker {
             self.emit(Event::OlderFetched {
                 chat: chat.clone(),
                 more: true,
+                silent,
             });
             // Report the timeout once per chat; later retries back off silently.
             if !silent && self.older_warned.insert(chat) {
@@ -3920,7 +3931,11 @@ impl Worker {
         }
         let (Some(client), Some(jid)) = (self.client.clone(), Self::jid_of(&chat)) else {
             // Offline requests retry after reconnection; the banner shows state.
-            self.emit(Event::OlderFetched { chat, more: true });
+            self.emit(Event::OlderFetched {
+                chat,
+                more: true,
+                silent: background,
+            });
             return false;
         };
         // Chats without messages request history from the current time.
@@ -3976,16 +3991,21 @@ impl Worker {
                     .archive
                     .undownloaded_media(chat, prefetch::MEDIA_MAX, unix_now(), 8)
                 {
-                    Ok(ids) => {
-                        for id in ids {
+                    Ok(items) => {
+                        for (id, card) in items {
                             if self.prefetch.skip_media(chat, &id) {
                                 continue;
                             }
                             self.prefetch.start_media(chat.clone(), id.clone());
-                            if !self.download(chat.clone(), id.clone()) {
-                                let _ = self.prefetch.finish_media(chat, &id, now);
-                                let _ = self.archive.set_media_retry(chat, &id, unix_now(), false);
-                                continue;
+                            if !self.download_media(chat.clone(), id.clone(), card) {
+                                // The failure is already recorded: the
+                                // synchronous paths in `download_media` report
+                                // through `downloaded`, which holds the retry
+                                // and its backoff. Recording it again here
+                                // would advance the backoff twice. Every
+                                // remaining item would fail the same way, so
+                                // this pass stops instead of walking the rest.
+                                break 'media;
                             }
                             break 'media;
                         }
@@ -5081,7 +5101,11 @@ impl Worker {
                 self.pending_older.remove(&chat);
                 let silent = self.prefetch_older.remove(&chat);
                 self.prefetch.fail_history(&chat, Instant::now());
-                self.emit(Event::OlderFetched { chat, more: true });
+                self.emit(Event::OlderFetched {
+                    chat,
+                    more: true,
+                    silent,
+                });
                 if !silent {
                     self.emit(Event::Error(error));
                 }
@@ -5871,7 +5895,7 @@ impl Worker {
             Err(_) if card.is_none() => {
                 let notice = self
                     .archive
-                    .set_media_retry(&chat, &id, unix_now(), !background)
+                    .set_media_retry(&chat, &id, card, unix_now(), !background)
                     .ok()
                     .flatten()
                     .unwrap_or_else(|| MEDIA_STILL_TRYING.to_owned());
@@ -10692,6 +10716,65 @@ mod receipt_tests {
             status: Delivery::None,
             ..own_message(id, timestamp)
         }
+    }
+
+    /// A duplicate delivery reclassifies the same message, and a fresh
+    /// classification has no retry bookkeeping. Replacing the row with it
+    /// would forget the backoff and open a new thirty-day window, so the
+    /// background would keep trying a file it had already given up on.
+    #[tokio::test]
+    async fn a_duplicate_delivery_keeps_the_retry_the_row_had() {
+        use crate::model::Media;
+        let (mut worker, _events, _inbox, _wa) = receipt_tests::worker();
+        let mut picture = incoming("photo", 100);
+        picture.content = Content::Image {
+            media: Media {
+                mime: "image/jpeg".into(),
+                size: 10,
+                ..Default::default()
+            },
+            caption: None,
+        };
+        worker.store_message(picture.clone(), None, None);
+        let chat = PEER.to_owned();
+        worker
+            .archive
+            .set_media_retry(&chat, "photo", None, 1_000, false)
+            .expect("retry")
+            .expect("row");
+
+        // The same message arrives again, as history replay or a redelivery.
+        worker.store_message(picture, None, None);
+
+        let stored = worker
+            .archive
+            .message(&chat, "photo")
+            .expect("read")
+            .expect("row");
+        let Some(media) = stored.content.media() else {
+            panic!("the picture is still a picture");
+        };
+        assert_eq!(media.retry_from, Some(1_000), "the window is the same one");
+        assert_eq!(media.retry_fails, 1, "the failed attempt is not forgotten");
+        // And it is still due only after its backoff, not at once.
+        assert!(
+            worker
+                .archive
+                .undownloaded_media(&chat, 64 * 1024 * 1024, 1_010, 8)
+                .expect("listed")
+                .is_empty(),
+            "the backoff still holds"
+        );
+        let due = 1_000 + crate::model::media_retry_delay_secs(1);
+        assert_eq!(
+            worker
+                .archive
+                .undownloaded_media(&chat, 64 * 1024 * 1024, due, 8)
+                .expect("listed")
+                .len(),
+            1,
+            "and it comes back when it is due"
+        );
     }
 
     #[test]

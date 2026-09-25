@@ -726,11 +726,18 @@ impl Content {
         }
     }
 
-    /// Carries downloaded file paths over from `old` when rederiving content
-    /// from the raw protobuf: the main attachment and each carousel card's image.
+    /// Carries what the row already knew about its files over from `old` when
+    /// rederiving content from the raw protobuf: the main attachment, an
+    /// interactive card's image, and each carousel card's image.
+    ///
+    /// The path alone is not enough. A duplicate delivery or a history replay
+    /// reclassifies the same message, and a fresh classification has no retry
+    /// bookkeeping: dropping it would forget the backoff and open a new
+    /// thirty-day window, so the background would try a file it had already
+    /// given up on.
     pub fn keep_local_paths(&mut self, old: &Content) {
         if let (Some(new), Some(old)) = (self.media_mut(), old.media()) {
-            new.path = old.path.clone();
+            new.keep_file_state(old);
         }
         if let (
             Self::Interactive {
@@ -743,7 +750,7 @@ impl Content {
         {
             for (new, old) in new.carousel.iter_mut().zip(&old.carousel) {
                 if let (Some(new), Some(old)) = (&mut new.image, &old.image) {
-                    new.path = old.path.clone();
+                    new.keep_file_state(old);
                 }
             }
         }
@@ -850,6 +857,15 @@ pub fn media_retry_notice(retry_from: i64, now: i64) -> &'static str {
 }
 
 impl Media {
+    /// Where this attachment's local file is, and how the background is
+    /// retrying it, taken from an earlier copy of the same attachment.
+    pub fn keep_file_state(&mut self, old: &Media) {
+        self.path = old.path.clone();
+        self.retry_from = old.retry_from;
+        self.retry_at = old.retry_at;
+        self.retry_fails = old.retry_fails;
+    }
+
     /// Forgets the failure window once the file is here.
     pub fn clear_retry(&mut self) {
         self.retry_from = None;

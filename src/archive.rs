@@ -792,31 +792,63 @@ impl Archive {
 
     /// Oldest due attachment in `chat` with no local file, size at most
     /// `max_size`, and a first failure younger than thirty days.
+    /// The attachments in `chat` the background may fetch now, oldest first,
+    /// each with the card index that addresses it.
+    ///
+    /// A message's attachment is not always at `$.media`: an interactive card's
+    /// image is at `$.card.image`, which `card_index = None` addresses, and a
+    /// carousel item is at `$.card.carousel[i].image`, addressed by its index.
+    /// All three shapes are listed, or the pump never fetches a card's picture
+    /// however long it waits.
     pub fn undownloaded_media(
         &self,
         chat: &str,
         max_size: u64,
         now: i64,
         limit: usize,
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<(String, Option<usize>)>> {
         let cutoff = now.saturating_sub(crate::model::MEDIA_RETRY_TTL_SECS);
         let mut statement = self.connection.prepare(
-            "SELECT id FROM messages
-             WHERE chat = ?1
-               AND json_extract(content, '$.media.size') IS NOT NULL
-               AND json_extract(content, '$.media.size') <= ?2
-               AND (json_extract(content, '$.media.path') IS NULL
-                    OR json_extract(content, '$.media.path') = '')
-               AND (json_extract(content, '$.media.retry_from') IS NULL
-                    OR json_extract(content, '$.media.retry_from') > ?3)
-               AND (json_extract(content, '$.media.retry_at') IS NULL
-                    OR json_extract(content, '$.media.retry_at') <= ?4)
-             ORDER BY timestamp ASC, rowid ASC
+            "WITH candidates AS (
+                 SELECT id, timestamp, rowid AS rid, NULL AS card,
+                        json_extract(content, '$.media.size') AS size,
+                        json_extract(content, '$.media.path') AS path,
+                        json_extract(content, '$.media.retry_from') AS retry_from,
+                        json_extract(content, '$.media.retry_at') AS retry_at
+                 FROM messages WHERE chat = ?1
+                 UNION ALL
+                 SELECT id, timestamp, rowid, NULL,
+                        json_extract(content, '$.card.image.size'),
+                        json_extract(content, '$.card.image.path'),
+                        json_extract(content, '$.card.image.retry_from'),
+                        json_extract(content, '$.card.image.retry_at')
+                 FROM messages WHERE chat = ?1
+                 UNION ALL
+                 SELECT m.id, m.timestamp, m.rowid, c.key,
+                        json_extract(c.value, '$.image.size'),
+                        json_extract(c.value, '$.image.path'),
+                        json_extract(c.value, '$.image.retry_from'),
+                        json_extract(c.value, '$.image.retry_at')
+                 FROM messages m, json_each(m.content, '$.card.carousel') c
+                 WHERE m.chat = ?1
+             )
+             SELECT id, card FROM candidates
+             WHERE size IS NOT NULL
+               AND size <= ?2
+               AND (path IS NULL OR path = '')
+               AND (retry_from IS NULL OR retry_from > ?3)
+               AND (retry_at IS NULL OR retry_at <= ?4)
+             ORDER BY timestamp ASC, rid ASC, card ASC
              LIMIT ?5",
         )?;
         let rows = statement.query_map(
             params![chat, max_size as i64, cutoff, now, limit as i64],
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get::<_, Option<u32>>(1)?.map(|card| card as usize),
+                ))
+            },
         )?;
         rows.collect()
     }
@@ -827,13 +859,14 @@ impl Archive {
         &self,
         chat: &str,
         id: &str,
+        card: Option<usize>,
         now: i64,
         reset: bool,
     ) -> Result<Option<String>> {
         let Some(mut message) = self.message(chat, id)? else {
             return Ok(None);
         };
-        let Some(media) = message.content.media_mut() else {
+        let Some(media) = message.content.media_at_mut(card) else {
             return Ok(None);
         };
         if !reset && media.retry_given_up(now) {
@@ -3274,6 +3307,87 @@ mod media_path_tests {
         }
     }
 
+    /// A card's picture is not at `$.media`, and a carousel item is not either:
+    /// the pump has to see all three shapes, each with the index that
+    /// addresses it, or a chat whose pictures are all cards never downloads
+    /// anything.
+    #[test]
+    fn undownloaded_media_lists_card_and_carousel_images_with_their_index() {
+        let archive = Archive::in_memory().expect("opens");
+        let chat = "a@s.whatsapp.net";
+        archive.ensure_chat(chat, "Shop").expect("chat");
+        let media = |size: u64| crate::model::Media {
+            mime: "image/jpeg".into(),
+            size,
+            ..Default::default()
+        };
+        // A plain picture, an interactive card's own image, and two carousel
+        // items, oldest first.
+        archive
+            .insert_message(&picture("plain"), None)
+            .expect("inserted");
+        let mut single = picture("card");
+        single.timestamp = 2;
+        single.content = Content::Interactive {
+            text: String::new(),
+            card: Some(Box::new(crate::model::InteractiveCard {
+                image: Some(media(20)),
+                ..Default::default()
+            })),
+        };
+        archive.insert_message(&single, None).expect("inserted");
+        let mut carousel = picture("carousel");
+        carousel.timestamp = 3;
+        carousel.content = Content::Interactive {
+            text: String::new(),
+            card: Some(Box::new(crate::model::InteractiveCard {
+                carousel: vec![
+                    crate::model::InteractiveCard {
+                        image: Some(media(30)),
+                        ..Default::default()
+                    },
+                    crate::model::InteractiveCard {
+                        image: Some(media(40)),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            })),
+        };
+        archive.insert_message(&carousel, None).expect("inserted");
+
+        assert_eq!(
+            archive
+                .undownloaded_media(chat, 64 * 1024 * 1024, 0, 8)
+                .expect("listed"),
+            vec![
+                ("plain".to_owned(), None),
+                ("card".to_owned(), None),
+                ("carousel".to_owned(), Some(0)),
+                ("carousel".to_owned(), Some(1)),
+            ]
+        );
+
+        // A failure lands on the card it belongs to, not on the message's own
+        // attachment: recording it at the message would leave the card due
+        // forever and hold back the one that was not tried.
+        archive
+            .set_media_retry(chat, "carousel", Some(1), 1_000, false)
+            .expect("retry")
+            .expect("row");
+        assert_eq!(
+            archive
+                .undownloaded_media(chat, 64 * 1024 * 1024, 1_010, 8)
+                .expect("listed"),
+            vec![
+                ("plain".to_owned(), None),
+                ("card".to_owned(), None),
+                ("carousel".to_owned(), Some(0)),
+            ],
+            "only the card that failed is held back"
+        );
+    }
+
     #[test]
     fn undownloaded_media_skips_filed_and_oversize_rows() {
         let archive = Archive::in_memory().expect("opens");
@@ -3297,7 +3411,7 @@ mod media_path_tests {
             archive
                 .undownloaded_media("a@s.whatsapp.net", 64 * 1024 * 1024, 0, 8)
                 .expect("listed"),
-            vec!["p1".to_owned()]
+            vec![("p1".to_owned(), None)]
         );
     }
 
@@ -3309,7 +3423,7 @@ mod media_path_tests {
             .insert_message(&picture("p1"), None)
             .expect("inserted");
         let notice = archive
-            .set_media_retry("a@s.whatsapp.net", "p1", 1_000, false)
+            .set_media_retry("a@s.whatsapp.net", "p1", None, 1_000, false)
             .expect("retry")
             .expect("row");
         assert_eq!(notice, crate::model::MEDIA_STILL_TRYING);
@@ -3323,7 +3437,7 @@ mod media_path_tests {
             archive
                 .undownloaded_media("a@s.whatsapp.net", 64 * 1024 * 1024, 1_030, 8)
                 .expect("listed"),
-            vec!["p1".to_owned()]
+            vec![("p1".to_owned(), None)]
         );
         let late = 1_000 + crate::model::MEDIA_RETRY_TTL_SECS;
         assert!(
@@ -3333,7 +3447,7 @@ mod media_path_tests {
                 .is_empty()
         );
         let notice = archive
-            .set_media_retry("a@s.whatsapp.net", "p1", late, true)
+            .set_media_retry("a@s.whatsapp.net", "p1", None, late, true)
             .expect("reset")
             .expect("row");
         assert_eq!(notice, crate::model::MEDIA_STILL_TRYING);
@@ -3343,7 +3457,7 @@ mod media_path_tests {
             archive
                 .undownloaded_media("a@s.whatsapp.net", 64 * 1024 * 1024, due, 8)
                 .expect("listed"),
-            vec!["p1".to_owned()]
+            vec![("p1".to_owned(), None)]
         );
         archive
             .set_media_path("a@s.whatsapp.net", "p1", Path::new("/tmp/p1.jpg"))
