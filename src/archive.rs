@@ -1343,12 +1343,12 @@ impl Archive {
     }
 
     /// The chat's photos and playable videos, oldest first, for the viewer
-    /// album.
+    /// album. A file that is a photo or a clip counts too.
     pub fn gallery_media(&self, chat: &str) -> Result<Vec<ChatMedia>> {
         let mut statement = self.connection.prepare(
             "SELECT id, timestamp, content, thumbnail FROM messages
              WHERE chat = ?1 AND json_valid(content)
-             AND json_extract(content, '$.kind') IN ('image', 'video')
+             AND json_extract(content, '$.kind') IN ('image', 'video', 'document')
              ORDER BY timestamp ASC, rowid ASC",
         )?;
         let rows = statement.query_map(params![chat], |row| {

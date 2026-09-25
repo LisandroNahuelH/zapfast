@@ -736,11 +736,15 @@ impl Content {
     /// Whether this message belongs in the viewer album, and as what.
     ///
     /// A GIF is not a video here: it plays inline as an animation, so it is
-    /// left out.
+    /// left out. A file is judged by its type and then by its extension, which
+    /// is how a photo or a clip sent as a document still shows up.
     pub fn gallery_kind(&self) -> Option<GalleryKind> {
         match self {
             Self::Image { .. } => Some(GalleryKind::Photo),
             Self::Video { gif: false, .. } => Some(GalleryKind::Video),
+            Self::Document {
+                media, file_name, ..
+            } => gallery_file(&media.mime, file_name),
             _ => None,
         }
     }
@@ -783,14 +787,30 @@ impl Content {
     }
 }
 
-/// The viewer kind of a file on disk, from its name alone.
+/// The viewer kind of a file on disk, from its name alone. A document that is
+/// really a photo or a clip joins the album, and the menu offers the viewer for
+/// it, so both go through the same rule.
 pub(crate) fn gallery_kind_for_path(path: &Path) -> Option<GalleryKind> {
-    gallery_file(&path.file_name()?.to_string_lossy())
+    gallery_file("", &path.file_name()?.to_string_lossy())
 }
 
-/// The viewer kind of a file, from its name. A GIF is an inline animation, not
-/// a clip, so it is left out.
-fn gallery_file(file_name: &str) -> Option<GalleryKind> {
+/// The viewer kind of a file, from its MIME type or, failing that, its name.
+fn gallery_file(mime: &str, file_name: &str) -> Option<GalleryKind> {
+    let mime = mime
+        .split(';')
+        .next()
+        .unwrap_or(mime)
+        .trim()
+        .to_ascii_lowercase();
+    if mime == "image/gif" {
+        return None;
+    }
+    if mime.starts_with("image/") {
+        return Some(GalleryKind::Photo);
+    }
+    if mime.starts_with("video/") {
+        return Some(GalleryKind::Video);
+    }
     let ext = Path::new(file_name)
         .extension()
         .and_then(|ext| ext.to_str())
