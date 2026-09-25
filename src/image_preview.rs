@@ -249,6 +249,38 @@ mod tests {
         }
     }
 
+    /// The rule the copy action and its shortcut share: the album item says
+    /// whether a clip is on screen when the album holds this message, and the
+    /// file's own name says it otherwise.
+    #[test]
+    fn the_album_item_says_whether_a_clip_is_on_screen() {
+        let mut preview = fixture();
+        assert!(!preview.shows_video(&[]), "a photo is not a clip");
+        preview = PreviewState::new(
+            Some(PathBuf::from("clip.mp4")),
+            "1@s.whatsapp.net".into(),
+            "m1".into(),
+        );
+        assert!(preview.shows_video(&[]), "the file's own name decides");
+        // The album item decides once the album holds this message, and the
+        // item is the one this message names.
+        let mut clip = item("m1");
+        clip.video = true;
+        let album = vec![clip, item("m2"), item("m3")];
+        assert!(
+            preview.shows_video(&album),
+            "the album says m1 is a clip, whatever the file name says"
+        );
+        preview.show_item(Some(PathBuf::from("clip.mp4")), "m2".into());
+        assert!(
+            !preview.shows_video(&album),
+            "and the album says m2 is a photo"
+        );
+        // A message the album does not hold falls back to the file's name.
+        preview.show_item(Some(PathBuf::from("clip.mp4")), "elsewhere".into());
+        assert!(preview.shows_video(&album));
+    }
+
     #[test]
     fn the_album_position_comes_from_the_message_id() {
         let mut preview = fixture();

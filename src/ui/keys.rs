@@ -356,6 +356,50 @@ mod tests {
         ));
     }
 
+    /// Copy is for a picture. The header leaves the action out while a clip is
+    /// on screen, and the shortcut follows the same rule rather than decoding a
+    /// video as an image and failing.
+    #[test]
+    fn ctrl_c_does_not_copy_a_clip_from_the_viewer() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = App::headless(
+            crate::paths::AppDirs::under(root.path()),
+            crate::settings::Settings::default(),
+        )
+        .0;
+        let ctx = egui::Context::default();
+        let copy = |app: &mut App, ctx: &egui::Context| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events: vec![egui::Event::Key {
+                        key: Key::C,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: Modifiers::CTRL,
+                    }],
+                    ..Default::default()
+                },
+                |ui| handle(app, ui.ctx()),
+            );
+            output.textures_delta.clear();
+        };
+        let showing = |path: &str, message: &str| {
+            Some(crate::image_preview::PreviewState::new(
+                Some(std::path::PathBuf::from(path)),
+                "fixture".into(),
+                message.into(),
+            ))
+        };
+        app.image_preview = showing("/cache/photo.png", "m1");
+        copy(&mut app, &ctx);
+        assert!(matches!(app.actions.as_slice(), [Action::CopyImage(_)]));
+        app.actions.clear();
+        app.image_preview = showing("/cache/clip.mp4", "m2");
+        copy(&mut app, &ctx);
+        assert!(app.actions.is_empty(), "a clip is played, not copied");
+    }
+
     fn escape(app: &mut App, ctx: &egui::Context) {
         let mut output = ctx.run_ui(
             egui::RawInput {
