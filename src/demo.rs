@@ -1562,6 +1562,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
         match part {
             "chat" | "" => {}
             "chat-menu" => app.open_chat_menu = Some(app.chats[0].id.clone()),
+            "chat-header-menu" => app.open_header_menu = app.open_chat.clone(),
             "interactive-actions" => interactive_actions_sample(app),
             "interactive-list" => interactive_list_sample(app),
             "interactive-list-dialog" => {
@@ -1997,6 +1998,9 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             "delete-chat" => {
                 app.dialog = app.open_chat.clone().map(Dialog::ConfirmDeleteChat);
+            }
+            "clear-chat" => {
+                app.dialog = app.open_chat.clone().map(Dialog::ConfirmClearChat);
             }
             "select" => {
                 if let Some(chat) = app.open_chat.clone() {
@@ -3762,6 +3766,7 @@ mod tests {
         }
         for page in [
             "chat-menu",
+            "chat-header-menu",
             "channel",
             "locked",
             "locked-open",
@@ -3825,6 +3830,7 @@ mod tests {
             "leave-channel",
             "toasts",
             "delete-chat",
+            "clear-chat",
             "invite",
             "unread-divider",
             "quotes",

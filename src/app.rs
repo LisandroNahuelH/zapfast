@@ -287,6 +287,9 @@ pub struct App {
     /// Demo/test: keep this chat row's context menu open.
     #[cfg(any(test, feature = "demo"))]
     pub open_chat_menu: Option<ChatId>,
+    /// Demo/test: keep the open chat's header menu open.
+    #[cfg(any(test, feature = "demo"))]
+    pub open_header_menu: Option<ChatId>,
     /// Emoji-grid header to scroll into view.
     pub emoji_jump: Option<&'static str>,
     /// Attachments pending in the composer.
@@ -754,6 +757,8 @@ impl App {
             open_message_menu: None,
             #[cfg(any(test, feature = "demo"))]
             open_chat_menu: None,
+            #[cfg(any(test, feature = "demo"))]
+            open_header_menu: None,
             emoji_jump: None,
             pending: Vec::new(),
             composer_tools_open: false,
@@ -4038,6 +4043,9 @@ impl App {
             // The chat leaves the list once the phone confirmed, through
             // `Event::ChatRemoved`.
             Action::DeleteChat(chat) => self.backend.send(Command::DeleteChat(chat)),
+            // The messages go once the phone confirmed, through
+            // `Event::ChatCleared`; the chat stays either way.
+            Action::ClearChat(chat) => self.backend.send(Command::ClearChat(chat)),
             Action::SetPinned(chat, pinned) => {
                 if pinned && self.pinned_count() >= self.pin_limit {
                     self.toast(format!("You can only pin {} chats", self.pin_limit));
@@ -6867,6 +6875,61 @@ mod tests {
         assert!(app.dialog.is_none());
         // Neighbouring chats and their search hits stay.
         assert!(app.chat(other).is_some());
+        assert_eq!(app.search_hits.len(), 1);
+    }
+
+    #[test]
+    fn a_cleared_chat_keeps_its_row_until_the_phone_confirmed_it() {
+        let mut app = app();
+        let (backend, mut commands) = Backend::recording();
+        app.backend = backend;
+        let chat = "peer@s.whatsapp.net";
+        let other = "friend@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Peer".into()));
+        app.conversations
+            .entry(chat.into())
+            .or_default()
+            .merge(vec![message(chat, "m1", 100)], false);
+        app.drafts.insert(chat.into(), "half-written".into());
+        app.open_chat = Some(chat.into());
+        app.search_hits.push(message(chat, "m1", 100));
+        app.search_hits.push(message(other, "m2", 100));
+
+        let ctx = egui::Context::default();
+        app.apply(Action::ClearChat(chat.into()), &ctx);
+
+        // Nothing changes here until the phone has cleared the chat too.
+        assert!(app.chat(chat).is_some());
+        assert_eq!(
+            app.conversations.get(chat).map(|open| open.messages.len()),
+            Some(1)
+        );
+        assert!(app.drafts.contains_key(chat));
+        assert!(
+            std::iter::from_fn(|| commands.try_recv().ok())
+                .any(|command| matches!(command, Command::ClearChat(id) if id == chat))
+        );
+
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        events
+            .send(Event::ChatCleared {
+                chat: chat.into(),
+                through: 100,
+            })
+            .unwrap();
+        app.handle_events();
+
+        // The chat stays open with nothing left in it, and its draft goes.
+        assert!(app.chat(chat).is_some());
+        assert_eq!(
+            app.conversations.get(chat).map(|open| open.messages.len()),
+            Some(0)
+        );
+        assert!(!app.drafts.contains_key(chat));
+        assert_eq!(app.open_chat, Some(chat.into()));
+        // Only the cleared chat loses its search hits.
+        assert!(app.search_hits.iter().all(|hit| hit.chat != chat));
         assert_eq!(app.search_hits.len(), 1);
     }
 

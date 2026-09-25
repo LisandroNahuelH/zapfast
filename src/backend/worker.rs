@@ -4931,6 +4931,56 @@ impl Worker {
                     ));
                 }
             }
+            Command::ClearChat(chat) => {
+                // The phone clears first, for the same reason it deletes
+                // first: clearing here while offline would leave the messages
+                // on the phone, and the next sync would bring them back
+                // despite the dialog saying they were cleared there too.
+                let (Some(client), Some(jid)) = (self.client.clone(), Self::jid_of(&chat)) else {
+                    self.emit(Event::Error(
+                        "Connect to WhatsApp to clear this chat".to_owned(),
+                    ));
+                    return;
+                };
+                let through = self
+                    .archive
+                    .messages(&chat, None, 1)
+                    .ok()
+                    .and_then(|page| page.last().map(|message| message.timestamp))
+                    .unwrap_or_else(crate::util::now);
+                let commands = self.commands.clone();
+                tokio::spawn(async move {
+                    let cleared = client
+                        .chat_actions()
+                        .clear_chat(
+                            &jid,
+                            true,
+                            true,
+                            Some(whatsapp_rust::message_range(through, None, Vec::new())),
+                        )
+                        .await
+                        .is_ok();
+                    let _ = commands.send(Command::ChatCleared {
+                        chat,
+                        cleared,
+                        through,
+                    });
+                });
+            }
+            Command::ChatCleared {
+                chat,
+                cleared,
+                through,
+            } => {
+                if cleared {
+                    self.empty_chat(&chat, through, true);
+                } else {
+                    log::warn!("the phone did not clear a chat");
+                    self.emit(Event::Error(
+                        "The phone did not clear this chat. Try again when connected".to_owned(),
+                    ));
+                }
+            }
             Command::SetPinned(chat, pinned) => {
                 let _ = self.archive.set_pinned(&chat, pinned);
                 self.emit_chat(&chat);
@@ -12045,6 +12095,51 @@ mod chat_removal_tests {
             events
                 .try_iter()
                 .any(|event| matches!(event, Event::ChatRemoved { chat } if chat == CHAT))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_chat_is_cleared_here_only_after_the_phone_cleared_it() {
+        let (mut worker, events, _, _) = receipt_tests::worker();
+        worker.apply_history(history(CHAT, &[100, 200]), true);
+
+        // Without a phone connection nothing is cleared anywhere.
+        worker.handle_command(Command::ClearChat(CHAT.into())).await;
+        assert_eq!(stored(&worker, CHAT), ["m100", "m200"]);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Error(_)))
+        );
+
+        worker
+            .handle_command(Command::ChatCleared {
+                chat: CHAT.into(),
+                cleared: false,
+                through: 200,
+            })
+            .await;
+        assert_eq!(stored(&worker, CHAT), ["m100", "m200"]);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Error(_)))
+        );
+
+        worker
+            .handle_command(Command::ChatCleared {
+                chat: CHAT.into(),
+                cleared: true,
+                through: 200,
+            })
+            .await;
+        // The chat stays listed; only its messages go.
+        assert!(worker.archive.chat(CHAT).expect("chat").is_some());
+        assert!(stored(&worker, CHAT).is_empty());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::ChatCleared { chat, .. } if chat == CHAT))
         );
     }
 }

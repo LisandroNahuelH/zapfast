@@ -518,6 +518,15 @@ pub enum Command {
         deleted: bool,
         through: i64,
     },
+    /// Clears a chat's messages on the phone, then here once the phone
+    /// agreed. The chat itself stays.
+    ClearChat(ChatId),
+    /// Whether the phone cleared a chat requested through `ClearChat`.
+    ChatCleared {
+        chat: ChatId,
+        cleared: bool,
+        through: i64,
+    },
     SetPinned(ChatId, bool),
     /// Marks a chat as a favorite, or removes the mark, here and on the phone.
     SetFavorite(ChatId, bool),

@@ -1011,6 +1011,8 @@ pub enum Dialog {
     Labels,
     /// Confirms deleting a chat, which cannot be undone.
     ConfirmDeleteChat(ChatId),
+    /// Confirms clearing a chat's messages, which cannot be undone.
+    ConfirmClearChat(ChatId),
     /// Leaves a group or channel, optionally archiving the chat.
     ConfirmLeaveGroup(ChatId),
     /// Chooses a destination for an archived message.
@@ -1410,6 +1412,8 @@ pub enum Action {
     },
     /// Deletes a chat here and on the phone.
     DeleteChat(ChatId),
+    /// Clears a chat's messages here and on the phone, keeping the chat.
+    ClearChat(ChatId),
     SetPinned(ChatId, bool),
     /// Marks a chat as a favorite, or removes the mark, here and on the phone.
     SetFavorite(ChatId, bool),
