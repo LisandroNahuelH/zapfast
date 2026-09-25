@@ -1678,7 +1678,7 @@ impl Worker {
         // finds nothing to advance, instead of resuming the batch through the
         // session that comes next. Message ids are fresh per send, so an ack
         // can never match a job queued after the stop.
-        self.forward_queue = None;
+        self.abandon_forwards();
         if let Some(handle) = self.handle.take()
             && tokio::time::timeout(Duration::from_secs(5), handle.shutdown())
                 .await
@@ -5420,7 +5420,7 @@ impl Worker {
             Some(queue) => queue.ack(id),
             None => return,
         };
-        let (id, (to_chat, jid, message, expiration)) = match next {
+        let (id, job) = match next {
             ForwardStep::Ignore => return,
             ForwardStep::Next { id, payload } => (id, payload),
             ForwardStep::Finished => {
@@ -5430,9 +5430,12 @@ impl Worker {
         };
         let Some(client) = self.client.clone() else {
             // The link went away; the rest of the batch cannot be sent.
-            self.forward_queue = None;
+            let mut failed = vec![(job.0, id)];
+            failed.extend(self.take_queued_forwards());
+            self.fail_forwards(failed);
             return;
         };
+        let (to_chat, jid, message, expiration) = job;
         tokio::spawn(send_outgoing(
             client,
             self.commands.clone(),
@@ -5441,6 +5444,50 @@ impl Worker {
             id,
             message,
             expiration,
+        ));
+    }
+
+    /// Drops a batch whose session ended. Its queued messages are already in
+    /// the archive as pending, and nothing resends pending messages, so they
+    /// are marked failed rather than left waiting forever. The running send
+    /// still reports for itself.
+    fn abandon_forwards(&mut self) {
+        let queued = self.take_queued_forwards();
+        self.fail_forwards(queued);
+    }
+
+    /// Empties the forward queue, returning the chat and id of each job that
+    /// had not started.
+    fn take_queued_forwards(&mut self) -> Vec<(ChatId, String)> {
+        self.forward_queue
+            .take()
+            .map(|queue| {
+                queue
+                    .remaining
+                    .into_iter()
+                    .map(|(id, (chat, ..))| (chat, id))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn fail_forwards(&mut self, messages: Vec<(ChatId, String)>) {
+        if messages.is_empty() {
+            return;
+        }
+        let at = crate::util::now();
+        let mut chats = HashSet::new();
+        for (chat, id) in &messages {
+            let _ = self.archive.set_status(chat, id, Delivery::Failed, at);
+            self.emit_message(chat, id);
+            chats.insert(chat.clone());
+        }
+        for chat in &chats {
+            self.emit_chat(chat);
+        }
+        self.emit(Event::Error(
+            "Not connected to WhatsApp: the rest of the forwarded messages were not sent"
+                .to_owned(),
         ));
     }
 
@@ -9894,8 +9941,28 @@ mod receipt_tests {
             .expect("the first job of the batch");
         assert_eq!(running.0, "a");
         worker.forward_queue = Some(queue);
+        for id in ["a", "b"] {
+            let pending = Message {
+                status: Delivery::Pending,
+                ..own_message(id, 1)
+            };
+            worker.store_message(pending, None, None);
+        }
 
         worker.stop_bot().await;
+
+        // Nothing resends a pending message, so the one that never started is
+        // failed, visibly; the running one still reports for itself.
+        let status = |worker: &Worker, id| {
+            worker
+                .archive
+                .message(PEER, id)
+                .expect("read")
+                .expect("stored")
+                .status
+        };
+        assert_eq!(status(&worker, "b"), Delivery::Failed);
+        assert_eq!(status(&worker, "a"), Delivery::Pending);
 
         assert!(
             worker.forward_queue.is_none(),
