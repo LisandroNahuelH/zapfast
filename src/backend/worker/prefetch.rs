@@ -124,6 +124,23 @@ impl State {
         true
     }
 
+    /// Forgets a chat that is gone or emptied. It holds neither the history
+    /// turn nor a slot in the pump, so a request for it that can never be
+    /// answered does not keep the queue waiting until the next reconnect.
+    pub fn forget_chat(&mut self, chat: &str) {
+        if self.history_chat.as_deref() == Some(chat) {
+            self.history_chat = None;
+        }
+        if self
+            .media
+            .as_ref()
+            .is_some_and(|(active, _, _)| active == chat)
+        {
+            self.media = None;
+        }
+        self.exhausted.remove(chat);
+    }
+
     pub fn next_media_ready(&self, now: Instant) -> bool {
         self.mode != HistoryPrefetch::Off
             && self.auto_download

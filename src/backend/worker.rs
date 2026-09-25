@@ -1036,6 +1036,8 @@ impl Worker {
         match self.archive.remove_chat_through(chat, through, true) {
             Ok(removed) => {
                 self.pending_older.remove(chat);
+                self.prefetch_older.remove(chat);
+                self.prefetch.forget_chat(chat);
                 if delete_media {
                     self.drop_cached_media(&removed.media);
                 }
@@ -1066,6 +1068,8 @@ impl Worker {
         match self.archive.remove_chat_through(chat, through, false) {
             Ok(removed) => {
                 self.pending_older.remove(chat);
+                self.prefetch_older.remove(chat);
+                self.prefetch.forget_chat(chat);
                 if delete_media {
                     self.drop_cached_media(&removed.media);
                 }
@@ -3925,14 +3929,13 @@ impl Worker {
         for (chat, count, more_on_phone) in filed {
             let more = count > 0 && more_on_phone != Some(false);
             let Some((_, (before_time, before_id))) = self.pending_older.remove(&chat) else {
-                // Late responses are already archived; tell the app to page
-                // again. Nothing is waiting on it, so it is not a page the
-                // reader asked for.
-                self.emit(Event::OlderFetched {
-                    chat,
-                    more,
-                    silent: true,
-                });
+                // The request is no longer pending: it timed out before the
+                // phone answered, and the answer is already archived. Tell the
+                // app to page again. A background request stays quiet, but one
+                // the reader made has to show, or the scroll-up that asked for
+                // it shows nothing at all.
+                let silent = self.prefetch_older.remove(&chat);
+                self.emit(Event::OlderFetched { chat, more, silent });
                 continue;
             };
             // A background request fills the archive without moving the view.
@@ -3971,7 +3974,10 @@ impl Worker {
             .collect();
         for chat in expired {
             self.pending_older.remove(&chat);
-            let silent = self.prefetch_older.remove(&chat);
+            // The background mark stays: the answer may still arrive, and it is
+            // what tells a late background page from a late page the reader is
+            // waiting for.
+            let silent = self.prefetch_older.contains(&chat);
             self.prefetch.fail_history(&chat, Instant::now());
             self.emit(Event::OlderFetched {
                 chat: chat.clone(),
@@ -4016,6 +4022,10 @@ impl Worker {
             .insert(chat.clone(), (Instant::now(), (timestamp, id.clone())));
         if background {
             self.prefetch_older.insert(chat.clone());
+        } else {
+            // The reader is waiting for this one, so an answer to it must
+            // show, whatever a background request for the same chat left here.
+            self.prefetch_older.remove(&chat);
         }
         let commands = self.commands.clone();
         tokio::spawn(async move {
@@ -4083,10 +4093,11 @@ impl Worker {
                 }
             }
         }
-        let Some(chat) = self
-            .prefetch
-            .next_history(now, !self.pending_older.is_empty(), &targets)
-        else {
+        let Some(chat) = self.prefetch.next_history(
+            now,
+            !self.pending_older.is_empty() || self.poll_history.in_flight(),
+            &targets,
+        ) else {
             return;
         };
         if self.fetch_older(chat.clone(), true) {
