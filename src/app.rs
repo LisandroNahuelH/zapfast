@@ -3395,24 +3395,29 @@ impl App {
                 chat,
                 message,
             } => {
-                let Some(media) = self
+                // The viewer browses the album the archive holds, which reaches
+                // older messages than the loaded transcript: the message may be
+                // absent from `conversations` and still be in the archive, where
+                // the worker reads the download keys. Only the state drawn in
+                // the chat needs the message here, so it is updated when it is
+                // present, and the command goes out either way.
+                if let Some(media) = self
                     .conversations
                     .get_mut(&chat)
                     .and_then(|conversation| conversation.message_mut(&message))
                     .and_then(|message| message.content.media_at_mut(card))
-                else {
-                    return;
-                };
-                if !media.is_within_download_limit() {
-                    media.state = MediaState::Failed(
-                        "This attachment is larger than the 64 MiB download limit".into(),
-                    );
-                    return;
+                {
+                    if !media.is_within_download_limit() {
+                        media.state = MediaState::Failed(
+                            "This attachment is larger than the 64 MiB download limit".into(),
+                        );
+                        return;
+                    }
+                    if matches!(media.state, MediaState::Downloading) {
+                        return;
+                    }
+                    media.state = MediaState::Downloading;
                 }
-                if matches!(media.state, MediaState::Downloading) {
-                    return;
-                }
-                media.state = MediaState::Downloading;
                 self.backend.send(Command::Download {
                     card,
                     chat,
@@ -7707,6 +7712,30 @@ mod tests {
                 card: None,
                 chat: chat.into(),
                 message: "picture".into(),
+            },
+            &ctx,
+        );
+        assert!(matches!(commands.try_recv(), Ok(Command::Download { .. })));
+    }
+
+    /// The viewer browses the album the archive holds, which reaches older
+    /// messages than the loaded transcript. Downloading one of those has to
+    /// reach the worker all the same: it reads the download keys from the
+    /// archive, so a message that is not in `conversations` is not a reason to
+    /// drop the request.
+    #[test]
+    fn a_download_for_a_message_outside_the_loaded_transcript_reaches_the_worker() {
+        let mut app = app();
+        let (backend, mut commands) = Backend::recording();
+        app.backend = backend;
+        let chat = "fixture@s.whatsapp.net";
+        let ctx = egui::Context::default();
+        assert!(!app.conversations.contains_key(chat));
+        app.apply(
+            Action::Download {
+                card: None,
+                chat: chat.into(),
+                message: "older-picture".into(),
             },
             &ctx,
         );
