@@ -95,7 +95,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   message's menu, or Ctrl-click (Command-click on macOS) on a message, starts
   a selection: click more messages to add or remove them, Shift-click to add
   everything up to the one you click, then **Forward…** sends them together,
-  in their original order, or Escape cancels.
+  in their original order, or Escape cancels. A batch goes out one message at
+  a time, each starting once the one before it reached WhatsApp, so a picture
+  cannot overtake the text that came before it.
 - **WhatsApp formatting.** Bold, italic, strikethrough, code, lists, quotes,
   mentions, and link previews are supported. Links are clickable. Hebrew,
   Arabic, and mixed lines follow the Unicode Bidirectional Algorithm, so
@@ -157,6 +159,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   phone survive history arriving later, including during initial linking.
   Existing installations request one settings refresh after upgrading to
   recover previously lost mute settings and pin order, without relinking.
+- **Read the last message from the chat list.** When a chat's one-line
+  preview is cut short, resting the pointer on it shows the whole message in
+  a tooltip, as in WhatsApp Web, without opening the chat or marking it read.
 - **Delete chats.** Remove a chat and its messages from the chat list's
   right-click menu. The phone deletes it first, so this needs a connection,
   and the chat only leaves this computer once the phone has confirmed. Chats
@@ -210,7 +215,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   on click. Photos, stickers, GIFs, voice messages, audio, locations, contacts,
   polls, and link previews appear in the chat. Click a downloaded JPEG, PNG,
   WebP, or GIF photo to preview it in ZapFast with fit and zoom controls, or
-  choose **Open externally**. Click a video to play it in its message, with
+  choose **Open externally**. In the preview, copy the image to your clipboard
+  via the copy button in the header, the right-click menu (**Copy image**), or
+  Ctrl+C (Cmd+C on macOS). Click a video to play it in its message, with
   sound, a seek bar, and a mute switch; round video messages play inside their
   circle with a progress ring, like on the phone. A video that is not
   downloaded yet downloads first and then plays. Videos in codecs other than
@@ -332,7 +339,8 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
 - **Keyboard shortcuts.** `Ctrl+K` or `Ctrl+Shift+F` searches your chats,
   `Ctrl+F` searches the open chat as in WhatsApp (`↑`/`↓` walk the results
   and Enter jumps to one; with no chat open it searches your chats, and in
-  Settings it searches the settings), `Alt+↑/↓` switches chats and
+  Settings it searches the settings), `Alt+↑/↓` or WhatsApp's
+  `Ctrl+Shift+[`/`Ctrl+Shift+]` switches chats and
   keeps the active chat visible in the list, `↑` in an empty input edits your
   previous message, `Esc` cancels the current action, `Ctrl+L` focuses the
   message input, `Ctrl+N` opens New chat, `Ctrl+B` hides or shows the chat
@@ -686,6 +694,7 @@ cargo run --features demo -- --demo            # sample chats, no connection
 cargo run --features demo -- --demo-page login # or settings, pair, info, light, …
 cargo run --features demo -- --demo-shot shot.png --demo-page chat,light
 cargo run --features demo -- --demo-tour      # Space starts/replays a 41-second tour
+cargo run --features demo -- --demo-tour --demo-tour-script whats-new # what 0.16 added
 cargo run --features demo -- --demo-hover 900,400 # holds a fake pointer there
 cargo test --all-features                      # includes a headless layout of every screen
 cargo clippy --all-targets --all-features -- -D warnings
@@ -726,6 +735,16 @@ Noto emoji font; demo GIF search uses these local fixtures. The tour makes no
 sound and holds its final frame. Space rebuilds the sample and replays.
 For an automatic start, add `--demo-tour-delay 5000` (milliseconds).
 Use `--demo` instead of `--demo-tour` to explore the sample chats yourself.
+
+`--demo-tour-script whats-new` plays an 86-second tour of what ZapFast 0.16
+added instead: the composer's plus menu and poll dialog, searching a chat and
+narrowing it to a day, the photo preview, videos and round video messages
+playing in place, sticker shelves and sticker search, message info in a group,
+the Favorites and label chips and a chat's menu, recording a voice message and
+choosing a playback speed, the chat list folded to avatars, hover controls,
+Ctrl-click and Shift-click selection with Forward, and Settings (languages,
+search, and the light theme). `--demo-tour-script launch` is the default.
+Demo runs never open the microphone: recording plays back a synthetic tone.
 Use `--demo-page rtl-self` for a self-chat of mixed Hebrew, Arabic, and
 English lines.
 Use `--demo-page composer-tools` to preview the WhatsApp-style composer pill
@@ -739,7 +758,8 @@ For deterministic theme screenshots, `--demo-page settings,omarchy` and
 `--demo-page settings,omarchy-light` preview following dark and light Omarchy
 palettes without changing the desktop theme.
 
-Use `--demo-page interactive` for text and button messages, or
+Use `--demo-page shared-contact` for an offline shared-contact card with synthetic
+vCard data, or `--demo-page interactive` for text and button messages, or
 `--demo-page interactive-media` for messages with an image, and
 `--demo-page interactive-list` for a list message,
 `--demo-page interactive-list-dialog` for its grouped choice dialog, `--demo-page carousel`
@@ -771,8 +791,26 @@ python3 scripts/render-demo.py recording.mp4 tour.json launch.mp4 --start 0.8
 Set `--start` to the recording time (in seconds) when you pressed Space. The
 export trims the setup footage, adds a caption band below the app, and produces
 a silent H.264 MP4. It requires `ffmpeg` with libass support and `ffprobe`.
+`--scale 1.5` keeps 1.5 pixels per point, for example 1920 pixels across from a
+1280-point window recorded at 2x; the default is one pixel per point.
+
 These annotations are added during video export, not drawn by the app. The
 trace contains only pointer coordinates and shortcut labels, not typed text.
+
+Instead of recording the screen, the tour can save its own frames. With
+`--demo-tour-frames DIR`, it starts at once, plays on a virtual clock (steady
+frame times even when a frame is slow to draw), writes every frame as a PNG
+at the window's pixel size, and quits when the tour ends. `--demo-fps` sets the
+rate (30 by default). The window still has to be shown somewhere; a virtual
+output keeps it off your screens. Then assemble and annotate the frames:
+
+```sh
+cargo build --release --locked --features demo
+./target/release/zapfast --demo-tour --demo-tour-script whats-new \
+  --demo-size 1280x800 --demo-tour-frames frames --demo-tour-events tour.json
+ffmpeg -framerate 30 -i frames/frame-%05d.png -c:v libx264 -crf 12 -pix_fmt yuv420p raw.mp4
+python3 scripts/render-demo.py raw.mp4 tour.json whats-new.mp4 --scale 1.5
+```
 
 ## Disclaimer
 
