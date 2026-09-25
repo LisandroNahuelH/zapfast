@@ -1436,7 +1436,11 @@ impl Worker {
                         crate::proxy::agent(),
                     ))
             }
-            None => builder,
+            // Every address the host resolves to is dialed, not only the first
+            // one, so a network whose IPv6 does not answer still links over
+            // IPv4 (#212).
+            None => builder
+                .with_transport_factory(crate::transport::HappyEyeballsTransportFactory::new()),
         };
         let bot = builder
             // WhatsApp reads the linked-device name, version, and icon at pairing.
