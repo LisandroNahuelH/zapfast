@@ -13,6 +13,10 @@ const RECENT_LIMIT: usize = 10;
 pub(super) struct State {
     pub mode: HistoryPrefetch,
     pub focused: Option<ChatId>,
+    /// Whether attachments download on their own. The background fetches a
+    /// file only when the reader asked for that; with it off it still fetches
+    /// history, but not a single attachment.
+    pub auto_download: bool,
     exhausted: HashSet<ChatId>,
     history_due: Option<Instant>,
     history_failures: u32,
@@ -29,6 +33,7 @@ impl Default for State {
         Self {
             mode: HistoryPrefetch::Off,
             focused: None,
+            auto_download: false,
             exhausted: HashSet::new(),
             history_due: None,
             history_failures: 0,
@@ -40,9 +45,15 @@ impl Default for State {
 }
 
 impl State {
-    pub fn configure(&mut self, mode: HistoryPrefetch, focused: Option<ChatId>) {
+    pub fn configure(
+        &mut self,
+        mode: HistoryPrefetch,
+        focused: Option<ChatId>,
+        auto_download: bool,
+    ) {
         self.mode = mode;
         self.focused = focused;
+        self.auto_download = auto_download;
         if mode == HistoryPrefetch::Off {
             self.history_chat = None;
             self.media = None;
@@ -115,6 +126,7 @@ impl State {
 
     pub fn next_media_ready(&self, now: Instant) -> bool {
         self.mode != HistoryPrefetch::Off
+            && self.auto_download
             && self.media.is_none()
             && self.media_due.is_none_or(|due| now >= due)
     }
@@ -246,7 +258,7 @@ mod tests {
     #[test]
     fn history_waits_for_user_and_backs_off_on_failure() {
         let mut state = State::default();
-        state.configure(HistoryPrefetch::Focused, Some("a".into()));
+        state.configure(HistoryPrefetch::Focused, Some("a".into()), false);
         let now = Instant::now();
         let targets = vec!["a".into(), "b".into()];
         assert!(state.next_history(now, true, &targets).is_none());
@@ -282,7 +294,7 @@ mod tests {
     #[test]
     fn a_foreign_history_ack_does_not_advance_the_queue() {
         let mut state = State::default();
-        state.configure(HistoryPrefetch::Focused, Some("a".into()));
+        state.configure(HistoryPrefetch::Focused, Some("a".into()), false);
         state.start_history("a".into());
         assert!(!state.finish_history("other", true, Instant::now()));
         assert!(
@@ -295,7 +307,7 @@ mod tests {
     #[test]
     fn a_failed_prefetch_file_is_not_skipped_forever() {
         let mut state = State::default();
-        state.configure(HistoryPrefetch::Focused, Some("a".into()));
+        state.configure(HistoryPrefetch::Focused, Some("a".into()), true);
         let now = Instant::now();
         state.start_media("a".into(), "m1".into(), None);
         assert!(state.skip_media("a", "m1", None));
@@ -306,6 +318,24 @@ mod tests {
         assert!(!state.finish_media("a", "m1", None, now + MEDIA_GAP));
     }
 
+    /// A file downloads on its own only when the reader asked for that. With
+    /// "Download attachments automatically" off, the background may still fetch
+    /// history, but it must not fetch a single attachment.
+    #[test]
+    fn media_prefetch_follows_the_auto_download_setting() {
+        let mut state = State::default();
+        let now = Instant::now();
+        state.configure(HistoryPrefetch::Focused, Some("a".into()), false);
+        assert!(!state.next_media_ready(now));
+        state.configure(HistoryPrefetch::Focused, Some("a".into()), true);
+        assert!(state.next_media_ready(now));
+        // And history is unaffected by the setting.
+        assert_eq!(
+            state.next_history(now, false, &["a".into()]).as_deref(),
+            Some("a")
+        );
+    }
+
     /// A carousel card is a file of its own: a manual download of one card
     /// must not read as the completion of the prefetch of another, or the
     /// prefetch's own completion would be ignored and the slot freed while it
@@ -313,7 +343,7 @@ mod tests {
     #[test]
     fn another_cards_file_does_not_release_the_prefetch_slot() {
         let mut state = State::default();
-        state.configure(HistoryPrefetch::Focused, Some("a".into()));
+        state.configure(HistoryPrefetch::Focused, Some("a".into()), true);
         let now = Instant::now();
         state.start_media("a".into(), "m1".into(), Some(0));
         assert!(state.skip_media("a", "m1", Some(0)));

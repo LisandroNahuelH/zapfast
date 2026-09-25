@@ -4255,8 +4255,12 @@ impl Worker {
                 self.prefetch_older.remove(&chat);
                 let _ = self.fetch_older(chat, false);
             }
-            Command::SetHistoryPrefetch { mode, focused } => {
-                self.prefetch.configure(mode, focused);
+            Command::SetHistoryPrefetch {
+                mode,
+                focused,
+                auto_download,
+            } => {
+                self.prefetch.configure(mode, focused, auto_download);
             }
             Command::LoadUntil { chat, id, before } => self.load_until(chat, id, before),
             Command::SearchMessages { query } => self.search_messages(query),

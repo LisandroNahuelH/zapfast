@@ -208,10 +208,14 @@ pub enum Command {
     },
     /// Requests messages before the archive's earliest message.
     FetchOlder(ChatId),
-    /// Background history mode and the chat the reader last opened.
+    /// Background history mode, the chat the reader last opened, and whether
+    /// attachments download on their own. The last one gates the files the
+    /// background fetches: with it off, prefetching may still fetch history,
+    /// but not a single attachment.
     SetHistoryPrefetch {
         mode: crate::settings::HistoryPrefetch,
         focused: Option<ChatId>,
+        auto_download: bool,
     },
     Download {
         card: Option<usize>,

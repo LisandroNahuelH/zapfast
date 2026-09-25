@@ -47,15 +47,19 @@ impl ThemeChoice {
 }
 
 /// How much older phone history and its files are fetched in the background.
+///
+/// Off is the default: prefetching asks the phone for history and its files
+/// without anyone asking for them, so an install that has never opened Settings
+/// does not do it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HistoryPrefetch {
     /// Nothing is fetched in the background.
+    #[default]
     Off,
     /// Only the chat that is open.
     Focused,
     /// Every pinned chat and the ten most recently active ones.
-    #[default]
     RecentAndPinned,
 }
 
@@ -473,7 +477,7 @@ impl Default for Settings {
             chat_lock_code: None,
             chat_lock_code_hash: None,
             chat_lock_hint_dismissed: false,
-            history_prefetch: HistoryPrefetch::RecentAndPinned,
+            history_prefetch: HistoryPrefetch::Off,
         }
     }
 }
@@ -638,7 +642,11 @@ mod tests {
             !parsed.collapse_chat_list,
             "hiding the list keeps removing it until asked otherwise"
         );
-        assert_eq!(parsed.history_prefetch, HistoryPrefetch::RecentAndPinned);
+        assert_eq!(
+            parsed.history_prefetch,
+            HistoryPrefetch::Off,
+            "an install that has never opened Settings does not prefetch"
+        );
     }
 
     #[test]

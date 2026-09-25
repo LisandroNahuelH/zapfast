@@ -3015,8 +3015,9 @@ impl App {
         self.settings_dirty = true;
     }
 
-    /// Tells the worker how much older history the background may fetch, and
-    /// which chat is open so it goes first.
+    /// Tells the worker how much older history the background may fetch, which
+    /// chat is open so it goes first, and whether it may fetch attachments at
+    /// all: a file only downloads on its own when the reader asked for that.
     fn sync_prefetch(&mut self) {
         self.backend.send(Command::SetHistoryPrefetch {
             mode: self.settings.history_prefetch,
@@ -3024,6 +3025,7 @@ impl App {
                 .open_chat
                 .clone()
                 .or_else(|| self.settings.last_chat.clone()),
+            auto_download: self.settings.auto_download,
         });
     }
 
@@ -3033,6 +3035,10 @@ impl App {
         if let Err(error) = self.settings.save(&self.dirs.settings_file()) {
             log::warn!("could not save settings: {error}");
         }
+        // The background's own downloads follow "Download attachments
+        // automatically", which is saved here rather than through an action of
+        // its own, so the worker is told again after every save.
+        self.sync_prefetch();
     }
 
     pub fn load_custom_themes(&mut self) {
