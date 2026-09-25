@@ -291,6 +291,14 @@ msgstr ""
 msgid "Updated {time}"
 msgstr ""
 
+#: src/ui/conversation.rs:4042
+msgid "Chat"
+msgstr ""
+
+#: src/ui/conversation.rs:4056
+msgid "Add"
+msgstr ""
+
 #: src/ui/conversation.rs:3934
 #, rust-format
 msgid "{} sticker"
@@ -716,6 +724,14 @@ msgstr ""
 msgid "This video opens in your system player"
 msgstr ""
 
+#: src/app.rs:5106
+msgid "Copied image"
+msgstr ""
+
+#: src/app.rs:5109 src/app.rs:5114
+msgid "Failed to copy image"
+msgstr ""
+
 #: src/ui/labels.rs:68
 msgctxt "label colour"
 msgid "Blue"
@@ -1052,6 +1068,14 @@ msgstr ""
 #: src/privacy.rs:152
 msgctxt "privacy"
 msgid "Silence unknown callers"
+msgstr ""
+
+#: src/ui/image_preview.rs:61 src/ui/image_preview.rs:155
+msgid "Copy image"
+msgstr ""
+
+#: src/ui/image_preview.rs:156
+msgid "Save as…"
 msgstr ""
 
 #: src/ui/image_preview.rs:151

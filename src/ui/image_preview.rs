@@ -181,6 +181,25 @@ fn header(
             {
                 actions.push(Action::OpenFile(path.to_owned()));
             }
+            if let Some(path) = preview.path() {
+                let copy_hint = format!(
+                    "{} ({})",
+                    crate::i18n::gettext(app.locale, "Copy image"),
+                    super::keys::label("Ctrl+C"),
+                );
+                if theme::icon_button(
+                    ui,
+                    Icon::Copy,
+                    18.0,
+                    palette.secondary,
+                    palette.text,
+                    &copy_hint,
+                )
+                .clicked()
+                {
+                    actions.push(Action::CopyImage(path.to_owned()));
+                }
+            }
             ui.add_space(8.0);
             // Right to left: zoom in, the current scale, zoom out.
             if theme::icon_button(
@@ -359,7 +378,58 @@ fn still(
                         canvas.max(size),
                         Layout::centered_and_justified(egui::Direction::TopDown),
                         |ui| {
-                            ui.add(image.fit_to_exact_size(size));
+                            let image_response =
+                                ui.add(image.fit_to_exact_size(size).sense(egui::Sense::click()));
+                            // The same three actions the header offers, on the
+                            // picture itself: copy it, save it, or hand it to
+                            // another app.
+                            let copy_label = crate::i18n::gettext(app.locale, "Copy image");
+                            let save_label = crate::i18n::gettext(app.locale, "Save as…");
+                            let open_label =
+                                crate::i18n::gettext(app.locale, "Open in another app");
+                            let menu_width = crate::ui::widgets::menu_width(
+                                ui,
+                                &[&copy_label, &save_label, &open_label],
+                                true,
+                            )
+                            .max(180.0);
+                            egui::Popup::context_menu(&image_response)
+                                .width(menu_width)
+                                .frame(crate::ui::widgets::menu_frame(&palette))
+                                .show(|ui| {
+                                    if crate::ui::widgets::menu_item(
+                                        ui,
+                                        &palette,
+                                        Some(Icon::Copy),
+                                        &copy_label,
+                                    ) {
+                                        app.actions.push(Action::CopyImage(path.to_owned()));
+                                    }
+                                    if crate::ui::widgets::menu_item(
+                                        ui,
+                                        &palette,
+                                        Some(Icon::Download),
+                                        &save_label,
+                                    ) {
+                                        let name = path
+                                            .file_name()
+                                            .and_then(|name| name.to_str())
+                                            .unwrap_or("image.png")
+                                            .to_owned();
+                                        app.actions.push(Action::SaveAttachmentAs {
+                                            path: path.to_owned(),
+                                            name,
+                                        });
+                                    }
+                                    if crate::ui::widgets::menu_item(
+                                        ui,
+                                        &palette,
+                                        Some(Icon::ExternalLink),
+                                        &open_label,
+                                    ) {
+                                        app.actions.push(Action::OpenFile(path.to_owned()));
+                                    }
+                                });
                         },
                     );
                 });

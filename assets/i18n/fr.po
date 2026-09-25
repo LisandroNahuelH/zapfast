@@ -291,6 +291,15 @@ msgstr "Position en direct"
 msgid "Updated {time}"
 msgstr "Mise à jour à {time}"
 
+#: src/ui/conversation.rs:4042
+#, fuzzy
+msgid "Chat"
+msgstr "Discussions"
+
+#: src/ui/conversation.rs:4056
+msgid "Add"
+msgstr ""
+
 #: src/ui/conversation.rs:3934
 #, rust-format
 msgid "{} sticker"
@@ -744,6 +753,14 @@ msgstr "Vous avez {limit} étiquettes, le maximum que ZapFast conserve."
 msgid "This video opens in your system player"
 msgstr "Cette vidéo s'ouvre dans le lecteur du système"
 
+#: src/app.rs:5106
+msgid "Copied image"
+msgstr "Image copiée"
+
+#: src/app.rs:5109 src/app.rs:5114
+msgid "Failed to copy image"
+msgstr "Impossible de copier l'image"
+
 #: src/ui/labels.rs:68
 msgctxt "label colour"
 msgid "Blue"
@@ -1102,6 +1119,14 @@ msgstr "Identique à Vu à"
 msgctxt "privacy"
 msgid "Silence unknown callers"
 msgstr "Mettre en silence les appels inconnus"
+
+#: src/ui/image_preview.rs:61 src/ui/image_preview.rs:155
+msgid "Copy image"
+msgstr "Copier l'image"
+
+#: src/ui/image_preview.rs:156
+msgid "Save as…"
+msgstr "Enregistrer sous…"
 
 #: src/ui/image_preview.rs:151
 msgid "Image"
