@@ -56,7 +56,13 @@ impl State {
         self.auto_download = auto_download;
         if mode == HistoryPrefetch::Off {
             self.history_chat = None;
-            self.media = None;
+            // The attachment already downloading keeps its record. Turning the
+            // mode off stops the pump from starting another one, but it cannot
+            // cancel the task in flight, and `finish_media` has to still
+            // recognize that completion as the background's: dropping the
+            // record made it read as the reader's own, so a failure reopened
+            // the thirty-day retry window that a manual click opens, for a
+            // download nobody asked for.
         }
     }
 
@@ -235,6 +241,24 @@ mod tests {
         chat.pinned_at = pinned_at;
         chat.archived = archived;
         chat
+    }
+
+    /// Turning the background off stops the pump, but it cannot cancel the
+    /// attachment already downloading. Its record survives, so the completion
+    /// is still read as the background's and a failure keeps its own backoff
+    /// instead of reopening the window a manual click opens.
+    #[test]
+    fn turning_the_mode_off_keeps_the_download_that_is_running() {
+        let mut state = State::default();
+        let now = Instant::now();
+        state.configure(HistoryPrefetch::RecentAndPinned, Some("a".into()), true);
+        state.start_media("a".into(), "m1".into(), None);
+        state.configure(HistoryPrefetch::Off, Some("a".into()), true);
+        assert!(!state.next_media_ready(now), "the mode is off");
+        assert!(
+            state.finish_media("a", "m1", None, now),
+            "the download the background started is still the background's"
+        );
     }
 
     #[test]
