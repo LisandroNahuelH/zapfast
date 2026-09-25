@@ -6929,6 +6929,13 @@ fn extension_for(mime: &str, file_name: Option<&str>) -> String {
         "image/webp" => "webp",
         "image/gif" => "gif",
         "video/mp4" => "mp4",
+        // The album and the viewer read a file's kind from its extension, so a
+        // type the album accepts has to land on an extension the viewer knows.
+        // Without these two, a clip of either type with no file name was saved
+        // as `.quicktime` or `.x-matroska`, and the viewer refused the file it
+        // had just written itself.
+        "video/quicktime" => "mov",
+        "video/x-matroska" => "mkv",
         "video/3gpp" => "3gp",
         "audio/ogg" => "ogg",
         "audio/mpeg" => "mp3",
@@ -8392,6 +8399,33 @@ mod tests {
         );
         assert_eq!(extension_for("audio/ogg; codecs=opus", None), "ogg");
         assert_eq!(extension_for("application/x-unknown", None), "x-unknown");
+        // The two clip types the album accepts fell through to their MIME
+        // subtype, so the viewer refused the file the download had just named.
+        assert_eq!(extension_for("video/quicktime", None), "mov");
+        assert_eq!(extension_for("video/x-matroska", None), "mkv");
+    }
+
+    /// The album lists a clip by its declared type and the viewer opens it by
+    /// its name, so the name a download writes has to be one the viewer reads
+    /// as a clip. A `video/quicktime` or `video/x-matroska` attachment with no
+    /// file name was saved as `.quicktime` or `.x-matroska`, which the viewer
+    /// did not recognize.
+    #[test]
+    fn every_clip_type_is_saved_under_a_name_the_viewer_reads() {
+        for mime in [
+            "video/mp4",
+            "video/quicktime",
+            "video/webm",
+            "video/x-matroska",
+            "video/3gpp",
+        ] {
+            let name = format!("chat-ABC.{}", extension_for(mime, None));
+            assert_eq!(
+                crate::model::gallery_kind_for_path(std::path::Path::new(&name)),
+                Some(crate::model::GalleryKind::Video),
+                "{mime} is saved as {name}"
+            );
+        }
     }
 
     #[test]

@@ -825,6 +825,12 @@ fn gallery_file(file_name: &str) -> Option<GalleryKind> {
     match ext.as_str() {
         "jpg" | "jpeg" | "png" | "webp" | "bmp" | "tif" | "tiff" => Some(GalleryKind::Photo),
         "mp4" | "m4v" | "mov" | "webm" | "mkv" | "3gp" | "3gpp" => Some(GalleryKind::Video),
+        // The MIME subtype of a clip whose name carried no extension, which is
+        // how `video/quicktime` and `video/x-matroska` were saved before the
+        // download named them `.mov` and `.mkv`. Those files are still on disk,
+        // and the album lists them by their declared type, so the viewer has to
+        // read them by name too.
+        "quicktime" | "x-matroska" => Some(GalleryKind::Video),
         _ => None,
     }
 }
@@ -1888,6 +1894,23 @@ mod tests {
         );
         // A GIF plays inline as an animation, so it is not a clip here.
         assert_eq!(document("image/gif", "loop.gif").gallery_kind(), None);
+    }
+
+    /// The album lists a clip by its declared type, so a clip whose download
+    /// name carried the MIME subtype instead of an extension has to be read by
+    /// name too, or the viewer refuses a file the album just offered.
+    #[test]
+    fn the_mime_subtype_of_a_clip_names_it_for_the_viewer() {
+        use super::{GalleryKind, gallery_kind_for_path};
+        use std::path::Path;
+        assert_eq!(
+            gallery_kind_for_path(Path::new("chat-ABC.quicktime")),
+            Some(GalleryKind::Video)
+        );
+        assert_eq!(
+            gallery_kind_for_path(Path::new("chat-ABC.x-matroska")),
+            Some(GalleryKind::Video)
+        );
     }
 
     #[test]
