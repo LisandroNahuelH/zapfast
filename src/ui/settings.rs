@@ -276,11 +276,11 @@ fn sections(app: &App) -> Vec<Section> {
     let palette = app.palette;
 
     let mut appearance = Section::new(translated(locale, "Appearance"));
-    let detail = app
+    let status = app
         .custom_themes
-        .detail(app.settings.custom_theme.as_deref());
-    let detail = if !detail.is_empty() {
-        detail.to_owned().into()
+        .status(app.settings.custom_theme.as_deref());
+    let detail = if let Some(status) = status {
+        theme::theme_status(status).to_owned().into()
     } else if app.custom_themes.follows_omarchy() {
         translated(locale, "Follow system uses your Omarchy colours.")
     } else {
@@ -736,7 +736,7 @@ fn theme_picker(ui: &mut egui::Ui, app: &mut App) {
             .settings
             .custom_theme
             .as_deref()
-            .map(theme::custom::label)
+            .map(fastframe_theme::display_name)
             .unwrap_or_else(|| app.settings.theme.label());
         let response = egui::ComboBox::from_id_salt("appearance_theme")
             .selected_text(" ")
@@ -760,7 +760,7 @@ fn theme_picker(ui: &mut egui::Ui, app: &mut App) {
                     if theme_option(
                         ui,
                         &palette,
-                        theme::custom::label(&custom.filename),
+                        fastframe_theme::display_name(&custom.filename),
                         app.settings.custom_theme.as_deref() == Some(custom.filename.as_str()),
                     ) {
                         app.actions

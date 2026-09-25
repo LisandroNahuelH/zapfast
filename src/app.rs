@@ -20,7 +20,6 @@ use crate::paths::AppDirs;
 use crate::settings::{NotificationSound, Settings, ThemeChoice};
 use crate::single_instance::{ControlCommand, Guard};
 use crate::theme::{self, Palette};
-use crate::tray::{TrayCommand, TrayService};
 
 /// Initial and incremental message-page size.
 pub const PAGE: usize = 60;
@@ -166,7 +165,7 @@ pub struct App {
     last_settings_save: Instant,
     pub backend: Backend,
     pub palette: Palette,
-    pub custom_themes: theme::custom::Catalog,
+    pub custom_themes: theme::Catalog,
     applied_dark: Option<bool>,
     zoom_applied: bool,
 
@@ -412,7 +411,7 @@ pub struct App {
     last_update_check: Option<Instant>,
     pub show_update: bool,
     pub update_download: crate::updates::DownloadState,
-    pub update_support: Option<Result<crate::updates::install::Installation, String>>,
+    pub update_support: Option<Result<crate::updates::Installation, String>>,
     update_inspecting: bool,
     pub update_arguments: Vec<String>,
     /// Whether to scroll the conversation to its newest message.
@@ -437,7 +436,7 @@ pub struct App {
     pub start_with_system: Option<bool>,
     /// Cross-thread window repaint handle.
     waker: Waker,
-    tray: Option<TrayService>,
+    tray: Option<fastframe_tray::Tray>,
     /// Whether the app is running without a window.
     pub window_hidden: bool,
     /// Whether window close should keep the process running.
@@ -521,6 +520,80 @@ impl Pending {
     }
 }
 
+/// The app outlives its window: closing it with "keep running" on hides
+/// ZapFast, and the tray, a notification or another launch brings it back.
+impl fastframe_shell::Resident for App {
+    fn closed(&self) -> fastframe_shell::Closed {
+        if !self.quit_requested && self.hide_intent {
+            fastframe_shell::Closed::Hide
+        } else {
+            fastframe_shell::Closed::Quit
+        }
+    }
+
+    fn window_gone(&mut self) {
+        App::window_gone(self);
+    }
+
+    fn headless_frame(&mut self, ctx: &egui::Context) -> fastframe_shell::Headless {
+        self.background_frame(ctx);
+        if self.quit_requested {
+            fastframe_shell::Headless::Quit
+        } else if self.wants_show {
+            fastframe_shell::Headless::Show
+        } else {
+            fastframe_shell::Headless::Wait
+        }
+    }
+
+    /// Without a tray there is no way back to a hidden window, so show it.
+    fn start_hidden(&mut self) -> bool {
+        if !self.hides_to_tray() {
+            return false;
+        }
+        App::start_hidden(self);
+        true
+    }
+
+    fn shutdown(&mut self) {
+        App::shutdown(self);
+    }
+}
+
+const TRAY_SHOW: &str = "show";
+const TRAY_QUIT: &str = "quit";
+
+/// What a tray click asks for: a left click on Linux and macOS, or the menu's
+/// first entry, toggles the window; a left click on Windows and a Dock click
+/// on macOS show it.
+fn tray_action(event: fastframe_tray::Event, window_hidden: bool) -> Option<Action> {
+    use fastframe_tray::Event;
+    Some(match event {
+        Event::Show => Action::ShowWindow,
+        Event::Toggle | Event::Menu(TRAY_SHOW) if window_hidden => Action::ShowWindow,
+        Event::Toggle | Event::Menu(TRAY_SHOW) => Action::HideWindow,
+        Event::Menu(TRAY_QUIT) => Action::Quit,
+        Event::Menu(_) => return None,
+    })
+}
+
+/// The tray item: ZapFast's icon, and a menu to show or hide the window and
+/// to quit.
+fn tray_config() -> fastframe_tray::Config {
+    use fastframe_tray::MenuItem;
+    fastframe_tray::Config {
+        id: "zapfast",
+        title: "ZapFast".into(),
+        icon: crate::util::app_icon_rgba,
+        template_icon: Some(crate::util::tray_template_rgba),
+        menu: vec![
+            MenuItem::action(TRAY_SHOW, "Show or hide ZapFast"),
+            MenuItem::Separator,
+            MenuItem::action(TRAY_QUIT, "Quit"),
+        ],
+    }
+}
+
 /// Process-level app services.
 #[derive(Clone, Copy, Debug)]
 pub struct AppOptions {
@@ -541,11 +614,19 @@ impl App {
         let mut app = Self::with_backend(dirs, settings, backend, waker.clone());
         app.pauses_media = true;
         app.badge = Some(Default::default());
-        app.custom_themes.enable_desktop_themes();
+        app.custom_themes
+            .enable_desktop_themes(crate::theme::DESKTOP_THEMES);
         app.load_custom_themes();
+        // Reading the desktop's font settings may wait on D-Bus; keep it off
+        // the first frame.
+        let text_waker = waker.clone();
+        std::thread::Builder::new()
+            .name("text-rendering".into())
+            .spawn(move || crate::theme::follow_text_rendering(move || text_waker.wake()))
+            .ok();
         if options.tray {
             let waker = waker.clone();
-            app.tray = TrayService::spawn(move || waker.wake());
+            app.tray = fastframe_tray::Tray::spawn(tray_config(), move || waker.wake());
         }
         // The clock preference may run a helper on Linux; keep it off the
         // first frame.
@@ -605,7 +686,7 @@ impl App {
             last_settings_save: Instant::now(),
             backend,
             palette,
-            custom_themes: theme::custom::Catalog::default(),
+            custom_themes: theme::Catalog::default(),
             applied_dark: None,
             zoom_applied: false,
             link: LinkStatus::Starting,
@@ -797,9 +878,6 @@ impl App {
         self.window_focused = false;
         self.hide_intent = false;
         self.wants_show = false;
-        if let Some(tray) = &mut self.tray {
-            tray.hidden();
-        }
     }
 
     /// Whether window close keeps the app in the tray.
@@ -808,20 +886,15 @@ impl App {
     }
 
     fn handle_tray(&mut self) {
-        let Some(commands) = self.tray.as_ref().map(TrayService::drain_commands) else {
+        let Some(events) = self.tray.as_ref().map(fastframe_tray::Tray::events) else {
             return;
         };
-        for command in commands {
-            match command {
-                TrayCommand::Show => self.actions.push(Action::ShowWindow),
-                TrayCommand::ShowHide => self.actions.push(if self.window_hidden {
-                    Action::ShowWindow
-                } else {
-                    Action::HideWindow
-                }),
-                TrayCommand::Quit => self.actions.push(Action::Quit),
-            }
-        }
+        let hidden = self.window_hidden;
+        self.actions.extend(
+            events
+                .into_iter()
+                .filter_map(|event| tray_action(event, hidden)),
+        );
     }
 
     fn handle_control_commands(&mut self) {
@@ -3036,7 +3109,7 @@ impl App {
             };
             self.backend.send(Command::DownloadUpdate {
                 release,
-                source: crate::updates::Source::GitHub,
+                source: crate::updates::Source::github(),
             });
         }
     }
@@ -3054,10 +3127,11 @@ impl App {
     }
 
     pub fn load_custom_themes(&mut self) {
+        let waker = self.waker.clone();
         self.custom_themes.start(
             self.dirs.config.join("themes"),
             self.settings.custom_theme.clone(),
-            &self.waker,
+            &fastframe_theme::Waker::new(move || waker.wake()),
         );
     }
 
@@ -3065,9 +3139,14 @@ impl App {
         if self.custom_themes.needs_reload() {
             self.load_custom_themes();
         }
-        if !self.custom_themes.poll() {
-            return;
+        if self.custom_themes.poll() {
+            self.cache_custom_themes();
         }
+    }
+
+    /// Keeps the selected and the desktop's palettes in settings, so the
+    /// last usable appearance survives a missing file or a slow scan.
+    fn cache_custom_themes(&mut self) {
         let mut changed = false;
         if let Some(filename) = &self.settings.custom_theme
             && let Some(theme) = self.custom_themes.find(filename)
@@ -3116,6 +3195,9 @@ impl App {
                 Palette::light()
             }
         });
+        if crate::theme::apply_text_rendering_change(ctx) {
+            self.applied_dark = None;
+        }
         if self.applied_dark.is_none() || self.palette != palette {
             self.palette = palette;
             crate::theme::apply(ctx, &self.palette);
@@ -6065,6 +6147,33 @@ mod tests {
         assert_eq!(started.try_recv(), Ok(()));
     }
 
+    /// The shell asks the app what a closed window means and what each
+    /// headless tick wants; without a tray a hidden start opens the window.
+    #[test]
+    fn the_shell_hides_shows_and_quits_as_the_app_asks() {
+        use fastframe_shell::{Closed, Headless, Resident};
+        let mut app = app();
+        assert_eq!(app.closed(), Closed::Quit);
+        app.hide_intent = true;
+        assert_eq!(app.closed(), Closed::Hide);
+        app.quit_requested = true;
+        assert_eq!(app.closed(), Closed::Quit);
+        app.quit_requested = false;
+        Resident::window_gone(&mut app);
+        assert!(!app.hide_intent && !app.wants_show);
+        let ctx = egui::Context::default();
+        assert_eq!(app.headless_frame(&ctx), Headless::Wait);
+        app.wants_show = true;
+        assert_eq!(app.headless_frame(&ctx), Headless::Show);
+        app.quit_requested = true;
+        assert_eq!(app.headless_frame(&ctx), Headless::Quit);
+
+        let mut app = self::app();
+        assert!(app.tray.is_none());
+        assert!(!Resident::start_hidden(&mut app), "no tray, no way back");
+        assert!(!app.hide_intent);
+    }
+
     #[test]
     fn unsupported_media_falls_back_to_the_external_opener() {
         let ctx = egui::Context::default();
@@ -6478,8 +6587,41 @@ mod tests {
     }
 
     #[test]
+    fn tray_clicks_show_hide_and_quit() {
+        use fastframe_tray::Event;
+        assert!(matches!(
+            super::tray_action(Event::Show, false),
+            Some(Action::ShowWindow)
+        ));
+        for event in [Event::Toggle, Event::Menu(super::TRAY_SHOW)] {
+            assert!(matches!(
+                super::tray_action(event, true),
+                Some(Action::ShowWindow)
+            ));
+            assert!(matches!(
+                super::tray_action(event, false),
+                Some(Action::HideWindow)
+            ));
+        }
+        assert!(matches!(
+            super::tray_action(Event::Menu(super::TRAY_QUIT), false),
+            Some(Action::Quit)
+        ));
+        assert!(super::tray_action(Event::Menu("other"), false).is_none());
+        let menu = super::tray_config().menu;
+        assert_eq!(
+            menu,
+            [
+                fastframe_tray::MenuItem::action(super::TRAY_SHOW, "Show or hide ZapFast"),
+                fastframe_tray::MenuItem::Separator,
+                fastframe_tray::MenuItem::action(super::TRAY_QUIT, "Quit"),
+            ]
+        );
+    }
+
+    #[test]
     fn custom_theme_cache_survives_a_missing_file_and_follows_system_updates() {
-        use crate::theme::custom::{Catalog, CustomTheme};
+        use crate::theme::{Catalog, CustomTheme};
         let mut app = app();
         let ctx = egui::Context::default();
         let mut first = CustomTheme {
@@ -6487,7 +6629,7 @@ mod tests {
             palette: Palette::dark(),
         };
         first.palette.accent = egui::Color32::RED;
-        app.custom_themes = Catalog::from_themes(vec![first.clone()]);
+        app.custom_themes = Catalog::preview(vec![first.clone()], false);
         app.apply(Action::SetCustomTheme(first.filename.clone()), &ctx);
         assert_eq!(app.palette.accent, egui::Color32::RED);
         // Cached selection remains usable while the file is temporarily missing.
@@ -6501,14 +6643,9 @@ mod tests {
         let mut system = first;
         system.filename = "omarchy.json".into();
         system.palette.accent = egui::Color32::GREEN;
-        app.custom_themes
-            .load_system_test(Some(system.clone()), true);
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while app.settings.system_theme_cache.as_ref() != Some(&system) {
-            app.poll_custom_themes();
-            assert!(Instant::now() < deadline);
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        app.custom_themes = Catalog::preview(vec![system.clone()], true);
+        app.cache_custom_themes();
+        assert_eq!(app.settings.system_theme_cache.as_ref(), Some(&system));
         app.apply_theme(&ctx);
         assert_eq!(app.palette.accent, egui::Color32::GREEN);
         app.apply(Action::SetTheme(ThemeChoice::Light), &ctx);
@@ -6517,10 +6654,7 @@ mod tests {
 
     #[test]
     fn automatic_updates_require_opt_in_and_explicit_restart() {
-        use crate::updates::{
-            DownloadState,
-            install::{Installation, Kind, Prepared},
-        };
+        use crate::updates::{DownloadState, Installation, Kind, Prepared};
         let mut app = app();
         let ctx = egui::Context::default();
         app.update = Some(crate::updates::Release {
@@ -6545,13 +6679,8 @@ mod tests {
             app.update_download,
             DownloadState::Downloading { .. }
         ));
-        app.update_download = DownloadState::Ready(Box::new(Prepared {
-            installation,
-            directory: "/fixture/staging".into(),
-            payload: "/fixture/staging/next".into(),
-            sha256: String::new(),
-            version: "99.0.0".into(),
-        }));
+        app.update_download =
+            DownloadState::Ready(Box::new(Prepared::sample(installation, "99.0.0")));
         app.maybe_download_update();
         assert!(matches!(app.update_download, DownloadState::Ready(_)));
         assert!(!app.quit_requested);
