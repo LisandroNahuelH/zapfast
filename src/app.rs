@@ -3341,6 +3341,11 @@ impl App {
                 message,
             } => {
                 if crate::image_preview::can_view(&path) && path.is_file() {
+                    // The viewer takes the screen: a clip playing in the chat
+                    // behind it would keep its sound over whatever opens here.
+                    if self.video.message() != Some(message.as_str()) {
+                        self.video.stop();
+                    }
                     // The album is asked for as the viewer opens, so stepping
                     // through it works from the first frame.
                     self.viewer_media.clear();
@@ -3383,6 +3388,10 @@ impl App {
                 }
             }
             Action::CloseImagePreview => {
+                // The viewer owned the clip on screen, so leaving it releases
+                // the player: a clip that kept playing had its sound over the
+                // chat, and over the next picture opened from the strip.
+                self.video.stop();
                 self.image_preview = None;
                 self.viewer_media.clear();
                 self.viewer_media_chat = None;
@@ -3400,6 +3409,10 @@ impl App {
                 else {
                     return;
                 };
+                // Stepping away from a clip that was playing stops it.
+                if self.video.message() != Some(item.id.as_str()) {
+                    self.video.stop();
+                }
                 // An item whose file is not here yet is shown for what it is
                 // and offered for download. It is not shown as the picture
                 // that happens to be on screen: that would be another file
@@ -3422,6 +3435,11 @@ impl App {
                 }
                 let next = (index as i64 + i64::from(step)).rem_euclid(count) as usize;
                 let item = self.viewer_media[next].clone();
+                // Stepping away from a clip that was playing stops it, so its
+                // sound does not carry over a photo.
+                if self.video.message() != Some(item.id.as_str()) {
+                    self.video.stop();
+                }
                 // As above: a missing file keeps its own state.
                 let path = item.path.clone();
                 if let Some(preview) = &mut self.image_preview {

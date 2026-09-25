@@ -24,9 +24,20 @@ pub fn can_view(path: &Path) -> bool {
     crate::model::gallery_kind_for_path(path).is_some()
 }
 
-/// Chooses the native preview for an image rendered successfully by the conversation view.
+/// Whether this file is a clip, from its name alone. Used where the album item
+/// is not known yet, so a clip is never handed to the image decoder.
+pub fn is_video(path: &Path) -> bool {
+    crate::model::gallery_kind_for_path(path) == Some(crate::model::GalleryKind::Video)
+}
+
+/// Chooses the native preview for an image rendered successfully by the
+/// conversation view.
+///
+/// The test is `can_view`, not "is an image": the viewer opens what the album
+/// holds, so a GIF, which the album leaves out, goes to the system viewer
+/// instead of opening a preview that has nothing to show.
 pub fn open_target(path: &Path, rendered: bool) -> OpenTarget {
-    if rendered && crate::safety::can_preview_image(path) {
+    if rendered && can_view(path) {
         OpenTarget::Preview
     } else {
         OpenTarget::External
@@ -308,6 +319,16 @@ mod tests {
             OpenTarget::Preview
         );
         assert_eq!(
+            open_target(Path::new("clip.mp4"), true),
+            OpenTarget::Preview
+        );
+        // A GIF is an inline animation the album leaves out, so the preview has
+        // nothing to show for it and it goes to the system viewer.
+        assert_eq!(
+            open_target(Path::new("anim.gif"), true),
+            OpenTarget::External
+        );
+        assert_eq!(
             open_target(Path::new("photo.heic"), true),
             OpenTarget::External
         );
@@ -315,6 +336,17 @@ mod tests {
             open_target(Path::new("photo.png"), false),
             OpenTarget::External
         );
+    }
+
+    /// A clip opened before the album arrives has no item to ask, so the file
+    /// name decides: handing an mp4 to the image decoder showed a load error.
+    #[test]
+    fn a_file_name_says_whether_it_is_a_clip() {
+        assert!(is_video(Path::new("clip.mp4")));
+        assert!(is_video(Path::new("holiday.MOV")));
+        assert!(!is_video(Path::new("photo.png")));
+        assert!(!is_video(Path::new("anim.gif")));
+        assert!(!is_video(Path::new("no-extension")));
     }
 
     #[test]

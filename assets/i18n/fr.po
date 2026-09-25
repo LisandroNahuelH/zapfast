@@ -1193,10 +1193,10 @@ msgstr "Ouvrir en externe"
 msgid "Play or pause the video"
 msgstr "Lire ou mettre en pause la vidéo"
 
-#: src/ui/image_preview.rs:698
-msgid "Previous (Left)"
-msgstr "Précédent (Gauche)"
+#: src/ui/image_preview.rs:848
+msgid "Previous (,)"
+msgstr "Précédent (,)"
 
-#: src/ui/image_preview.rs:704
-msgid "Next (Right)"
-msgstr "Suivant (Droite)"
+#: src/ui/image_preview.rs:854
+msgid "Next (.)"
+msgstr "Suivant (.)"

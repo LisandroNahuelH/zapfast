@@ -289,6 +289,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+,", "Settings"),
     ("Ctrl++ / Ctrl+-", "Zoom in / out"),
     ("Ctrl+0", "Reset zoom"),
+    (", / .", "Previous / next item in the media viewer"),
     ("? / Ctrl+/", "Keyboard shortcuts (? when not typing)"),
     ("Ctrl+W", "Close the window (ZapFast remains in the tray)"),
     ("Ctrl+Q", "Quit"),

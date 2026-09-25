@@ -1143,10 +1143,10 @@ msgstr ""
 msgid "Play or pause the video"
 msgstr ""
 
-#: src/ui/image_preview.rs:698
-msgid "Previous (Left)"
+#: src/ui/image_preview.rs:848
+msgid "Previous (,)"
 msgstr ""
 
-#: src/ui/image_preview.rs:704
-msgid "Next (Right)"
+#: src/ui/image_preview.rs:854
+msgid "Next (.)"
 msgstr ""

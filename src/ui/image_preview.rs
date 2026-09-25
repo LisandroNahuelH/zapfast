@@ -7,6 +7,7 @@ use std::path::Path;
 
 use crate::app::App;
 use crate::archive::ChatMedia;
+use crate::image_preview::PreviewState;
 use crate::model::{Action, Dialog};
 use crate::theme::{self, Icon};
 
@@ -18,46 +19,55 @@ const HEADER: f32 = 56.0;
 const STRIP: f32 = 78.0;
 const THUMB: f32 = 56.0;
 const STRIP_GAP: f32 = 6.0;
-const STRIP_PAD: f32 = 8.0;
-
-/// WhatsApp paints its viewer over the whole window in near black, so the
-/// picture is the only thing with colour in it.
-const BACKDROP: egui::Color32 = egui::Color32::from_rgb(0x0b, 0x0e, 0x11);
+const STRIP_PAD: f32 = 4.0;
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
-    let Some(preview) = app.image_preview.clone() else {
+    // The album carries every thumbnail of the chat, so it is moved out for
+    // the frame and put back at the end instead of being copied: a copy per
+    // repaint is megabytes of bytes nobody reads. The preview holds two ids and
+    // two strings, and it is moved the same way so the drawing functions can
+    // borrow it mutably while `app` is borrowed too.
+    let Some(mut preview) = app.image_preview.take() else {
         return;
     };
+    let album = std::mem::take(&mut app.viewer_media);
     let palette = app.palette;
     // The album the viewer browses, and where this picture sits in it.
-    let album = app.viewer_media.clone();
     let position = preview.position(&album);
-    let item = position.and_then(|index| album.get(index)).cloned();
+    let item = position.and_then(|index| album.get(index));
     let message = preview.message().to_owned();
     let chat = preview.chat().to_owned();
+    let thumbnail = item.and_then(|item| item.thumbnail.as_deref());
+    // With no album item yet, the file's own name still says whether this is a
+    // clip, so a clip is never handed to the image decoder.
+    let clip = item.map_or_else(
+        || preview.path().is_some_and(crate::image_preview::is_video),
+        |item| item.video,
+    );
     let strip = album.len() > 1;
     let mut actions: Vec<Action> = Vec::new();
 
     let mut backdrop_clicked = false;
     // The viewer fills the window instead of floating a dialog over the chat:
-    // the header across the top, the picture on the black field, and the album
-    // along the bottom, which is the shape WhatsApp's own viewer uses. It stays
-    // a modal, so it keeps the keyboard: Tab walks its own controls and Enter
-    // cannot reach the chat behind it.
+    // the header across the top, the picture on the field, and the album along
+    // the bottom, which is the shape WhatsApp's own viewer uses. It stays a
+    // modal, so it keeps the keyboard: Tab walks its own controls and Enter
+    // cannot reach the chat behind it. The field and every control over it come
+    // from the palette, so the light theme reads as well as the dark one.
     let screen = ctx.content_rect();
     let area = egui::Area::new(egui::Id::new("image-preview"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min);
     let response = egui::Modal::new(egui::Id::new("image-preview"))
         .area(area)
-        .frame(egui::Frame::new().fill(BACKDROP))
-        .backdrop_color(BACKDROP)
+        .frame(egui::Frame::new().fill(palette.overlay))
+        .backdrop_color(palette.shadow)
         .show(ctx, |ui| {
             // Sized to the window with no margin around it, so the field runs
             // edge to edge.
             ui.set_min_size(screen.size());
             let window = Rect::from_min_size(screen.min, screen.size());
-            ui.painter().rect_filled(window, 0.0, BACKDROP);
+            ui.painter().rect_filled(window, 0.0, palette.overlay);
             // Claimed first, so every control drawn over it wins the click.
             // What reaches this is a click on the empty field, which closes the
             // viewer, as it does on the phone.
@@ -66,28 +76,38 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
             let mut head = ui.new_child(UiBuilder::new().max_rect(header_rect));
             head.set_clip_rect(header_rect);
-            header(
-                app,
-                &mut head,
-                &preview,
-                &chat,
-                item.is_some(),
-                &mut actions,
-            );
+            header(app, &mut head, &preview, item, chat.as_str(), &mut actions);
 
             let mut body = ui.new_child(UiBuilder::new().max_rect(stage));
             body.set_clip_rect(stage);
-            match item.as_ref().filter(|item| item.video) {
-                Some(item) => video(app, &mut body, item, stage, &chat, &message, &mut actions),
-                None => still(
+            // The file on screen is the preview's, not the album item's: a clip
+            // opened from the message menu is shown before the album arrives,
+            // and the album may never hold that message at all.
+            let shown = preview.path().map(Path::to_path_buf);
+            if clip {
+                video(
                     app,
                     &mut body,
-                    &preview,
-                    item.as_ref(),
+                    shown.as_deref(),
+                    thumbnail,
+                    stage,
                     &chat,
+                    &message,
+                    &mut actions,
+                );
+            } else {
+                still(
+                    app,
+                    &mut body,
+                    &mut preview,
+                    shown.as_deref(),
+                    thumbnail,
+                    clip,
+                    &chat,
+                    &message,
                     stage,
                     &mut actions,
-                ),
+                );
             }
             if strip {
                 chevrons(app, ui, &palette, stage, &mut actions);
@@ -108,6 +128,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if response.should_close() || backdrop_clicked {
         actions.push(Action::CloseImagePreview);
     }
+    app.image_preview = Some(preview);
+    app.viewer_media = album;
     app.actions.extend(actions);
 }
 
@@ -131,9 +153,9 @@ fn panes(window: Rect, strip: bool) -> (Rect, Rect, Rect) {
 fn header(
     app: &mut App,
     ui: &mut egui::Ui,
-    preview: &crate::image_preview::PreviewState,
+    preview: &PreviewState,
+    item: Option<&ChatMedia>,
     chat: &str,
-    has_message: bool,
     actions: &mut Vec<Action>,
 ) {
     let palette = app.palette;
@@ -153,8 +175,15 @@ fn header(
                 )
         });
     let message = preview.message().to_owned();
+    // The file already on the computer, when the item has one: the header
+    // offers Save as for it, as the message menu does, instead of fetching it
+    // again and leaving the viewer.
+    let saved = item.and_then(|item| item.path.clone());
+    let has_message = item.is_some();
     ui.horizontal(|ui| {
-        crate::ui::widgets::rich_text(ui, &title, theme::semibold(14.0), palette.text);
+        // The actions are laid out from the right edge first, and the title
+        // takes what is left of the row, truncated: a long chat name used to
+        // run under the icons.
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if theme::icon_button(
                 ui,
@@ -168,8 +197,8 @@ fn header(
             {
                 actions.push(Action::CloseImagePreview);
             }
-            if let Some(path) = preview.path()
-                && theme::icon_button(
+            if let Some(path) = preview.path() {
+                if theme::icon_button(
                     ui,
                     Icon::ExternalLink,
                     18.0,
@@ -178,10 +207,9 @@ fn header(
                     crate::i18n::gettext(app.locale, "Open in another app").as_ref(),
                 )
                 .clicked()
-            {
-                actions.push(Action::OpenFile(path.to_owned()));
-            }
-            if let Some(path) = preview.path() {
+                {
+                    actions.push(Action::OpenFile(path.to_owned()));
+                }
                 let copy_hint = format!(
                     "{} ({})",
                     crate::i18n::gettext(app.locale, "Copy image"),
@@ -299,24 +327,49 @@ fn header(
                         messages: vec![message.clone()],
                     }));
                 }
-                if theme::icon_button(
-                    ui,
-                    Icon::Download,
-                    18.0,
-                    palette.secondary,
-                    palette.text,
-                    crate::i18n::gettext(app.locale, "Download").as_ref(),
-                )
-                .clicked()
-                {
-                    // Every action here does what the message menu would have
-                    // done, and returns to the chat with it.
-                    actions.push(Action::CloseImagePreview);
-                    actions.push(Action::Download {
-                        card: None,
-                        chat: chat.to_owned(),
-                        message: message.clone(),
-                    });
+                match saved {
+                    // Already on the computer: hand it to the save dialog, the
+                    // way the message menu does.
+                    Some(path) => {
+                        let name = path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("attachment")
+                            .to_owned();
+                        if theme::icon_button(
+                            ui,
+                            Icon::Download,
+                            18.0,
+                            palette.secondary,
+                            palette.text,
+                            crate::i18n::gettext(app.locale, "Save as…").as_ref(),
+                        )
+                        .clicked()
+                        {
+                            actions.push(Action::CloseImagePreview);
+                            actions.push(Action::SaveAttachmentAs { path, name });
+                        }
+                    }
+                    // Not here yet: fetch it, and return to the chat with it.
+                    None => {
+                        if theme::icon_button(
+                            ui,
+                            Icon::Download,
+                            18.0,
+                            palette.secondary,
+                            palette.text,
+                            crate::i18n::gettext(app.locale, "Download").as_ref(),
+                        )
+                        .clicked()
+                        {
+                            actions.push(Action::CloseImagePreview);
+                            actions.push(Action::Download {
+                                card: None,
+                                chat: chat.to_owned(),
+                                message: message.clone(),
+                            });
+                        }
+                    }
                 }
                 if theme::icon_button(
                     ui,
@@ -329,23 +382,29 @@ fn header(
                 .clicked()
                 {
                     actions.push(Action::CloseImagePreview);
-                    actions.push(Action::OpenMessage {
-                        chat: chat.to_owned(),
-                        message: message.clone(),
-                    });
                 }
+                ui.add_space(8.0);
             }
+            // Last, so it takes what the actions left, and truncated rather
+            // than drawn under them.
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                crate::ui::widgets::rich_text(ui, &title, theme::semibold(14.0), palette.text);
+            });
         });
     });
 }
 
 /// The picture itself, zoomed and panned exactly as before.
+#[allow(clippy::too_many_arguments)]
 fn still(
     app: &mut App,
     ui: &mut egui::Ui,
-    preview: &crate::image_preview::PreviewState,
-    item: Option<&ChatMedia>,
+    preview: &mut PreviewState,
+    path: Option<&Path>,
+    thumbnail: Option<&[u8]>,
+    video: bool,
     chat: &str,
+    message: &str,
     stage: Rect,
     actions: &mut Vec<Action>,
 ) {
@@ -354,8 +413,8 @@ fn still(
     // An item whose attachment is not here yet is shown for what it is, with
     // its thumbnail and a way to fetch it, instead of standing in for another
     // picture.
-    let Some(path) = preview.path() else {
-        pending(app, ui, item, preview.message(), chat, stage, actions);
+    let Some(path) = path else {
+        pending(app, ui, thumbnail, video, message, chat, stage, actions);
         return;
     };
     // Registered with the image cache like every other draw site, so a sweep
@@ -364,11 +423,8 @@ fn still(
     match image.load_for_size(ui.ctx(), canvas) {
         Ok(egui::load::TexturePoll::Ready { texture }) => {
             let size = display_size(texture.size, canvas, preview.is_fit(), preview.zoom());
-            if preview.is_fit()
-                && texture.size.x > 0.0
-                && let Some(state) = &mut app.image_preview
-            {
-                state.set_fit_scale(size.x / texture.size.x);
+            if preview.is_fit() && texture.size.x > 0.0 {
+                preview.set_fit_scale(size.x / texture.size.x);
             }
             egui::ScrollArea::both()
                 .id_salt("image-preview-scroll")
@@ -462,17 +518,20 @@ fn still(
 /// An item whose attachment has not been downloaded: its own thumbnail, the
 /// clip or picture it is, and the button that fetches it. Nothing here stands
 /// in for another file.
+#[allow(clippy::too_many_arguments)]
 fn pending(
     app: &App,
     ui: &mut egui::Ui,
-    item: Option<&ChatMedia>,
+    thumbnail: Option<&[u8]>,
+    video: bool,
     message: &str,
     chat: &str,
     stage: Rect,
     actions: &mut Vec<Action>,
 ) {
+    let palette = app.palette;
     let disc = Rect::from_center_size(stage.center(), Vec2::splat(220.0));
-    if let Some(bytes) = item.and_then(|item| item.thumbnail.as_deref()) {
+    if let Some(bytes) = thumbnail {
         egui::Image::new(thumbnail_uri(ui.ctx(), chat, message, bytes))
             .fit_to_exact_size(disc.size())
             .corner_radius(8.0)
@@ -480,14 +539,10 @@ fn pending(
     } else {
         theme::paint_icon(
             ui,
-            if item.is_some_and(|item| item.video) {
-                Icon::Video
-            } else {
-                Icon::Image
-            },
+            if video { Icon::Video } else { Icon::Image },
             disc,
             48.0,
-            egui::Color32::from_white_alpha(150),
+            palette.secondary,
         );
     }
     let button = Rect::from_center_size(
@@ -501,14 +556,13 @@ fn pending(
             Sense::click(),
         )
         .on_hover_cursor(egui::CursorIcon::PointingHand);
-    ui.painter()
-        .rect_filled(button, 6.0, egui::Color32::from_white_alpha(28));
+    ui.painter().rect_filled(button, 6.0, palette.surface_hover);
     ui.painter().text(
         button.center(),
         egui::Align2::CENTER_CENTER,
         crate::i18n::gettext(app.locale, "Download"),
         theme::regular(13.5),
-        egui::Color32::WHITE,
+        palette.text,
     );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
@@ -529,10 +583,12 @@ fn pending(
 
 /// A video plays in place, through the same player the chat bubble uses, so it
 /// carries sound and its position is the one the player reports.
+#[allow(clippy::too_many_arguments)]
 fn video(
     app: &mut App,
     ui: &mut egui::Ui,
-    item: &ChatMedia,
+    path: Option<&Path>,
+    thumbnail: Option<&[u8]>,
     stage: Rect,
     chat: &str,
     message: &str,
@@ -566,9 +622,8 @@ fn video(
             );
         }
         None => {
-            ui.painter()
-                .rect_filled(media, 8.0, egui::Color32::from_black_alpha(120));
-            if let Some(bytes) = item.thumbnail.as_deref() {
+            ui.painter().rect_filled(media, 8.0, palette.shadow);
+            if let Some(bytes) = thumbnail {
                 egui::Image::new(thumbnail_uri(ui.ctx(), chat, message, bytes))
                     .fit_to_exact_size(media.size())
                     .corner_radius(8.0)
@@ -581,7 +636,7 @@ fn video(
     let response = ui
         .interact(media, egui::Id::new("viewer-video"), Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
-    let label = if item.path.as_deref().is_some_and(Path::is_file) {
+    let label = if path.is_some() {
         crate::i18n::gettext(app.locale, "Play or pause the video")
     } else {
         crate::i18n::gettext(app.locale, "Download")
@@ -591,10 +646,10 @@ fn video(
     });
     theme::reveal_focus(&response);
     if response.clicked() {
-        match item.path.clone().filter(|path| path.is_file()) {
+        match path {
             Some(path) => actions.push(Action::PlayVideo {
                 message: message.to_owned(),
-                path,
+                path: path.to_owned(),
             }),
             None => actions.push(Action::Download {
                 card: None,
@@ -615,20 +670,22 @@ fn video(
             pos2(media.left(), media.bottom() - 7.0),
             vec2(media.width(), 3.0),
         );
-        ui.painter()
-            .rect_filled(bar, 1.5, egui::Color32::from_white_alpha(40));
+        ui.painter().rect_filled(bar, 1.5, palette.shadow);
         let fraction = status.map_or(0.0, |status| status.fraction());
         let played = Rect::from_min_size(bar.min, vec2(bar.width() * fraction, bar.height()));
         ui.painter().rect_filled(played, 1.5, palette.accent);
     } else {
         let disc = Rect::from_center_size(media.center(), Vec2::splat(64.0));
         ui.painter()
-            .circle_filled(disc.center(), 32.0, egui::Color32::from_black_alpha(140));
+            .circle_filled(disc.center(), 32.0, palette.shadow);
+        // A control painted over a picture, so it stays light on its own scrim
+        // in either theme, exactly as the bubble paints the same button.
         theme::paint_icon(ui, Icon::Play, disc, 28.0, egui::Color32::WHITE);
     }
 }
 
 /// The album along the bottom: a thumbnail per item, the current one ringed.
+#[allow(clippy::too_many_arguments)]
 fn strip_bar(
     app: &App,
     ui: &mut egui::Ui,
@@ -638,18 +695,22 @@ fn strip_bar(
     rect: Rect,
     actions: &mut Vec<Action>,
 ) {
-    ui.painter()
-        .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(120));
+    let palette = app.palette;
+    ui.painter().rect_filled(rect, 0.0, palette.shadow);
     let inner = rect.shrink2(vec2(STRIP_PAD, STRIP_PAD));
-    let pad = ((inner.width() - THUMB) * 0.5).max(0.0);
+    // Only the room the row cannot fill becomes padding. Adding half the width
+    // on each side whatever the row needs made the content wider than the
+    // strip, so the bar showed even for three items.
+    let row = album.len() as f32 * THUMB + album.len().saturating_sub(1) as f32 * STRIP_GAP;
+    let pad = ((inner.width() - row) * 0.5).max(0.0);
     let mut child = ui.new_child(UiBuilder::new().max_rect(inner));
     // The app style floats scrollbars over content. This strip needs the bar
     // under the thumbs, with a handle that is not the same colour as its rail.
     {
         let scroll = &mut child.spacing_mut().scroll;
         scroll.floating = false;
-        scroll.bar_width = 8.0;
-        scroll.bar_inner_margin = 4.0;
+        scroll.bar_width = 6.0;
+        scroll.bar_inner_margin = 3.0;
         scroll.bar_outer_margin = 2.0;
         scroll.foreground_color = true;
     }
@@ -677,7 +738,7 @@ fn strip_bar(
                         );
                     }
                     if ui.is_rect_visible(thumb_rect) {
-                        thumb(ui, &app.palette, chat, item, thumb_rect, item.id == current);
+                        thumb(ui, &palette, chat, item, thumb_rect, item.id == current);
                     }
                     // Custom-painted and clickable, so it needs the same focus
                     // reveal and label every other custom control registers.
@@ -720,17 +781,25 @@ fn thumb(
     rect: Rect,
     current: bool,
 ) {
-    ui.painter()
-        .rect_filled(rect, 6.0, egui::Color32::from_white_alpha(16));
-    if let Some(path) = item.path.as_deref().filter(|path| path.is_file()) {
-        egui::Image::new(crate::util::image_uri(path))
-            .fit_to_exact_size(rect.size())
-            .corner_radius(6.0)
-            .paint_at(ui, rect);
-    } else if let Some(bytes) = item.thumbnail.as_deref() {
+    ui.painter().rect_filled(rect, 6.0, palette.surface_hover);
+    // The stored thumbnail first: it is the 56 px the strip wants, and a
+    // downloaded file is not an image, so decoding it here would show a load
+    // error for every clip. The file itself is only a fallback, and through
+    // `file_image` so egui releases its texture.
+    if let Some(bytes) = item.thumbnail.as_deref() {
         // A message id is only unique inside its chat, and the image cache
         // keeps the first bytes for a URI, so the chat has to be part of it.
         egui::Image::new(thumbnail_uri(ui.ctx(), chat, &item.id, bytes))
+            .fit_to_exact_size(rect.size())
+            .corner_radius(6.0)
+            .paint_at(ui, rect);
+    } else if let Some(path) = item
+        .path
+        .as_deref()
+        .filter(|_| !item.video)
+        .filter(|path| path.is_file())
+    {
+        crate::ui::widgets::file_image(ui, path)
             .fit_to_exact_size(rect.size())
             .corner_radius(6.0)
             .paint_at(ui, rect);
@@ -740,13 +809,14 @@ fn thumb(
             if item.video { Icon::Video } else { Icon::Image },
             rect,
             22.0,
-            egui::Color32::from_white_alpha(180),
+            palette.secondary,
         );
     }
     if item.video {
         let disc = Rect::from_center_size(rect.center(), Vec2::splat(18.0));
         ui.painter()
-            .circle_filled(disc.center(), 9.0, egui::Color32::from_black_alpha(140));
+            .circle_filled(disc.center(), 9.0, palette.shadow);
+        // Over the thumbnail, so it stays light in either theme.
         theme::paint_icon(ui, Icon::Play, disc, 12.0, egui::Color32::WHITE);
     }
     if current {
@@ -766,18 +836,20 @@ fn chevrons(
     stage: Rect,
     actions: &mut Vec<Action>,
 ) {
+    // The tooltip names the key that steps: the arrows stay with the modal, so
+    // "Left" and "Right" were describing a shortcut nobody had.
     for (left, icon, step, hint) in [
         (
             true,
             Icon::ChevronLeft,
             -1i8,
-            crate::i18n::gettext(app.locale, "Previous (Left)").as_ref(),
+            crate::i18n::gettext(app.locale, "Previous (,)").as_ref(),
         ),
         (
             false,
             Icon::ChevronRight,
             1i8,
-            crate::i18n::gettext(app.locale, "Next (Right)").as_ref(),
+            crate::i18n::gettext(app.locale, "Next (.)").as_ref(),
         ),
     ] {
         let x = if left {
@@ -795,9 +867,9 @@ fn chevrons(
             &mut child,
             icon,
             36.0,
-            egui::Color32::from_black_alpha(120),
+            palette.shadow,
             palette.surface_hover,
-            egui::Color32::WHITE,
+            palette.text,
             hint,
         )
         .clicked()
@@ -874,5 +946,21 @@ mod tests {
             vec2(800.0, 450.0)
         );
         assert_eq!(fit(vec2(0.0, 0.0), vec2(800.0, 600.0)), vec2(800.0, 600.0));
+    }
+
+    /// The row of thumbnails never asks for more room than it has, so the strip
+    /// keeps its bar for an album that overflows and not for one that fits.
+    #[test]
+    fn the_strip_pads_only_the_room_the_row_does_not_use() {
+        let inner = Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 70.0));
+        let row = |count: usize| count as f32 * THUMB + count.saturating_sub(1) as f32 * STRIP_GAP;
+        let pad = |count: usize| ((inner.width() - row(count)) * 0.5).max(0.0);
+        // Three thumbnails fit, so the padding centres them and the content is
+        // exactly the width of the strip.
+        assert_eq!(row(3) + 2.0 * pad(3), inner.width());
+        // More than the strip holds: no padding at all, and the bar appears
+        // because the row is wider than the strip.
+        assert_eq!(pad(40), 0.0);
+        assert!(row(40) > inner.width());
     }
 }

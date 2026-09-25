@@ -1197,10 +1197,10 @@ msgstr "Открыть извне"
 msgid "Play or pause the video"
 msgstr "Воспроизвести или приостановить видео"
 
-#: src/ui/image_preview.rs:698
-msgid "Previous (Left)"
-msgstr "Предыдущее (Влево)"
+#: src/ui/image_preview.rs:848
+msgid "Previous (,)"
+msgstr "Предыдущее (,)"
 
-#: src/ui/image_preview.rs:704
-msgid "Next (Right)"
-msgstr "Следующее (Вправо)"
+#: src/ui/image_preview.rs:854
+msgid "Next (.)"
+msgstr "Следующее (.)"
