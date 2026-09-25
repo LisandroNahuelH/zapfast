@@ -209,6 +209,11 @@ pub fn apply(ctx: &egui::Context, palette: &Palette) {
         egui::Visuals::light()
     };
     visuals.dark_mode = palette.dark;
+    // Glyph coverage as the rasterizer produced it, in both themes. egui's
+    // dark default (2c - c²) thickens light text on dark backgrounds, while
+    // the desktop (FreeType and cairo, GTK, browsers) draws coverage as is;
+    // side by side ZapFast's text looked heavier and blurrier than the rest.
+    visuals.text_options.color_transfer_function = egui::epaint::FontColorTransferFunction::Off;
     visuals.panel_fill = palette.panel;
     visuals.window_fill = palette.overlay;
     visuals.extreme_bg_color = palette.surface;
@@ -1013,6 +1018,23 @@ pub fn titlebar_inset(ctx: &egui::Context) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_coverage_is_linear_in_both_themes() {
+        for palette in [Palette::dark(), Palette::light()] {
+            let ctx = egui::Context::default();
+            apply(&ctx, &palette);
+            assert_eq!(
+                ctx.global_style()
+                    .visuals
+                    .text_options
+                    .color_transfer_function,
+                egui::epaint::FontColorTransferFunction::Off,
+                "dark: {}",
+                palette.dark
+            );
+        }
+    }
 
     #[test]
     fn inter_figures_are_tabular() {
