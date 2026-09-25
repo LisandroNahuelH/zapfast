@@ -8399,27 +8399,25 @@ mod tests {
         );
         assert_eq!(extension_for("audio/ogg; codecs=opus", None), "ogg");
         assert_eq!(extension_for("application/x-unknown", None), "x-unknown");
-        // The two clip types the album accepts fell through to their MIME
-        // subtype, so the viewer refused the file the download had just named.
-        assert_eq!(extension_for("video/quicktime", None), "mov");
-        assert_eq!(extension_for("video/x-matroska", None), "mkv");
     }
 
     /// The album lists a clip by its declared type and the viewer opens it by
     /// its name, so the name a download writes has to be one the viewer reads
-    /// as a clip. A `video/quicktime` or `video/x-matroska` attachment with no
-    /// file name was saved as `.quicktime` or `.x-matroska`, which the viewer
-    /// did not recognize.
+    /// as a clip, and a real extension rather than a MIME subtype. A
+    /// `video/quicktime` or `video/x-matroska` attachment with no file name was
+    /// saved as `.quicktime` or `.x-matroska`, which the viewer did not
+    /// recognize.
     #[test]
     fn every_clip_type_is_saved_under_a_name_the_viewer_reads() {
-        for mime in [
-            "video/mp4",
-            "video/quicktime",
-            "video/webm",
-            "video/x-matroska",
-            "video/3gpp",
+        for (mime, extension) in [
+            ("video/mp4", "mp4"),
+            ("video/quicktime", "mov"),
+            ("video/webm", "webm"),
+            ("video/x-matroska", "mkv"),
+            ("video/3gpp", "3gp"),
         ] {
-            let name = format!("chat-ABC.{}", extension_for(mime, None));
+            assert_eq!(extension_for(mime, None), extension, "{mime}");
+            let name = format!("chat-ABC.{extension}");
             assert_eq!(
                 crate::model::gallery_kind_for_path(std::path::Path::new(&name)),
                 Some(crate::model::GalleryKind::Video),
