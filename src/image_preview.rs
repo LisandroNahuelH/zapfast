@@ -159,6 +159,16 @@ impl PreviewState {
         album.iter().position(|item| item.id == self.message)
     }
 
+    /// Whether the viewer is showing a clip. The album item says so when the
+    /// album holds this message, and the file's own name otherwise: the same
+    /// rule the viewer draws with, so a clip is played and never handed to the
+    /// image decoder, and the actions that would decode it are left out.
+    pub fn shows_video(&self, album: &[crate::archive::ChatMedia]) -> bool {
+        self.position(album)
+            .and_then(|index| album.get(index))
+            .map_or_else(|| self.path().is_some_and(is_video), |item| item.video)
+    }
+
     /// Points the viewer at another item, back to fitting the window.
     pub fn show_item(&mut self, path: Option<PathBuf>, message: String) {
         self.path = path;

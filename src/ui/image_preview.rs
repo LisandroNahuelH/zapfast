@@ -40,10 +40,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let thumbnail = item.and_then(|item| item.thumbnail.as_deref());
     // With no album item yet, the file's own name still says whether this is a
     // clip, so a clip is never handed to the image decoder.
-    let clip = item.map_or_else(
-        || preview.path().is_some_and(crate::image_preview::is_video),
-        |item| item.video,
-    );
+    let clip = preview.shows_video(&album);
     let strip = album.len() > 1;
     let mut actions: Vec<Action> = Vec::new();
 
@@ -76,7 +73,15 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
             let mut head = ui.new_child(UiBuilder::new().max_rect(header_rect));
             head.set_clip_rect(header_rect);
-            header(app, &mut head, &preview, item, chat.as_str(), &mut actions);
+            header(
+                app,
+                &mut head,
+                &preview,
+                item,
+                chat.as_str(),
+                clip,
+                &mut actions,
+            );
 
             let mut body = ui.new_child(UiBuilder::new().max_rect(stage));
             body.set_clip_rect(stage);
@@ -156,6 +161,7 @@ fn header(
     preview: &PreviewState,
     item: Option<&ChatMedia>,
     chat: &str,
+    clip: bool,
     actions: &mut Vec<Action>,
 ) {
     let palette = app.palette;
@@ -215,15 +221,19 @@ fn header(
                     crate::i18n::gettext(app.locale, "Copy image"),
                     super::keys::label("Ctrl+C"),
                 );
-                if theme::icon_button(
-                    ui,
-                    Icon::Copy,
-                    18.0,
-                    palette.secondary,
-                    palette.text,
-                    &copy_hint,
-                )
-                .clicked()
+                // A clip is played, never decoded as an image, so copying it
+                // could only fail: the action is left out here, and the
+                // shortcut is gated on the same rule in `keys`.
+                if !clip
+                    && theme::icon_button(
+                        ui,
+                        Icon::Copy,
+                        18.0,
+                        palette.secondary,
+                        palette.text,
+                        &copy_hint,
+                    )
+                    .clicked()
                 {
                     actions.push(Action::CopyImage(path.to_owned()));
                 }

@@ -226,9 +226,13 @@ fn preview_keys(app: &mut App, ctx: &egui::Context) {
         }
         let copy_shortcut = input.consume_key(Modifiers::COMMAND, Key::C)
             || input.consume_key(Modifiers::CTRL, Key::C);
+        // The header leaves the copy action out while a clip is on screen, so
+        // the shortcut does the same: copying a clip would decode a video as an
+        // image and fail.
         if copy_shortcut
             && let Some(preview) = &app.image_preview
             && let Some(path) = preview.path()
+            && !preview.shows_video(&app.viewer_media)
         {
             actions.push(Action::CopyImage(path.to_owned()));
         }
