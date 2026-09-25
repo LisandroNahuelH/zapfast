@@ -1672,6 +1672,13 @@ impl Worker {
 
     async fn stop_bot(&mut self) {
         self.client = None;
+        // A batch still going belongs to the session that was sending it, and
+        // every send is its own task: one can report its tick after this
+        // returns, up to the shutdown timeout. With the queue dropped the ack
+        // finds nothing to advance, instead of resuming the batch through the
+        // session that comes next. Message ids are fresh per send, so an ack
+        // can never match a job queued after the stop.
+        self.forward_queue = None;
         if let Some(handle) = self.handle.take()
             && tokio::time::timeout(Duration::from_secs(5), handle.shutdown())
                 .await
@@ -9860,6 +9867,44 @@ mod receipt_tests {
         assert!(matches!(queue.ack("d"), ForwardStep::Finished));
         assert!(queue.current.is_none());
         assert!(queue.remaining.is_empty());
+    }
+
+    /// A batch belongs to the session that was sending it. The proxy-change
+    /// reconnect stops the bot and starts another, and every send is its own
+    /// task, so one can report its tick after the stop, inside the window the
+    /// connection teardown waits for. Dropping the queue with the session is
+    /// what keeps that tick from resuming the batch through the one after it.
+    #[tokio::test]
+    async fn stopping_the_bot_drops_a_running_forward_batch() {
+        let (mut worker, _events, _inbox, _wa) = worker();
+        let to_chat = PEER.to_owned();
+        let jid = Jid::pn(PEER);
+        let mut queue = ForwardQueue::new();
+        let running = queue
+            .push(vec![
+                (
+                    "a".to_owned(),
+                    (to_chat.clone(), jid.clone(), wa::Message::default(), None),
+                ),
+                (
+                    "b".to_owned(),
+                    (to_chat.clone(), jid.clone(), wa::Message::default(), None),
+                ),
+            ])
+            .expect("the first job of the batch");
+        assert_eq!(running.0, "a");
+        worker.forward_queue = Some(queue);
+
+        worker.stop_bot().await;
+
+        assert!(
+            worker.forward_queue.is_none(),
+            "the batch goes with the session that was sending it"
+        );
+        // The stale tick therefore has nothing to advance, whichever job it
+        // names: the queue it belonged to is gone.
+        worker.advance_serial_forward("a");
+        assert!(worker.forward_queue.is_none());
     }
 
     pub(super) fn worker() -> (
