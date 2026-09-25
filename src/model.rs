@@ -741,6 +741,12 @@ impl Content {
         match self {
             Self::Image { .. } => Some(GalleryKind::Photo),
             Self::Video { gif: false, .. } => Some(GalleryKind::Video),
+            // WhatsApp leaves the type to the sender, so a photo or a clip
+            // sent as a file arrives as a document. It joins the album all the
+            // same, judged by its type and then by its extension.
+            Self::Document {
+                media, file_name, ..
+            } => gallery_mime(&media.mime).or_else(|| gallery_file(file_name)),
             _ => None,
         }
     }
@@ -786,6 +792,27 @@ impl Content {
 /// The viewer kind of a file on disk, from its name alone.
 pub(crate) fn gallery_kind_for_path(path: &Path) -> Option<GalleryKind> {
     gallery_file(&path.file_name()?.to_string_lossy())
+}
+
+/// The viewer kind of an attachment, from its declared type. A GIF is an
+/// inline animation, not a clip, so it is left out, exactly as in
+/// [`gallery_file`].
+fn gallery_mime(mime: &str) -> Option<GalleryKind> {
+    let mime = mime
+        .split(';')
+        .next()
+        .unwrap_or(mime)
+        .trim()
+        .to_ascii_lowercase();
+    match mime.as_str() {
+        "image/jpeg" | "image/png" | "image/webp" | "image/bmp" | "image/tiff" => {
+            Some(GalleryKind::Photo)
+        }
+        "video/mp4" | "video/quicktime" | "video/webm" | "video/x-matroska" | "video/3gpp" => {
+            Some(GalleryKind::Video)
+        }
+        _ => None,
+    }
 }
 
 /// The viewer kind of a file, from its name. A GIF is an inline animation, not
@@ -1815,6 +1842,52 @@ mod tests {
             path: None,
             state: MediaState::Idle,
         }
+    }
+
+    /// WhatsApp leaves the type to the sender, so a photo or a clip attached
+    /// as a file arrives as a document. It joins the album all the same,
+    /// judged by its type and then by its extension.
+    #[test]
+    fn a_document_that_is_a_picture_or_a_clip_joins_the_album() {
+        use super::{Content, GalleryKind, Media, MediaState};
+        let document = |mime: &str, file_name: &str| Content::Document {
+            media: Media {
+                mime: mime.into(),
+                size: 1,
+                width: None,
+                height: None,
+                path: None,
+                state: MediaState::Idle,
+            },
+            file_name: file_name.into(),
+            caption: None,
+            pages: None,
+        };
+        // By its type first, parameters and all.
+        assert_eq!(
+            document("image/jpeg", "no-extension").gallery_kind(),
+            Some(GalleryKind::Photo)
+        );
+        assert_eq!(
+            document("video/mp4; codecs=avc1", "clip").gallery_kind(),
+            Some(GalleryKind::Video)
+        );
+        // Then by its extension, when the type says nothing.
+        assert_eq!(
+            document("application/octet-stream", "holiday.JPG").gallery_kind(),
+            Some(GalleryKind::Photo)
+        );
+        assert_eq!(
+            document("application/octet-stream", "clip.mkv").gallery_kind(),
+            Some(GalleryKind::Video)
+        );
+        // A document that is neither stays out of the album.
+        assert_eq!(
+            document("application/pdf", "notes.pdf").gallery_kind(),
+            None
+        );
+        // A GIF plays inline as an animation, so it is not a clip here.
+        assert_eq!(document("image/gif", "loop.gif").gallery_kind(), None);
     }
 
     #[test]

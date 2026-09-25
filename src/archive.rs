@@ -1348,7 +1348,7 @@ impl Archive {
         let mut statement = self.connection.prepare(
             "SELECT id, timestamp, content, thumbnail FROM messages
              WHERE chat = ?1 AND json_valid(content)
-             AND json_extract(content, '$.kind') IN ('image', 'video')
+             AND json_extract(content, '$.kind') IN ('image', 'video', 'document')
              ORDER BY timestamp ASC, rowid ASC",
         )?;
         let rows = statement.query_map(params![chat], |row| {
@@ -1367,7 +1367,14 @@ impl Archive {
             let Some(kind) = content.gallery_kind() else {
                 continue;
             };
-            let path = content.media().and_then(|media| media.path.clone());
+            // A recorded path whose file is gone is not a downloaded
+            // attachment: the viewer would show a dead frame and offer Save
+            // and Play instead of Download. Reporting it as missing lets the
+            // item be fetched again, the same rule the message menu applies.
+            let path = content
+                .media()
+                .and_then(|media| media.path.clone())
+                .filter(|path| path.is_file());
             list.push(ChatMedia {
                 id,
                 timestamp,
@@ -3272,6 +3279,58 @@ mod media_path_tests {
             forwarded: false,
             thumbnail: None,
         }
+    }
+
+    /// A photo the sender attached as a file rather than as a picture.
+    fn document_picture(id: &str) -> Message {
+        let mut message = picture(id);
+        message.content = Content::Document {
+            media: Media {
+                mime: "image/jpeg".into(),
+                size: 10,
+                width: None,
+                height: None,
+                path: None,
+                state: MediaState::Idle,
+            },
+            file_name: "photo.jpg".into(),
+            caption: None,
+            pages: None,
+        };
+        message
+    }
+
+    /// A recorded path whose file is gone is not a downloaded attachment: the
+    /// viewer would draw a dead frame and offer Save and Play instead of
+    /// Download, so the album reports it as missing.
+    #[test]
+    fn the_album_keeps_a_document_picture_and_forgets_a_missing_file() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("photo.jpg");
+        std::fs::write(&file, b"jpeg").unwrap();
+
+        let archive = Archive::in_memory().expect("opens");
+        archive.ensure_chat("a@s.whatsapp.net", "A").expect("chat");
+        archive
+            .insert_message(&picture("p1"), None)
+            .expect("inserted");
+        archive
+            .insert_message(&document_picture("d1"), None)
+            .expect("inserted");
+        archive
+            .set_media_path("a@s.whatsapp.net", "p1", &file)
+            .expect("filed");
+        archive
+            .set_media_path("a@s.whatsapp.net", "d1", Path::new("/gone/photo.jpg"))
+            .expect("filed");
+
+        let album = archive.gallery_media("a@s.whatsapp.net").expect("album");
+        assert_eq!(album.len(), 2, "a document picture joins the album");
+        assert_eq!(album[0].path.as_deref(), Some(file.as_path()));
+        assert_eq!(
+            album[1].path, None,
+            "the file that is gone is not a downloaded attachment"
+        );
     }
 
     #[test]
