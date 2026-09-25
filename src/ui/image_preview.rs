@@ -381,7 +381,13 @@ fn header(
                 )
                 .clicked()
                 {
+                    // Closing leaves the chat where it was, so the message the
+                    // viewer was showing is brought into view. `ScrollTo` also
+                    // pages older archive history toward it when it is not in
+                    // the transcript yet, which is the usual case after
+                    // stepping back through the album.
                     actions.push(Action::CloseImagePreview);
+                    actions.push(Action::ScrollTo(message.clone()));
                 }
                 ui.add_space(8.0);
             }
@@ -742,14 +748,15 @@ fn strip_bar(
                     }
                     // Custom-painted and clickable, so it needs the same focus
                     // reveal and label every other custom control registers.
-                    let label = format!(
-                        "{} {}",
-                        crate::i18n::gettext(
-                            app.locale,
-                            if item.video { "Video" } else { "Photo" },
-                        ),
-                        index + 1
-                    );
+                    // The kind is looked up on its own so both literals stay
+                    // direct arguments of `gettext` and the extractor emits
+                    // them; picking between them inside the call hides both.
+                    let kind = if item.video {
+                        crate::i18n::gettext(app.locale, "Video")
+                    } else {
+                        crate::i18n::gettext(app.locale, "Photo")
+                    };
+                    let label = format!("{} {}", kind, index + 1);
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(
                             egui::WidgetType::Button,

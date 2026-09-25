@@ -4332,6 +4332,57 @@ mod tests {
         assert_eq!(app.composer, "draft");
     }
 
+    /// "Show in the chat" closes the viewer and brings the message it was
+    /// showing into view. Closing alone left the chat where it was, so after
+    /// stepping back through the album the message the button names stayed out
+    /// of sight.
+    #[test]
+    fn showing_the_previewed_message_in_the_chat_scrolls_to_it() {
+        use egui::accesskit::Role;
+        let mut app = app();
+        // The demo page that opens the viewer over the sample chat's album:
+        // the header's message actions only exist when the viewer has an item.
+        apply_flags(&mut app, Some("preview"));
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        app.attach(&ctx);
+        render(&mut app, &ctx);
+        assert!(app.image_preview.is_some(), "the viewer is open");
+        assert!(
+            !app.viewer_media.is_empty(),
+            "the album the actions belong to is loaded"
+        );
+
+        let at = accessible_nodes(&mut app, &ctx, Vec::new())
+            .into_iter()
+            .find(|(label, role, _)| label == "Show in the chat" && *role == Role::Button)
+            .map(|(_, _, centre)| centre)
+            .expect("the viewer offers Show in the chat");
+        let press = |pressed| egui::Event::PointerButton {
+            pos: at,
+            pressed,
+            button: egui::PointerButton::Primary,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame_with(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerMoved(at), press(true)],
+        );
+        frame_with(&mut app, &ctx, vec![press(false)]);
+        render(&mut app, &ctx);
+
+        assert!(app.image_preview.is_none(), "the viewer closes");
+        // The anchor itself is consumed by the frame that scrolls to it, so
+        // the highlight is what still names the message here.
+        let highlight = app
+            .jump_highlight
+            .as_ref()
+            .expect("the chat is brought to the message the viewer was showing");
+        assert_eq!(highlight.message, "ada-photo");
+        assert_eq!(highlight.chat, crate::demo::SAMPLES[0].id);
+    }
+
     /// Ctrl++ zooms the picture, not the whole interface, including when the
     /// layout needs Shift to type the plus.
     #[test]
