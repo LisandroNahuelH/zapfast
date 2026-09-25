@@ -3405,6 +3405,23 @@ fn quick_reactions<'a>(message: &'a Message, preferred: &'a [(String, u32)]) -> 
     list
 }
 
+/// The file the menu's viewer item would open, when the message has one to
+/// show.
+///
+/// The album decides what belongs in the viewer: a sticker, a GIF or a card's
+/// image is not in it, so none of them offers the item. The recorded path has
+/// to still be a file: a path the archive kept after the file was deleted or
+/// moved elsewhere would open a viewer with nothing to show, and the click
+/// would fall back to opening a file that is not there.
+fn viewer_file(message: &Message) -> Option<&Path> {
+    message.content.gallery_kind()?;
+    message
+        .content
+        .media()
+        .and_then(|media| media.path.as_deref())
+        .filter(|path| crate::image_preview::can_view(path) && path.is_file())
+}
+
 fn context_menu(ui: &mut egui::Ui, view: &View<'_>, message: &Message, actions: &mut Vec<Action>) {
     let palette = view.palette;
     let chat = &view.chat.id;
@@ -3500,16 +3517,8 @@ fn context_menu(ui: &mut egui::Ui, view: &View<'_>, message: &Message, actions: 
     }
     // A photo opens the viewer on its own click; a clip plays in its bubble
     // there, so this is how the album is reached from a chat that holds no
-    // pictures. Both conditions matter: the album decides what belongs in it,
-    // and a sticker, a GIF or a card's image is not in it, so none of them
-    // offers this; the file has to be here, because the viewer shows what the
-    // message is rather than a stand-in.
-    let in_the_album = message.content.gallery_kind().is_some();
-    if let Some(path) = message
-        .content
-        .media()
-        .and_then(|media| media.path.as_deref())
-        .filter(|path| in_the_album && crate::image_preview::can_view(path))
+    // pictures.
+    if let Some(path) = viewer_file(message)
         && widgets::menu_item(ui, &palette, Some(Icon::Maximize), "Open in the viewer")
     {
         actions.push(Action::PreviewImage {
@@ -6206,6 +6215,71 @@ mod tests {
             path: None,
             state: MediaState::Idle,
         }
+    }
+
+    fn message(content: Content) -> Message {
+        Message {
+            id: "m1".into(),
+            chat: "peer@s.whatsapp.net".into(),
+            sender: "me".into(),
+            sender_name: None,
+            from_me: true,
+            timestamp: 0,
+            content,
+            status: Delivery::None,
+            delivered_at: None,
+            read_at: None,
+            quoted: None,
+            reactions: Vec::new(),
+            edited: false,
+            mentions: Vec::new(),
+            forwarded: false,
+            thumbnail: None,
+        }
+    }
+
+    /// The menu offers the viewer for a message the album takes and a file
+    /// that is still on disk. A recorded path whose file was deleted elsewhere
+    /// offers nothing, or the click would fall back to opening a file that is
+    /// not there.
+    #[test]
+    fn the_viewer_item_needs_a_file_that_is_still_here() {
+        let dir = tempfile::tempdir().unwrap();
+        let picture = |path: &Path| {
+            message(Content::Image {
+                media: Media {
+                    path: Some(path.to_path_buf()),
+                    ..media(None, None)
+                },
+                caption: None,
+            })
+        };
+
+        let photo = dir.path().join("photo.png");
+        std::fs::write(&photo, b"jpeg").unwrap();
+        let downloaded = picture(&photo);
+        assert_eq!(viewer_file(&downloaded), Some(photo.as_path()));
+
+        let deleted = dir.path().join("deleted.png");
+        let gone = picture(&deleted);
+        assert_eq!(
+            viewer_file(&gone),
+            None,
+            "a path with no file offers nothing"
+        );
+
+        // A GIF plays inline as an animation, so the album leaves it out.
+        let animation = dir.path().join("animation.gif");
+        std::fs::write(&animation, b"gif").unwrap();
+        let inline = picture(&animation);
+        assert_eq!(viewer_file(&inline), None);
+
+        // Neither does a message whose file was never downloaded.
+        let pending = message(Content::Image {
+            media: media(None, None),
+            caption: None,
+        });
+        assert_eq!(viewer_file(&pending), None);
     }
 
     #[test]
