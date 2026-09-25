@@ -1,8 +1,11 @@
 //! User preferences stored in JSON.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+
+use crate::i18n::{Locale, gettext};
 
 /// Verifying the locked-chat code costs about 20 ms, paid once per distinct
 /// typed string. ponytail: fixed cost, revisit if it lags the search field.
@@ -67,22 +70,27 @@ impl HistoryPrefetch {
     /// The choices, in the order the picker shows them.
     pub const ALL: [HistoryPrefetch; 3] = [Self::Off, Self::Focused, Self::RecentAndPinned];
 
-    pub fn label(self) -> &'static str {
+    /// The choice's name, in `locale`.
+    pub fn label(self, locale: Locale) -> Cow<'static, str> {
         match self {
-            Self::Off => "Off",
-            Self::Focused => "Current chat",
-            Self::RecentAndPinned => "Recent and pinned",
+            Self::Off => gettext(locale, "Off"),
+            Self::Focused => gettext(locale, "Current chat"),
+            Self::RecentAndPinned => gettext(locale, "Recent and pinned"),
         }
     }
 
     /// What the choice does, shown while the pointer rests on it.
-    pub fn hint(self) -> &'static str {
+    pub fn hint(self, locale: Locale) -> Cow<'static, str> {
         match self {
-            Self::Off => "Do not fetch older messages in the background.",
-            Self::Focused => "Fetch older messages and files for the open chat only.",
-            Self::RecentAndPinned => {
-                "Fetch older history for pinned chats and the ten most recent ones."
-            }
+            Self::Off => gettext(locale, "Do not fetch older messages in the background."),
+            Self::Focused => gettext(
+                locale,
+                "Fetch older messages and files for the open chat only.",
+            ),
+            Self::RecentAndPinned => gettext(
+                locale,
+                "Fetch older history for pinned chats and the ten most recent ones.",
+            ),
         }
     }
 }
@@ -718,11 +726,19 @@ mod tests {
 
     #[test]
     fn history_prefetch_names_its_modes_and_what_they_fetch() {
+        let english = Locale::English;
         assert_eq!(HistoryPrefetch::ALL.len(), 3);
-        assert_eq!(HistoryPrefetch::Focused.label(), "Current chat");
-        assert!(HistoryPrefetch::Off.hint().contains("Do not fetch"));
-        assert!(HistoryPrefetch::Focused.hint().contains("open chat"));
-        assert!(HistoryPrefetch::RecentAndPinned.hint().contains("pinned"));
+        assert_eq!(
+            HistoryPrefetch::Focused.label(english).as_ref(),
+            "Current chat"
+        );
+        assert!(HistoryPrefetch::Off.hint(english).contains("Do not fetch"));
+        assert!(HistoryPrefetch::Focused.hint(english).contains("open chat"));
+        assert!(
+            HistoryPrefetch::RecentAndPinned
+                .hint(english)
+                .contains("pinned")
+        );
     }
 
     #[test]

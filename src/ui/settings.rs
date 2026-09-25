@@ -1383,15 +1383,16 @@ fn sound_control(ui: &mut egui::Ui, app: &mut App, mention: bool) {
 /// itself while the pointer rests on it.
 fn history_prefetch_control(ui: &mut egui::Ui, app: &mut App) {
     use crate::settings::HistoryPrefetch;
+    let locale = app.locale;
     let current = app.settings.history_prefetch;
     egui::ComboBox::from_id_salt("history_prefetch")
-        .selected_text(current.label())
+        .selected_text(current.label(locale))
         .width(200.0_f32.min(ui.available_width()))
         .show_ui(ui, |ui| {
             for choice in HistoryPrefetch::ALL {
                 if ui
-                    .selectable_label(current == choice, choice.label())
-                    .on_hover_text(choice.hint())
+                    .selectable_label(current == choice, choice.label(locale))
+                    .on_hover_text(choice.hint(locale))
                     .clicked()
                 {
                     app.actions.push(Action::SetHistoryPrefetch(choice));
@@ -1399,7 +1400,7 @@ fn history_prefetch_control(ui: &mut egui::Ui, app: &mut App) {
             }
         })
         .response
-        .on_hover_text(current.hint());
+        .on_hover_text(current.hint(locale));
 }
 
 /// One account privacy category's picker: what the phone holds, and the

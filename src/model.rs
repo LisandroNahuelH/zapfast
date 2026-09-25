@@ -1857,6 +1857,36 @@ mod tests {
         }
     }
 
+    /// The delay table and the window the notice follows. A manual reset opens
+    /// a fresh window and is covered by the archive tests; these two are the
+    /// pure functions behind both.
+    #[test]
+    fn the_retry_delay_grows_then_holds_and_the_window_closes_at_thirty_days() {
+        use super::{
+            MEDIA_NO_LONGER, MEDIA_RETRY_TTL_SECS, MEDIA_STILL_TRYING, media_retry_delay_secs,
+            media_retry_notice,
+        };
+        assert_eq!(media_retry_delay_secs(0), 30);
+        assert_eq!(media_retry_delay_secs(1), 30);
+        assert_eq!(media_retry_delay_secs(2), 60);
+        assert_eq!(media_retry_delay_secs(3), 120);
+        assert_eq!(media_retry_delay_secs(4), 240);
+        assert_eq!(media_retry_delay_secs(5), 480);
+        assert_eq!(media_retry_delay_secs(6), 900);
+        assert_eq!(media_retry_delay_secs(7), 3600);
+        assert_eq!(
+            media_retry_delay_secs(99),
+            3600,
+            "an hour is as far apart as the attempts get"
+        );
+        // The notice follows the window, not the number of attempts.
+        assert_eq!(
+            media_retry_notice(0, MEDIA_RETRY_TTL_SECS - 1),
+            MEDIA_STILL_TRYING
+        );
+        assert_eq!(media_retry_notice(0, MEDIA_RETRY_TTL_SECS), MEDIA_NO_LONGER);
+    }
+
     #[test]
     fn attachment_download_limit_includes_the_boundary() {
         let mut item = media();

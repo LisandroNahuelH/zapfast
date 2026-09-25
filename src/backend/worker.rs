@@ -3999,6 +3999,13 @@ impl Worker {
     /// Returns whether the request was sent.
     fn fetch_older(&mut self, chat: ChatId, background: bool) -> bool {
         if self.pending_older.contains_key(&chat) {
+            // A request for this chat is already in flight. A manual one
+            // promotes it: the reader is waiting for the answer now, so the
+            // prefetch's silence is dropped and the completion reaches the app
+            // instead of leaving it in the fetching state for good.
+            if !background {
+                self.prefetch_older.remove(&chat);
+            }
             return false;
         }
         if background && !self.pending_older.is_empty() {
@@ -4073,6 +4080,14 @@ impl Worker {
                     Ok(items) => {
                         for (id, card) in items {
                             if self.prefetch.skip_media(chat, &id, card) {
+                                continue;
+                            }
+                            if self.downloads.contains(&(chat.clone(), id.clone(), card)) {
+                                // The reader's own download of this attachment
+                                // is already running. Marking it as the
+                                // prefetch's would make its completion read as
+                                // a background one, which releases the slot
+                                // without opening a fresh retry window.
                                 continue;
                             }
                             self.prefetch.start_media(chat.clone(), id.clone(), card);

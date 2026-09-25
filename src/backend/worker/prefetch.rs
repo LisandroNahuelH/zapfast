@@ -71,9 +71,13 @@ impl State {
     pub fn reset_session(&mut self) {
         let mode = self.mode;
         let focused = self.focused.clone();
+        let auto_download = self.auto_download;
         *self = Self::default();
         self.mode = mode;
         self.focused = focused;
+        // The setting is the reader's, not the session's: a relink must not
+        // silently stop fetching files for a mode that is still configured.
+        self.auto_download = auto_download;
     }
 
     pub fn next_history(
@@ -350,6 +354,24 @@ mod tests {
         assert_eq!(
             state.next_history(now, false, &["a".into()]).as_deref(),
             Some("a")
+        );
+    }
+
+    /// A relink is not a settings change. `reset_session` keeps the mode, so it
+    /// has to keep the reader's automatic-download choice with it: otherwise a
+    /// mode that is still configured quietly stops fetching files after a
+    /// logout and nothing syncs the switch back.
+    #[test]
+    fn a_relink_keeps_the_auto_download_choice() {
+        let mut state = State::default();
+        state.configure(HistoryPrefetch::RecentAndPinned, Some("a".into()), true);
+        state.reset_session();
+        assert_eq!(state.mode, HistoryPrefetch::RecentAndPinned);
+        assert_eq!(state.focused.as_deref(), Some("a"));
+        assert!(state.auto_download);
+        assert!(
+            state.next_media_ready(Instant::now()),
+            "the configured mode still fetches files"
         );
     }
 
