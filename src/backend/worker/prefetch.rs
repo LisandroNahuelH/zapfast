@@ -18,7 +18,10 @@ pub(super) struct State {
     history_failures: u32,
     history_chat: Option<ChatId>,
     media_due: Option<Instant>,
-    media: Option<(ChatId, String)>,
+    /// The attachment being fetched, with the card that addresses it: a
+    /// carousel card is a file of its own, so the message id alone would treat
+    /// one card's completion as another's.
+    media: Option<(ChatId, String, Option<usize>)>,
 }
 
 impl Default for State {
@@ -116,22 +119,32 @@ impl State {
             && self.media_due.is_none_or(|due| now >= due)
     }
 
-    pub fn skip_media(&self, chat: &str, id: &str) -> bool {
+    pub fn skip_media(&self, chat: &str, id: &str, card: Option<usize>) -> bool {
         self.media
             .as_ref()
-            .is_some_and(|(active_chat, active_id)| active_chat == chat && active_id == id)
+            .is_some_and(|(active_chat, active_id, active_card)| {
+                active_chat == chat && active_id == id && *active_card == card
+            })
     }
 
-    pub fn start_media(&mut self, chat: ChatId, id: String) {
-        self.media = Some((chat, id));
+    pub fn start_media(&mut self, chat: ChatId, id: String, card: Option<usize>) {
+        self.media = Some((chat, id, card));
     }
 
     /// True when this completion belongs to the prefetch download.
-    pub fn finish_media(&mut self, chat: &str, id: &str, now: Instant) -> bool {
+    pub fn finish_media(
+        &mut self,
+        chat: &str,
+        id: &str,
+        card: Option<usize>,
+        now: Instant,
+    ) -> bool {
         if self
             .media
             .as_ref()
-            .is_none_or(|(active_chat, active_id)| active_chat != chat || active_id != id)
+            .is_none_or(|(active_chat, active_id, active_card)| {
+                active_chat != chat || active_id != id || *active_card != card
+            })
         {
             return false;
         }
@@ -284,12 +297,33 @@ mod tests {
         let mut state = State::default();
         state.configure(HistoryPrefetch::Focused, Some("a".into()));
         let now = Instant::now();
-        state.start_media("a".into(), "m1".into());
-        assert!(state.skip_media("a", "m1"));
-        assert!(state.finish_media("a", "m1", now));
-        assert!(!state.skip_media("a", "m1"));
+        state.start_media("a".into(), "m1".into(), None);
+        assert!(state.skip_media("a", "m1", None));
+        assert!(state.finish_media("a", "m1", None, now));
+        assert!(!state.skip_media("a", "m1", None));
         assert!(!state.next_media_ready(now));
         assert!(state.next_media_ready(now + MEDIA_GAP));
-        assert!(!state.finish_media("a", "m1", now + MEDIA_GAP));
+        assert!(!state.finish_media("a", "m1", None, now + MEDIA_GAP));
+    }
+
+    /// A carousel card is a file of its own: a manual download of one card
+    /// must not read as the completion of the prefetch of another, or the
+    /// prefetch's own completion would be ignored and the slot freed while it
+    /// is still in flight.
+    #[test]
+    fn another_cards_file_does_not_release_the_prefetch_slot() {
+        let mut state = State::default();
+        state.configure(HistoryPrefetch::Focused, Some("a".into()));
+        let now = Instant::now();
+        state.start_media("a".into(), "m1".into(), Some(0));
+        assert!(state.skip_media("a", "m1", Some(0)));
+        assert!(!state.skip_media("a", "m1", Some(1)));
+        assert!(!state.finish_media("a", "m1", Some(1), now));
+        assert!(
+            state.skip_media("a", "m1", Some(0)),
+            "the prefetch of card 0 is still in flight"
+        );
+        assert!(state.finish_media("a", "m1", Some(0), now));
+        assert!(!state.skip_media("a", "m1", Some(0)));
     }
 }

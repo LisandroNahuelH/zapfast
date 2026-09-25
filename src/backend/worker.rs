@@ -3993,10 +3993,10 @@ impl Worker {
                 {
                     Ok(items) => {
                         for (id, card) in items {
-                            if self.prefetch.skip_media(chat, &id) {
+                            if self.prefetch.skip_media(chat, &id, card) {
                                 continue;
                             }
-                            self.prefetch.start_media(chat.clone(), id.clone());
+                            self.prefetch.start_media(chat.clone(), id.clone(), card);
                             if !self.download_media(chat.clone(), id.clone(), card) {
                                 // The failure is already recorded: the
                                 // synchronous paths in `download_media` report
@@ -5882,9 +5882,11 @@ impl Worker {
         card: Option<usize>,
         result: Result<PathBuf, String>,
     ) {
-        // A background download that failed is due again after a backoff; a
-        // click on the bubble opens a fresh thirty-day window.
-        let background = self.prefetch.finish_media(&chat, &id, Instant::now());
+        // A failed download is due again after a backoff; a click on the
+        // bubble opens a fresh thirty-day window. Every attachment carries its
+        // own retry, a carousel card's picture included: without the record
+        // the pump would try the card again on every three-second pass.
+        let background = self.prefetch.finish_media(&chat, &id, card, Instant::now());
         let result = match result {
             Ok(path) => {
                 let _ = self
@@ -5892,7 +5894,7 @@ impl Worker {
                     .put_media_path_at(&chat, &id, card, Some(path.as_path()));
                 Ok(path)
             }
-            Err(_) if card.is_none() => {
+            Err(_) => {
                 let notice = self
                     .archive
                     .set_media_retry(&chat, &id, card, unix_now(), !background)
@@ -5901,7 +5903,6 @@ impl Worker {
                     .unwrap_or_else(|| MEDIA_STILL_TRYING.to_owned());
                 Err(notice)
             }
-            Err(error) => Err(error),
         };
         self.downloads.remove(&(chat.clone(), id.clone(), card));
         let for_picker = self.sticker_downloads.remove(&(chat.clone(), id.clone()));
@@ -10774,6 +10775,56 @@ mod receipt_tests {
                 .len(),
             1,
             "and it comes back when it is due"
+        );
+    }
+
+    /// A failed carousel download gets the same retry bookkeeping as the
+    /// message's own file: the pump backs off the card instead of trying it
+    /// again on every three-second pass.
+    #[tokio::test]
+    async fn a_failed_carousel_download_is_due_again_after_its_backoff() {
+        use crate::model::Media;
+        let (mut worker, _events, _inbox, _wa) = receipt_tests::worker();
+        let mut card = incoming("carousel", 100);
+        card.content = Content::Interactive {
+            text: String::new(),
+            card: Some(Box::new(crate::model::InteractiveCard {
+                carousel: vec![crate::model::InteractiveCard {
+                    image: Some(Media {
+                        mime: "image/jpeg".into(),
+                        size: 10,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })),
+        };
+        worker.store_message(card, None, None);
+        let chat = PEER.to_owned();
+        let now = unix_now();
+        worker.downloaded(
+            chat.clone(),
+            "carousel".to_owned(),
+            Some(0),
+            Err("the phone refused it".into()),
+        );
+        assert!(
+            worker
+                .archive
+                .undownloaded_media(&chat, 64 * 1024 * 1024, now, 8)
+                .expect("listed")
+                .is_empty(),
+            "the failed card is held back by its backoff"
+        );
+        let due = now + crate::model::media_retry_delay_secs(1);
+        assert!(
+            worker
+                .archive
+                .undownloaded_media(&chat, 64 * 1024 * 1024, due, 8)
+                .expect("listed")
+                .contains(&("carousel".to_owned(), Some(0))),
+            "and is due again when the backoff passes"
         );
     }
 
