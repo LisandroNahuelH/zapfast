@@ -1250,3 +1250,31 @@ msgstr "另存为…"
 #: src/ui/image_preview.rs:175
 msgid "Open in another app"
 msgstr "在其他应用中打开"
+
+#: src/ui/chats.rs:76 src/ui/chats.rs:251 src/app.rs:1781
+msgid "Starred"
+msgstr "已加星标"
+
+#: src/ui/chats.rs:189 src/ui/chats.rs:327 src/ui/chats.rs:1464
+msgid "Starred messages"
+msgstr "已加星标的消息"
+
+#: src/ui/chats.rs:500
+msgid "No starred messages"
+msgstr "没有已加星标的消息"
+
+#: src/ui/chats.rs:503
+msgid "Right-click a message and choose Star to keep it here."
+msgstr "右键点击消息并选择“加星标”，即可将其保留在此处。"
+
+#: src/ui/conversation.rs:3593
+msgid "Unstar"
+msgstr "取消星标"
+
+#: src/ui/conversation.rs:3595
+msgid "Star"
+msgstr "加星标"
+
+#: src/app.rs:1783
+msgid "Star removed"
+msgstr "星标已移除"

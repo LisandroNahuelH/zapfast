@@ -1297,3 +1297,33 @@ msgstr "Сохранить как…"
 #: src/ui/image_preview.rs:175
 msgid "Open in another app"
 msgstr "Открыть в другом приложении"
+
+#: src/ui/chats.rs:76 src/ui/chats.rs:251 src/app.rs:1781
+msgid "Starred"
+msgstr "Отмеченные"
+
+#: src/ui/chats.rs:189 src/ui/chats.rs:327 src/ui/chats.rs:1464
+msgid "Starred messages"
+msgstr "Отмеченные сообщения"
+
+#: src/ui/chats.rs:500
+msgid "No starred messages"
+msgstr "Нет отмеченных сообщений"
+
+#: src/ui/chats.rs:503
+msgid "Right-click a message and choose Star to keep it here."
+msgstr ""
+"Щёлкните сообщение правой кнопкой и выберите «Отметить», чтобы оно осталось "
+"здесь."
+
+#: src/ui/conversation.rs:3593
+msgid "Unstar"
+msgstr "Снять отметку"
+
+#: src/ui/conversation.rs:3595
+msgid "Star"
+msgstr "Отметить"
+
+#: src/app.rs:1783
+msgid "Star removed"
+msgstr "Отметка снята"

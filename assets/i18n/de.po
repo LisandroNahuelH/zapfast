@@ -1296,3 +1296,31 @@ msgstr "Speichern unter…"
 #: src/ui/image_preview.rs:175
 msgid "Open in another app"
 msgstr "In anderer App öffnen"
+
+#: src/ui/chats.rs:76 src/ui/chats.rs:251 src/app.rs:1781
+msgid "Starred"
+msgstr "Markiert"
+
+#: src/ui/chats.rs:189 src/ui/chats.rs:327 src/ui/chats.rs:1464
+msgid "Starred messages"
+msgstr "Markierte Nachrichten"
+
+#: src/ui/chats.rs:500
+msgid "No starred messages"
+msgstr "Keine markierten Nachrichten"
+
+#: src/ui/chats.rs:503
+msgid "Right-click a message and choose Star to keep it here."
+msgstr "Mit Rechtsklick eine Nachricht markieren, um sie hier zu behalten."
+
+#: src/ui/conversation.rs:3593
+msgid "Unstar"
+msgstr "Markierung entfernen"
+
+#: src/ui/conversation.rs:3595
+msgid "Star"
+msgstr "Markieren"
+
+#: src/app.rs:1783
+msgid "Star removed"
+msgstr "Markierung entfernt"

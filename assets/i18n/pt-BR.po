@@ -1287,3 +1287,33 @@ msgstr "Salvar como…"
 #: src/ui/image_preview.rs:175
 msgid "Open in another app"
 msgstr "Abrir em outro aplicativo"
+
+#: src/ui/chats.rs:76 src/ui/chats.rs:251 src/app.rs:1781
+msgid "Starred"
+msgstr "Com estrela"
+
+#: src/ui/chats.rs:189 src/ui/chats.rs:327 src/ui/chats.rs:1464
+msgid "Starred messages"
+msgstr "Mensagens com estrela"
+
+#: src/ui/chats.rs:500
+msgid "No starred messages"
+msgstr "Nenhuma mensagem com estrela"
+
+#: src/ui/chats.rs:503
+msgid "Right-click a message and choose Star to keep it here."
+msgstr ""
+"Clique com o botão direito em uma mensagem e escolha Marcar com estrela para "
+"guardá-la aqui."
+
+#: src/ui/conversation.rs:3593
+msgid "Unstar"
+msgstr "Desmarcar estrela"
+
+#: src/ui/conversation.rs:3595
+msgid "Star"
+msgstr "Marcar com estrela"
+
+#: src/app.rs:1783
+msgid "Star removed"
+msgstr "Estrela removida"

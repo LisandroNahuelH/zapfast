@@ -1289,3 +1289,33 @@ msgstr "Salva con nome…"
 #: src/ui/image_preview.rs:175
 msgid "Open in another app"
 msgstr "Apri in un'altra app"
+
+#: src/ui/chats.rs:76 src/ui/chats.rs:251 src/app.rs:1781
+msgid "Starred"
+msgstr "Contrassegnati"
+
+#: src/ui/chats.rs:189 src/ui/chats.rs:327 src/ui/chats.rs:1464
+msgid "Starred messages"
+msgstr "Messaggi contrassegnati"
+
+#: src/ui/chats.rs:500
+msgid "No starred messages"
+msgstr "Nessun messaggio contrassegnato"
+
+#: src/ui/chats.rs:503
+msgid "Right-click a message and choose Star to keep it here."
+msgstr ""
+"Fai clic con il pulsante destro su un messaggio e scegli Contrassegna per "
+"tenerlo qui."
+
+#: src/ui/conversation.rs:3593
+msgid "Unstar"
+msgstr "Rimuovi contrassegno"
+
+#: src/ui/conversation.rs:3595
+msgid "Star"
+msgstr "Contrassegna"
+
+#: src/app.rs:1783
+msgid "Star removed"
+msgstr "Contrassegno rimosso"

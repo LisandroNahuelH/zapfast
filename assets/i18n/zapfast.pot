@@ -1256,3 +1256,31 @@ msgstr ""
 #: src/ui/image_preview.rs:175
 msgid "Open in another app"
 msgstr ""
+
+#: src/ui/chats.rs:76 src/ui/chats.rs:251 src/app.rs:1781
+msgid "Starred"
+msgstr ""
+
+#: src/ui/chats.rs:189 src/ui/chats.rs:327 src/ui/chats.rs:1464
+msgid "Starred messages"
+msgstr ""
+
+#: src/ui/chats.rs:500
+msgid "No starred messages"
+msgstr ""
+
+#: src/ui/chats.rs:503
+msgid "Right-click a message and choose Star to keep it here."
+msgstr ""
+
+#: src/ui/conversation.rs:3593
+msgid "Unstar"
+msgstr ""
+
+#: src/ui/conversation.rs:3595
+msgid "Star"
+msgstr ""
+
+#: src/app.rs:1783
+msgid "Star removed"
+msgstr ""

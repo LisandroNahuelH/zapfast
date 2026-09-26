@@ -1349,6 +1349,29 @@ pub enum Action {
     DeleteForEveryone(String),
     /// Deletes a message locally.
     DeleteForMe(String),
+    /// Stars or unstars one message from its bubble's menu.
+    SetStar {
+        chat: ChatId,
+        message: String,
+        starred: bool,
+    },
+    /// Opens a starred row's chat and starts a reply there. The list has no
+    /// composer of its own, and the quote waits for the message to load.
+    ListReply {
+        chat: ChatId,
+        message: String,
+    },
+    /// Opens a starred row's chat and edits the message there.
+    ListEdit {
+        chat: ChatId,
+        message: String,
+        text: String,
+    },
+    /// Opens a starred row's chat and enters selection on its message.
+    ListSelect {
+        chat: ChatId,
+        message: String,
+    },
     /// Opens the attachment picker for the current chat.
     Attach,
     /// Opens or closes the composer tools menu.
@@ -1489,6 +1512,8 @@ pub enum Action {
     DeleteLabel(String),
     /// Shows or leaves the archived chats.
     ShowArchived(bool),
+    /// Shows or hides the starred messages in the left panel.
+    ToggleStarred,
     /// Mutes (`true`) or unmutes every followed channel.
     MuteAllChannels(bool),
     /// Joins the group of the invite being previewed.
