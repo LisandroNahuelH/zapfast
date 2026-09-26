@@ -5563,6 +5563,143 @@ mod tests {
         );
     }
 
+    /// The gear opens settings, and a second click on it closes them again,
+    /// landing back on the chat that was open. No close button is added.
+    #[test]
+    fn a_second_click_on_the_settings_button_closes_settings() {
+        use crate::ui::focus::Stop;
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        render(&mut app, &ctx);
+        let chat = app.open_chat.clone().expect("a chat is open to start");
+        // The macOS header carries neither the avatar nor the gear: Settings
+        // lives in the menu bar there, and a headless test draws no menu bar.
+        // The toggle is the same action everywhere, so macOS drives it through
+        // the action and the clicks are exercised where the buttons exist.
+        if crate::theme::macos_chrome(&ctx) {
+            for expected in [crate::model::Page::Settings, crate::model::Page::Chats] {
+                app.actions.push(crate::model::Action::ToggleSettings);
+                frame_sized(&mut app, &ctx, 780.0, Vec::new());
+                assert_eq!(app.page, expected, "the action toggles the page");
+            }
+            assert_eq!(
+                app.open_chat.as_deref(),
+                Some(chat.as_str()),
+                "closing settings lands back on the chat that was open"
+            );
+            return;
+        }
+        let gear = |ctx: &egui::Context| {
+            let id = crate::ui::focus::stops(ctx)
+                .into_iter()
+                .find(|(stop, _)| *stop == Stop::Settings)
+                .map(|(_, id)| id)
+                .expect("the settings button is drawn");
+            ctx.read_response(id).expect("it publishes its rect").rect
+        };
+        let click = |app: &mut App, ctx: &egui::Context, rect: egui::Rect| {
+            let pos = rect.center();
+            for pressed in [true, false] {
+                frame_sized(
+                    app,
+                    ctx,
+                    780.0,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        };
+        click(&mut app, &ctx, gear(&ctx));
+        assert_eq!(
+            app.page,
+            crate::model::Page::Settings,
+            "the first click opens settings"
+        );
+        click(&mut app, &ctx, gear(&ctx));
+        assert_eq!(
+            app.page,
+            crate::model::Page::Chats,
+            "the second click closes settings"
+        );
+        assert_eq!(
+            app.open_chat.as_deref(),
+            Some(chat.as_str()),
+            "closing settings lands back on the chat that was open"
+        );
+    }
+
+    /// While Settings are showing, both header buttons say what a click does
+    /// now: a screen reader reads the label, not the accent colour.
+    #[test]
+    fn the_header_buttons_say_they_close_settings() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        // The macOS header carries neither button, so nothing follows the page
+        // there.
+        if crate::theme::macos_chrome(&ctx) {
+            return;
+        }
+        ctx.enable_accesskit();
+        app.attach(&ctx);
+        let labels = |app: &mut App, ctx: &egui::Context| -> Vec<String> {
+            let mut labels = Vec::new();
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1180.0, 780.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let ctx = ui.ctx().clone();
+                        app.background_frame(&ctx);
+                        app.frame_ui(ui);
+                    },
+                );
+                output.textures_delta.clear();
+                labels = output
+                    .platform_output
+                    .accesskit_update
+                    .expect("accessibility tree")
+                    .nodes
+                    .iter()
+                    .filter_map(|(_, node)| node.label().map(str::to_owned))
+                    .collect();
+            }
+            labels
+        };
+        let closed = labels(&mut app, &ctx);
+        assert!(
+            closed.contains(&"Your profile and settings".to_owned()),
+            "the avatar opens settings: {closed:?}"
+        );
+        assert!(
+            closed.contains(&"Settings (Ctrl+,)".to_owned()),
+            "the gear opens settings: {closed:?}"
+        );
+        app.actions
+            .push(crate::model::Action::Open(crate::model::Page::Settings));
+        let open = labels(&mut app, &ctx);
+        assert!(
+            open.contains(&"Close settings".to_owned()),
+            "the avatar says it closes settings: {open:?}"
+        );
+        assert!(
+            open.contains(&"Close settings (Ctrl+,)".to_owned()),
+            "the gear says it closes settings: {open:?}"
+        );
+    }
+
     #[test]
     fn account_privacy_fetch_fills_the_rows() {
         let mut app = app();

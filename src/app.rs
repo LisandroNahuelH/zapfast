@@ -3221,6 +3221,16 @@ impl App {
                     self.refocus_composer(ctx);
                 }
             }
+            Action::ToggleSettings => {
+                // The button that opened settings closes them again, and
+                // closing lands on what was showing, exactly as Escape does.
+                let page = if self.page == Page::Settings {
+                    Page::Chats
+                } else {
+                    Page::Settings
+                };
+                self.apply(Action::Open(page), ctx);
+            }
             Action::OpenChat(id) => self.open_chat(id),
             Action::StartChat { id, name } => {
                 if self.chat(&id).is_none() {

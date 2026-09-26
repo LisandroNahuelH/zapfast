@@ -519,8 +519,8 @@ stay on the same network.
 
 Right-click a chat or message to open its menu. Double-click beside a message,
 or on its edge, to reply to it (a double-click on its text still selects the
-word). Open Settings from the gear or
-with `Ctrl+,`. The pencil opens **New chat**, with **Message yourself** and
+word). Open Settings from the gear or with `Ctrl+,`, and close them the same
+way. The pencil opens **New chat**, with **Message yourself** and
 **+ Add contact** at the top, followed by searchable contacts. Add contact also
 lets you message a new number without saving it. **Also save to your phone's
 contacts** in that dialog adds the contact to your phone's address book too, as
