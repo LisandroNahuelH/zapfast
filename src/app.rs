@@ -3406,6 +3406,11 @@ impl App {
                     self.actions.push(Action::OpenFile(path));
                 }
             }
+            Action::ZoomImageBy(factor) => {
+                if let Some(preview) = &mut self.image_preview {
+                    preview.zoom_by(factor);
+                }
+            }
             Action::ZoomImageIn => {
                 if let Some(preview) = &mut self.image_preview {
                     preview.zoom_in();
@@ -5160,6 +5165,12 @@ impl App {
             ScrollAxis::Horizontal => input.smooth_scroll_delta.y = 0.0,
             ScrollAxis::Vertical => input.smooth_scroll_delta.x = 0.0,
         });
+    }
+
+    /// Whether the latest wheel input came in points (a trackpad), which the
+    /// image preview pans with instead of zooming.
+    pub fn scroll_from_trackpad(&self) -> bool {
+        self.scroll_from_trackpad
     }
 
     pub fn save_state(&mut self) {
