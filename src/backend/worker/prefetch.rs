@@ -198,7 +198,17 @@ impl State {
 pub(super) fn targets(chats: &[Chat], mode: HistoryPrefetch, focused: Option<&str>) -> Vec<ChatId> {
     match mode {
         HistoryPrefetch::Off => Vec::new(),
-        HistoryPrefetch::Focused => focused.map(|id| vec![id.to_owned()]).unwrap_or_default(),
+        HistoryPrefetch::Focused => {
+            // The chat that was open can be gone: it was deleted while it was
+            // focused, and the mode must not keep asking for it.
+            let mut out = Vec::new();
+            if let Some(id) = focused
+                && chats.iter().any(|chat| chat.id == id)
+            {
+                out.push(id.to_owned());
+            }
+            out
+        }
         HistoryPrefetch::RecentAndPinned => {
             let mut out = Vec::new();
             if let Some(id) = focused
@@ -418,5 +428,20 @@ mod tests {
         );
         assert!(state.finish_media("a", "m1", Some(0), now));
         assert!(!state.skip_media("a", "m1", Some(0)));
+    }
+
+    /// The chat that was open can be gone: a deleted chat must not keep the
+    /// pump asking the phone for history nobody can read.
+    #[test]
+    fn a_focused_chat_that_is_gone_is_not_asked_for() {
+        let chats = vec![chat("a", 1, false, 0, false)];
+        assert_eq!(
+            targets(&chats, HistoryPrefetch::Focused, Some("gone")),
+            Vec::<ChatId>::new()
+        );
+        assert_eq!(
+            targets(&chats, HistoryPrefetch::Focused, Some("a")),
+            vec!["a".to_owned()]
+        );
     }
 }
