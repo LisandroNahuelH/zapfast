@@ -3177,18 +3177,23 @@ const FOOTER_MARK_SLOT: f32 = FOOTER_MARK + FOOTER_MARK_GAP;
 
 const FOOTER_STAR: Color32 = Color32::from_rgb(0xEA, 0xB3, 0x08);
 
-/// Width of the message footer.
-fn footer_width(ui: &egui::Ui, message: &Message, starred: bool) -> f32 {
-    let font = theme::regular(11.0);
-    let time = ui
-        .painter()
+/// The clock's own width at the footer's size: the floor a footer starts from,
+/// and the one part of it that depends on the reader's clock format.
+fn clock_width(ui: &egui::Ui, message: &Message) -> f32 {
+    ui.painter()
         .layout_no_wrap(
             crate::util::clock(message.timestamp),
-            font.clone(),
+            theme::regular(11.0),
             Color32::WHITE,
         )
         .size()
-        .x;
+        .x
+}
+
+/// Width of the message footer.
+fn footer_width(ui: &egui::Ui, message: &Message, starred: bool) -> f32 {
+    let font = theme::regular(11.0);
+    let time = clock_width(ui, message);
     let edited = if message.edited {
         ui.painter()
             .layout_no_wrap("edited".to_owned(), font, Color32::WHITE)
@@ -6682,6 +6687,7 @@ mod tests {
     fn the_footer_only_reserves_a_slot_for_a_star_that_is_on_the_bubble() {
         let ctx = egui::Context::default();
         crate::theme::install(&ctx);
+        let mut clock = 0.0;
         let mut incoming = 0.0;
         let mut starred = 0.0;
         let mut own = 0.0;
@@ -6693,19 +6699,26 @@ mod tests {
             |ui| {
                 let from_them = crate::archive::tests::message("1@s.whatsapp.net", "m1", 0, false);
                 let from_me = crate::archive::tests::message("1@s.whatsapp.net", "m1", 0, true);
+                clock = clock_width(ui, &from_them);
                 incoming = footer_width(ui, &from_them, false);
                 starred = footer_width(ui, &from_them, true);
                 own = footer_width(ui, &from_me, false);
             },
         );
         output.textures_delta.clear();
+        // Measured against the clock the reader's own format produces, not a
+        // number that only holds on a 24-hour one: the same footer is a third
+        // wider where the system shows "12:00 AM".
+        // Measured against the clock the reader's own format produces, not a
+        // number that only holds on a 24-hour one: the same footer is a third
+        // wider where the system shows "12:00 AM".
         assert!(
-            incoming < 40.0,
-            "a plain incoming footer is just the clock, got {incoming}"
+            (incoming - clock).abs() < 0.01,
+            "a plain incoming footer is just the clock, {incoming} vs {clock}"
         );
         assert!(
-            (starred - incoming - FOOTER_MARK_SLOT).abs() < 0.5,
-            "a star adds one mark slot, {starred} vs {incoming}"
+            (starred - clock - FOOTER_MARK_SLOT).abs() < 0.5,
+            "a star adds one mark slot, {starred} vs {clock}"
         );
         assert!(
             (own - incoming - 19.0).abs() < 0.5,
