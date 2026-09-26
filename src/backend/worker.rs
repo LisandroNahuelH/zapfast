@@ -3397,12 +3397,16 @@ impl Worker {
             let sender = message.sender.clone();
             self.remember_push_name(&sender, push_name);
         }
-        let is_new = self
-            .archive
-            .message(&chat, &message.id)
-            .ok()
-            .flatten()
-            .is_none();
+        let existing = self.archive.message(&chat, &message.id).ok().flatten();
+        let is_new = existing.is_none();
+        let mut message = message;
+        // A duplicate delivery or a history replay reclassifies the same
+        // message. Carry what the row already knew about its files over, or
+        // the insert below replaces the content with a fresh classification
+        // that has no downloaded path.
+        if let Some(existing) = &existing {
+            message.content.keep_local_paths(&existing.content);
+        }
         if let Err(error) = self.archive.insert_message(&message, raw.as_deref()) {
             log::warn!("could not store a message: {error}");
             return;
@@ -3789,7 +3793,7 @@ impl Worker {
                 let delivered_at = first(|receipt| receipt.receipt_timestamp)
                     .filter(|_| !group && (read || message.status == Delivery::Delivered));
                 let read_at = first(|receipt| receipt.read_timestamp).filter(|_| !group && read);
-                let row = Message {
+                let mut row = Message {
                     id: message.id,
                     chat: id.clone(),
                     sender,
@@ -3824,6 +3828,11 @@ impl Worker {
                         );
                     }
                     poll_history_received = self.history_poll_votes(&row, &message.poll_votes);
+                }
+                // History replays and on-demand chunks can repeat a message the
+                // archive already holds; keep the files it already downloaded.
+                if let Ok(Some(existing)) = self.archive.message(&id, &row.id) {
+                    row.content.keep_local_paths(&existing.content);
                 }
                 if let Err(error) = self.archive.insert_message(&row, Some(&raw)) {
                     log::warn!("could not store a history message: {error}");
@@ -10867,6 +10876,101 @@ mod receipt_tests {
         assert_eq!(receipts[0].id, PEER);
         assert!(!receipts[0].expected, "a partial list is not the audience");
         assert_eq!(receipts[0].read_at, Some(123));
+    }
+
+    /// A duplicate delivery or a history replay reclassifies the same message,
+    /// and a fresh classification carries no local path. Replacing the row with
+    /// it dropped the file that is already on the computer, so the bubble went
+    /// back to offering the download.
+    #[tokio::test]
+    async fn a_duplicate_delivery_keeps_the_downloaded_file() {
+        use crate::model::{Media, MediaState};
+        let (mut worker, _events, _inbox, _wa) = receipt_tests::worker();
+        let mut picture = incoming("photo", 100);
+        picture.content = Content::Image {
+            media: Media {
+                mime: "image/jpeg".into(),
+                size: 10,
+                width: None,
+                height: None,
+                path: None,
+                state: MediaState::Idle,
+            },
+            caption: None,
+        };
+        worker.store_message(picture.clone(), None, None);
+        let chat = PEER.to_owned();
+        let downloaded = std::path::PathBuf::from("/tmp/zapfast-photo.jpg");
+        worker
+            .archive
+            .set_media_path(&chat, "photo", &downloaded)
+            .expect("path")
+            .expect("row");
+
+        // The same message arrives again, as history replay or a redelivery.
+        worker.store_message(picture, None, None);
+
+        let stored = worker
+            .archive
+            .message(&chat, "photo")
+            .expect("read")
+            .expect("row");
+        let Some(media) = stored.content.media() else {
+            panic!("the picture is still a picture");
+        };
+        assert_eq!(
+            media.path.as_deref(),
+            Some(downloaded.as_path()),
+            "the file on the computer survives the replay"
+        );
+
+        // And again through history sync, which files messages on its own path.
+        let history = parse_conversation(wa::Conversation {
+            id: PEER.into(),
+            messages: vec![wa::HistorySyncMsg {
+                message: MessageField::some(wa::WebMessageInfo {
+                    key: MessageField::some(wa::MessageKey {
+                        id: Some("photo".into()),
+                        from_me: Some(false),
+                        ..Default::default()
+                    }),
+                    message: MessageField::some(wa::Message {
+                        image_message: MessageField::some(wa::message::ImageMessage {
+                            mimetype: Some("image/jpeg".into()),
+                            file_length: Some(10),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    message_timestamp: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        worker.apply_history(
+            ParsedHistory {
+                chats: vec![history],
+                push_names: Vec::new(),
+                lids: Vec::new(),
+                stickers: Vec::new(),
+            },
+            false,
+        );
+        let stored = worker
+            .archive
+            .message(&chat, "photo")
+            .expect("read")
+            .expect("row");
+        assert_eq!(
+            stored
+                .content
+                .media()
+                .and_then(|media| media.path.as_deref()),
+            Some(downloaded.as_path()),
+            "the file on the computer survives history sync"
+        );
     }
 
     fn incoming(id: &str, timestamp: i64) -> Message {
