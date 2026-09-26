@@ -218,12 +218,18 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                             "Info",
                             "Pin to top",
                             "Unarchive",
+                            "Clear chat",
                             leave_label.as_ref(),
                             "Copy number",
                             "Close chat",
                         ],
                         true,
                     );
+                    // Demo/test: hold this menu open for a screenshot.
+                    #[cfg(any(test, feature = "demo"))]
+                    if app.open_header_menu.as_deref() == Some(chat.id.as_str()) {
+                        egui::Popup::open_id(ui.ctx(), more.id.with("popup"));
+                    }
                     egui::Popup::menu(&more)
                         .width(width)
                         .frame(widgets::menu_frame(&palette))
@@ -253,6 +259,20 @@ fn header(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
                             ) {
                                 app.actions
                                     .push(Action::SetArchived(chat.id.clone(), !chat.archived));
+                            }
+                            // Clearing reaches the phone, so it waits for a
+                            // connection, as deleting does in the chat list.
+                            if widgets::menu_item_enabled(
+                                ui,
+                                &palette,
+                                Some(Icon::Eraser),
+                                "Clear chat",
+                                app.is_connected(),
+                            ) {
+                                app.actions
+                                    .push(Action::ShowDialog(Dialog::ConfirmClearChat(
+                                        chat.id.clone(),
+                                    )));
                             }
                             widgets::menu_separator(ui, &palette);
                             if chat.can_leave(&app.our_ids())

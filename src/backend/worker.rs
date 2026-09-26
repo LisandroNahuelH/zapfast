@@ -1045,7 +1045,8 @@ impl Worker {
     }
 
     /// Empties a chat while keeping it listed.
-    fn empty_chat(&mut self, chat: &str, through: i64, delete_media: bool) {
+    /// Empties a chat through `through`; false when the archive could not.
+    fn empty_chat(&mut self, chat: &str, through: i64, delete_media: bool) -> bool {
         match self.archive.remove_chat_through(chat, through, false) {
             Ok(removed) => {
                 self.pending_older.remove(chat);
@@ -1059,8 +1060,12 @@ impl Worker {
                     });
                     self.emit_chat(chat);
                 }
+                true
             }
-            Err(_error) => log::warn!("could not clear a chat"),
+            Err(_error) => {
+                log::warn!("could not clear a chat");
+                false
+            }
         }
     }
 
@@ -2344,7 +2349,7 @@ impl Worker {
                         .and_then(|range| range.last_message_timestamp),
                     update.timestamp.timestamp(),
                 );
-                self.empty_chat(&chat, through, update.delete_media);
+                let _ = self.empty_chat(&chat, through, update.delete_media);
             }
             E::MarkChatAsReadUpdate(update) => {
                 let chat = self.canonical(&update.jid);
@@ -4937,6 +4942,68 @@ impl Worker {
                     log::warn!("the phone did not delete a chat");
                     self.emit(Event::Error(
                         "The phone did not delete this chat. Try again when connected".to_owned(),
+                    ));
+                }
+            }
+            Command::ClearChat(chat) => {
+                // The phone clears first, for the same reason it deletes
+                // first: clearing here while offline would leave the messages
+                // on the phone, and the next sync would bring them back
+                // despite the dialog saying they were cleared there too.
+                let (Some(client), Some(jid)) = (self.client.clone(), Self::jid_of(&chat)) else {
+                    self.emit(Event::Error(
+                        "Connect to WhatsApp to clear this chat".to_owned(),
+                    ));
+                    return;
+                };
+                let Some(through) = clear_boundary(self.archive.messages(&chat, None, 1)) else {
+                    // Without the boundary this archive would be cleared through
+                    // a time it never agreed to, and the two sides would drift
+                    // while the dialog said they matched. Nothing is cleared
+                    // anywhere.
+                    log::warn!("could not read the boundary of a chat to clear");
+                    self.emit(Event::Error(
+                        "Could not read this chat's messages. Try again".to_owned(),
+                    ));
+                    return;
+                };
+                let commands = self.commands.clone();
+                tokio::spawn(async move {
+                    let cleared = client
+                        .chat_actions()
+                        .clear_chat(
+                            &jid,
+                            true,
+                            true,
+                            Some(whatsapp_rust::message_range(through, None, Vec::new())),
+                        )
+                        .await
+                        .is_ok();
+                    let _ = commands.send(Command::ChatCleared {
+                        chat,
+                        cleared,
+                        through,
+                    });
+                });
+            }
+            Command::ChatCleared {
+                chat,
+                cleared,
+                through,
+            } => {
+                if cleared {
+                    if !self.empty_chat(&chat, through, true) {
+                        // The phone has cleared it; say so rather than leave
+                        // the messages here looking as if nothing happened.
+                        self.emit(Event::Error(
+                            "The phone cleared this chat, but ZapFast could not clear it here"
+                                .to_owned(),
+                        ));
+                    }
+                } else {
+                    log::warn!("the phone did not clear a chat");
+                    self.emit(Event::Error(
+                        "The phone did not clear this chat. Try again when connected".to_owned(),
                     ));
                 }
             }
@@ -8208,6 +8275,17 @@ fn ensure_message_secret(raw: Vec<u8>, secret: Option<&[u8]>) -> Vec<u8> {
     context.message_secret = Some(secret.to_vec());
     message.message_context_info = MessageField::some(context);
     message.encode_to_vec()
+}
+
+/// The newest message the archive holds for a chat: the boundary the phone is
+/// asked to clear through. An archive that cannot be read yields no boundary at
+/// all, because a guessed one would clear the phone past messages this device
+/// never saw, and the dialog would say both sides matched.
+fn clear_boundary(read: crate::archive::Result<Vec<Message>>) -> Option<i64> {
+    read.ok().map(|page| {
+        page.last()
+            .map_or_else(crate::util::now, |message| message.timestamp)
+    })
 }
 
 #[cfg(test)]
@@ -12060,7 +12138,7 @@ mod chat_removal_tests {
         let (mut worker, _events, _, _) = receipt_tests::worker();
         worker.apply_history(history(CHAT, &[100, 200]), true);
 
-        worker.empty_chat(CHAT, 200, false);
+        assert!(worker.empty_chat(CHAT, 200, false));
         worker.apply_history(history(CHAT, &[150]), false);
         assert!(worker.archive.chat(CHAT).expect("chat").is_some());
         assert!(stored(&worker, CHAT).is_empty());
@@ -12149,6 +12227,68 @@ mod chat_removal_tests {
             events
                 .try_iter()
                 .any(|event| matches!(event, Event::ChatRemoved { chat } if chat == CHAT))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_chat_is_cleared_here_only_after_the_phone_cleared_it() {
+        let (mut worker, events, _, _) = receipt_tests::worker();
+        worker.apply_history(history(CHAT, &[100, 200]), true);
+
+        // Without a phone connection nothing is cleared anywhere.
+        worker.handle_command(Command::ClearChat(CHAT.into())).await;
+        assert_eq!(stored(&worker, CHAT), ["m100", "m200"]);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Error(_)))
+        );
+
+        worker
+            .handle_command(Command::ChatCleared {
+                chat: CHAT.into(),
+                cleared: false,
+                through: 200,
+            })
+            .await;
+        assert_eq!(stored(&worker, CHAT), ["m100", "m200"]);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::Error(_)))
+        );
+
+        worker
+            .handle_command(Command::ChatCleared {
+                chat: CHAT.into(),
+                cleared: true,
+                through: 200,
+            })
+            .await;
+        // The chat stays listed; only its messages go.
+        assert!(worker.archive.chat(CHAT).expect("chat").is_some());
+        assert!(stored(&worker, CHAT).is_empty());
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::ChatCleared { chat, .. } if chat == CHAT))
+        );
+    }
+
+    /// A boundary that cannot be read is not `now`: clearing the phone through
+    /// a guessed time would leave the two sides apart while the dialog said
+    /// they matched. An archive with no messages still has one.
+    #[test]
+    fn a_boundary_that_cannot_be_read_is_not_guessed() {
+        assert_eq!(
+            clear_boundary(Err(rusqlite::Error::QueryReturnedNoRows)),
+            None,
+            "no boundary means nothing is cleared anywhere"
+        );
+        let empty: Vec<Message> = Vec::new();
+        assert!(
+            clear_boundary(Ok(empty)).is_some(),
+            "an empty archive clears through now"
         );
     }
 }

@@ -167,6 +167,12 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   and the chat only leaves this computer once the phone has confirmed. Chats
   you delete or clear on the phone disappear here as well, and history that
   was already on its way does not bring them back.
+- **Clear chats.** Empty a chat's messages from the menu in its header, in the
+  same way as WhatsApp Web, and keep the chat itself in the list. The phone
+  clears it first, so this needs a connection, and the messages only go from
+  this computer once the phone has confirmed. Starred messages and downloaded
+  media go with them, and history that was already on its way does not bring
+  them back.
 - **Voice messages.** Play, seek, record, reply with, and send voice messages
   in the chat. The speed chip cycles between 1x, 1.5x, and 2x, and the
   message menu offers 1x, 1.25x, 1.5x, 1.75x, and 2x, keeping the speaker's
@@ -759,7 +765,8 @@ English lines.
 Use `--demo-page composer-tools` to preview the WhatsApp-style composer pill
 and its attachment and poll menu. `typing`, `mention`, and
 `emoji-complete` preview the multiline field and inline suggestions.
-Use `--demo-page chat-menu` to preview the compact chat context menu, and
+Use `--demo-page chat-menu` to preview the compact chat context menu,
+`--demo-page chat-header-menu` for the menu at the top of an open chat, and
 `--demo-page chat,voice,voice-menu` for a voice message's menu with its speeds.
 `--demo-page video` shows a video and round video messages, and
 `video-playing` or `note-playing` starts one of them, silently.

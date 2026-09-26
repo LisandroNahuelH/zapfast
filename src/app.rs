@@ -287,6 +287,9 @@ pub struct App {
     /// Demo/test: keep this chat row's context menu open.
     #[cfg(any(test, feature = "demo"))]
     pub open_chat_menu: Option<ChatId>,
+    /// Demo/test: keep the open chat's header menu open.
+    #[cfg(any(test, feature = "demo"))]
+    pub open_header_menu: Option<ChatId>,
     /// Emoji-grid header to scroll into view.
     pub emoji_jump: Option<&'static str>,
     /// Attachments pending in the composer.
@@ -754,6 +757,8 @@ impl App {
             open_message_menu: None,
             #[cfg(any(test, feature = "demo"))]
             open_chat_menu: None,
+            #[cfg(any(test, feature = "demo"))]
+            open_header_menu: None,
             emoji_jump: None,
             pending: Vec::new(),
             composer_tools_open: false,
@@ -1107,7 +1112,10 @@ impl App {
         if matches!(
             &self.dialog,
             Some(
-                Dialog::ChatInfo(chat) | Dialog::CreatePoll(chat) | Dialog::ConfirmDeleteChat(chat)
+                Dialog::ChatInfo(chat)
+                    | Dialog::CreatePoll(chat)
+                    | Dialog::ConfirmDeleteChat(chat)
+                    | Dialog::ConfirmClearChat(chat)
             ) if chat == id
         ) || matches!(&self.dialog, Some(Dialog::Forward { chat, .. }) if chat == id)
         {
@@ -2319,6 +2327,11 @@ impl App {
     /// one of its messages would otherwise refer to rows that are gone, and a
     /// pending edit would send `EditText` for a message that no longer exists.
     fn handle_chat_cleared(&mut self, id: &str, through: i64) {
+        // A confirmation that is open for this chat is about messages that are
+        // already gone: clearing again would take what arrived since.
+        if matches!(&self.dialog, Some(Dialog::ConfirmClearChat(chat)) if chat == id) {
+            self.dialog = None;
+        }
         self.notifications.clear(id);
         // Clearing a chat also removes its stored draft.
         self.drafts.remove(id);
@@ -4043,6 +4056,9 @@ impl App {
             // The chat leaves the list once the phone confirmed, through
             // `Event::ChatRemoved`.
             Action::DeleteChat(chat) => self.backend.send(Command::DeleteChat(chat)),
+            // The messages go once the phone confirmed, through
+            // `Event::ChatCleared`; the chat stays either way.
+            Action::ClearChat(chat) => self.backend.send(Command::ClearChat(chat)),
             Action::SetPinned(chat, pinned) => {
                 if pinned && self.pinned_count() >= self.pin_limit {
                     self.toast(format!("You can only pin {} chats", self.pin_limit));
@@ -5381,6 +5397,42 @@ mod tests {
     fn app() -> App {
         let root = std::env::temp_dir().join(format!("zapfast-app-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    /// A chat that is gone or emptied takes its confirmation with it: a modal
+    /// left behind for a chat that no longer exists still dispatches its
+    /// action, and after a remote clear that action would take what arrived
+    /// since.
+    #[test]
+    fn a_remote_removal_or_clear_closes_the_confirmation() {
+        let mut app = app();
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        let chat = "peer@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Peer".into()));
+
+        app.dialog = Some(Dialog::ConfirmClearChat(chat.into()));
+        events
+            .send(Event::ChatCleared {
+                chat: chat.into(),
+                through: 100,
+            })
+            .unwrap();
+        app.handle_events();
+        assert!(
+            app.dialog.is_none(),
+            "a cleared chat closes its confirmation"
+        );
+
+        app.dialog = Some(Dialog::ConfirmClearChat(chat.into()));
+        events
+            .send(Event::ChatRemoved { chat: chat.into() })
+            .unwrap();
+        app.handle_events();
+        assert!(
+            app.dialog.is_none(),
+            "a removed chat closes its confirmation"
+        );
     }
 
     /// Demo and test runs share the machine with a linked ZapFast, whose real
@@ -6878,6 +6930,61 @@ mod tests {
         assert!(app.dialog.is_none());
         // Neighbouring chats and their search hits stay.
         assert!(app.chat(other).is_some());
+        assert_eq!(app.search_hits.len(), 1);
+    }
+
+    #[test]
+    fn a_cleared_chat_keeps_its_row_until_the_phone_confirmed_it() {
+        let mut app = app();
+        let (backend, mut commands) = Backend::recording();
+        app.backend = backend;
+        let chat = "peer@s.whatsapp.net";
+        let other = "friend@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Peer".into()));
+        app.conversations
+            .entry(chat.into())
+            .or_default()
+            .merge(vec![message(chat, "m1", 100)], false);
+        app.drafts.insert(chat.into(), "half-written".into());
+        app.open_chat = Some(chat.into());
+        app.search_hits.push(message(chat, "m1", 100));
+        app.search_hits.push(message(other, "m2", 100));
+
+        let ctx = egui::Context::default();
+        app.apply(Action::ClearChat(chat.into()), &ctx);
+
+        // Nothing changes here until the phone has cleared the chat too.
+        assert!(app.chat(chat).is_some());
+        assert_eq!(
+            app.conversations.get(chat).map(|open| open.messages.len()),
+            Some(1)
+        );
+        assert!(app.drafts.contains_key(chat));
+        assert!(
+            std::iter::from_fn(|| commands.try_recv().ok())
+                .any(|command| matches!(command, Command::ClearChat(id) if id == chat))
+        );
+
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        events
+            .send(Event::ChatCleared {
+                chat: chat.into(),
+                through: 100,
+            })
+            .unwrap();
+        app.handle_events();
+
+        // The chat stays open with nothing left in it, and its draft goes.
+        assert!(app.chat(chat).is_some());
+        assert_eq!(
+            app.conversations.get(chat).map(|open| open.messages.len()),
+            Some(0)
+        );
+        assert!(!app.drafts.contains_key(chat));
+        assert_eq!(app.open_chat, Some(chat.into()));
+        // Only the cleared chat loses its search hits.
+        assert!(app.search_hits.iter().all(|hit| hit.chat != chat));
         assert_eq!(app.search_hits.len(), 1);
     }
 
