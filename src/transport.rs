@@ -210,15 +210,7 @@ impl Default for HappyEyeballsTransportFactory {
 
 #[whatsapp_rust::async_trait]
 impl TransportFactory for HappyEyeballsTransportFactory {
-    async fn create_transport(
-        &self,
-    ) -> Result<
-        (
-            Arc<dyn Transport>,
-            whatsapp_rust::async_channel::Receiver<TransportEvent>,
-        ),
-        anyhow::Error,
-    > {
+    async fn create_transport(&self) -> Result<Link, anyhow::Error> {
         let uri: http::Uri = self.url.parse()?;
         let host = uri.host().unwrap_or("web.whatsapp.com").to_owned();
         let port = uri.port_u16().unwrap_or(443);
@@ -236,21 +228,43 @@ impl TransportFactory for HappyEyeballsTransportFactory {
         let (stream, addr) = dial(addrs)
             .await
             .map_err(|error| anyhow::anyhow!("Could not reach {host}: {error}"))?;
-        let connector = self.connector.get_or_init(default_tls_connector);
-        let stream = connector
-            .wrap(&host, stream)
-            .await
-            .map_err(|error| anyhow::anyhow!("TLS to {addr} failed: {error}"))?;
-        let (ws, _) = tokio_websockets::ClientBuilder::from_uri(uri)
-            .add_header(
-                http::header::ORIGIN,
-                http::HeaderValue::from_static(WHATSAPP_WEB_ORIGIN),
-            )?
-            .connect_on(stream)
-            .await
-            .map_err(|error| anyhow::anyhow!("WebSocket connect to {addr} failed: {error}"))?;
-        Ok(from_websocket(ws))
+        websocket(&self.connector, uri, &host, stream, &format!("to {addr}")).await
     }
+}
+
+/// What a [`TransportFactory`] hands the library.
+pub type Link = (
+    Arc<dyn Transport>,
+    whatsapp_rust::async_channel::Receiver<TransportEvent>,
+);
+
+/// Runs TLS and the WhatsApp WebSocket handshake over a connected `stream`,
+/// shared by the direct dial here and [`crate::proxy`].
+///
+/// `connector` is the factory's own, built on first use and kept, so the TLS
+/// session store inside it outlives a reconnect. `via` names the path in an
+/// error, such as "to 157.240.0.1:443" or "through the proxy".
+pub async fn websocket(
+    connector: &OnceLock<Connector>,
+    uri: http::Uri,
+    host: &str,
+    stream: TcpStream,
+    via: &str,
+) -> Result<Link, anyhow::Error> {
+    let stream = connector
+        .get_or_init(default_tls_connector)
+        .wrap(host, stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("TLS {via} failed: {error}"))?;
+    let (ws, _) = tokio_websockets::ClientBuilder::from_uri(uri)
+        .add_header(
+            http::header::ORIGIN,
+            http::HeaderValue::from_static(WHATSAPP_WEB_ORIGIN),
+        )?
+        .connect_on(stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("WebSocket connect {via} failed: {error}"))?;
+    Ok(from_websocket(ws))
 }
 
 #[cfg(test)]

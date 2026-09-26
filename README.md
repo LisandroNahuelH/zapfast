@@ -289,7 +289,9 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   answers. A network whose IPv6 has a route but no path past the gateway, as on
   some phone hotspots and captive portals, still links over IPv4. Each
   reconnect resolves the names again, so changing networks does not need a
-  restart. With a proxy configured, the proxy resolves and dials instead.
+  restart. With a proxy configured, ZapFast dials the proxy instead:
+  `socks5h://` and `http://` proxies resolve WhatsApp's host themselves, and
+  `socks5://` hands the proxy the first address this computer resolves.
 - **Reconnects after sleep.** After the computer wakes from sleep, or when the
   connection has received nothing for two minutes, ZapFast reconnects and
   fetches what arrived meanwhile, instead of waiting on a connection that
