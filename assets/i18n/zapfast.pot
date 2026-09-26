@@ -1475,40 +1475,40 @@ msgstr ""
 #: src/settings.rs:341
 msgid "After 1 hour"
 #: src/ui/settings.rs:686 src/ui/settings.rs:1052
+#: src/ui/settings.rs:680 src/ui/settings.rs:1107
 msgid "Storage used"
 msgstr ""
 
-#: src/ui/settings.rs:688
+#: src/ui/settings.rs:682
 msgid "Space"
 msgstr ""
 
-#: src/ui/settings.rs:689
-msgid "Pictures"
-msgstr ""
-
-#: src/ui/settings.rs:690 src/ui/settings.rs:1106
+#: src/ui/settings.rs:684 src/ui/settings.rs:1162
 msgid "Videos"
 msgstr ""
 
-#: src/ui/settings.rs:691 src/ui/settings.rs:1114
+#: src/ui/settings.rs:685 src/ui/settings.rs:1170
 msgid "Stickers and GIFs"
 msgstr ""
 
-#: src/ui/settings.rs:692 src/ui/settings.rs:1123
+#: src/ui/settings.rs:686 src/ui/settings.rs:1179
 msgid "Other"
 msgstr ""
 
-#: src/ui/settings.rs:693
+#: src/ui/settings.rs:687
 msgid "Messages"
 msgstr ""
 
-#: src/ui/settings.rs:1086
-#, rust-format
+#: src/ui/settings.rs:1142
 msgid "{} message"
 msgid_plural "{} messages"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/ui/settings.rs:1098
+#: src/ui/settings.rs:683 src/ui/settings.rs:1154
 msgid "Images"
+msgstr ""
+
+#: src/ui/settings.rs:1125
+msgid "Space taken by the pictures, videos, stickers, and GIFs already on this computer. Documents and audio count under Other."
 msgstr ""

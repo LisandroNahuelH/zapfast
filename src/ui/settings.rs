@@ -1,12 +1,10 @@
 //! The settings page.
 
 use std::borrow::Cow;
-use std::time::Duration;
 
 use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Stroke, Vec2, pos2, vec2};
 
 use crate::app::App;
-use crate::backend::Command;
 use crate::i18n::Locale;
 use crate::model::{Action, Dialog, Page, StorageStats};
 use crate::privacy::{PrivacyChoice, PrivacyKind};
@@ -195,7 +193,6 @@ impl Section {
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
-    request_storage_stats(app);
     if theme::macos_chrome(ui.ctx()) {
         super::banner(app, ui);
     }
@@ -718,7 +715,7 @@ fn sections(app: &App) -> Vec<Section> {
             translated(locale, "Storage used"),
             translated(locale, "Downloads"),
             translated(locale, "Space"),
-            translated(locale, "Pictures"),
+            translated(locale, "Images"),
             translated(locale, "Videos"),
             translated(locale, "Stickers and GIFs"),
             translated(locale, "Other"),
@@ -1319,26 +1316,13 @@ fn wallpaper_color_button(
     response.clicked()
 }
 
-/// A titled group of settings on a rounded card.
-/// How long a reading of the archive's downloaded size stays fresh.
-const STORAGE_STATS_TTL: Duration = Duration::from_secs(60);
-
-/// Asks the worker for the downloaded size when the last answer is old, so a
-/// page left open follows a download instead of freezing its first reading.
-fn request_storage_stats(app: &mut App) {
-    let stale = app
-        .storage_stats_at
-        .is_none_or(|at| at.elapsed() >= STORAGE_STATS_TTL);
-    if stale && !app.storage_stats_asked {
-        app.backend.send(Command::StorageStats);
-        app.storage_stats_asked = true;
-    }
-}
-
 /// The space the downloaded attachments take, split by kind.
 fn storage_usage(ui: &mut egui::Ui, app: &App) {
     let palette = app.palette;
-    let stats = app.storage_stats;
+    // A reading that never arrived shows nothing rather than zeroes.
+    let Some(stats) = app.storage_stats else {
+        return;
+    };
     let total = stats.bytes_total();
     ui.horizontal(|ui| {
         theme::text(
@@ -1361,7 +1345,8 @@ fn storage_usage(ui: &mut egui::Ui, app: &App) {
         ui,
         &crate::i18n::gettext(
             app.locale,
-            "Space taken by pictures, videos, stickers, and GIFs already on this computer.",
+            "Space taken by the pictures, videos, stickers, and GIFs already on this \
+             computer. Documents and audio count under Other.",
         ),
         theme::regular(12.5),
         palette.secondary,
@@ -1410,7 +1395,7 @@ fn storage_usage(ui: &mut egui::Ui, app: &App) {
         stats.sticker_gif_bytes,
         total,
     );
-    if stats.other_bytes > 0 {
+    if stats.other > 0 {
         storage_bar_row(
             ui,
             &palette,
@@ -1459,6 +1444,7 @@ fn storage_bar_row(
     ui.add_space(8.0);
 }
 
+/// A titled group of settings on a rounded card.
 fn section(
     ui: &mut egui::Ui,
     palette: &Palette,

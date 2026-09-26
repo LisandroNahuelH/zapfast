@@ -162,6 +162,15 @@ const MIGRATIONS: &[(&str, &str, &str)] = &[
     ("chats", "group_admin", "INTEGER NOT NULL DEFAULT 0"),
     ("contacts", "first_name", "TEXT"),
 ];
+
+/// Whether a message holds an attachment that is on this computer: its own
+/// file, an interactive card's image, or any of that card's carousel images.
+/// Kept as a virtual generated column so SQLite maintains it from `content`
+/// on every write and it cannot drift from what the row says.
+const DOWNLOADED: &str = "json_extract(content, '$.media.path') IS NOT NULL
+    OR json_extract(content, '$.card.image.path') IS NOT NULL
+    OR json_array_length(json_extract(content, '$.card.carousel')) > 0";
+
 const CHAT_JOIN: &str = "FROM chats c
              LEFT JOIN messages m ON m.chat = c.id AND m.rowid = (
                  SELECT rowid FROM messages WHERE chat = c.id ORDER BY timestamp DESC, rowid DESC LIMIT 1
@@ -363,9 +372,34 @@ impl Archive {
                 ))?;
             }
         }
+        Self::add_downloaded_marker(&connection)?;
         favorites::adopt_local_marks(&connection)?;
         Self::prune_receipts(&connection)?;
         Ok(Self { connection })
+    }
+
+    /// Adds the `downloaded` marker and the partial index over it.
+    ///
+    /// `PRAGMA table_info` does not list generated columns, so this one cannot
+    /// go through `MIGRATIONS`: its existence check would never see the column
+    /// and every start would try the `ALTER` again. `table_xinfo` does list it.
+    fn add_downloaded_marker(connection: &Connection) -> Result<()> {
+        let exists = connection
+            .prepare("PRAGMA table_xinfo(messages)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .any(|name| name.as_deref() == Ok("downloaded"));
+        if !exists {
+            connection.execute_batch(&format!(
+                "ALTER TABLE messages ADD COLUMN downloaded INTEGER
+                     GENERATED ALWAYS AS ({DOWNLOADED}) VIRTUAL"
+            ))?;
+        }
+        // Without the index every read of the marker scans the archive, which
+        // is the cost this column exists to remove.
+        connection.execute_batch(
+            "CREATE INDEX IF NOT EXISTS messages_downloaded ON messages (chat, id) WHERE downloaded",
+        )?;
+        Ok(())
     }
 
     /// Creates a chat or replaces a phone-number title with a better name.
@@ -1057,30 +1091,55 @@ impl Archive {
 
     /// Counts every archived message and sums the size of the attachments
     /// that have a local file, split by kind. GIFs (`kind=video` with
-    /// `gif=1`) share the sticker bucket. The weight comes from the sizes
-    /// WhatsApp declared and the archive persisted, not from `stat` on disk,
-    /// so a file the user deleted by hand is still counted.
+    /// `gif=1`) share the sticker bucket, and an interactive card's own image,
+    /// like each of its carousel images, counts as a picture. The weight comes
+    /// from the sizes WhatsApp declared and the archive persisted, not from
+    /// `stat` on disk, so a file the user deleted by hand is still counted.
+    ///
+    /// Every read is bounded by the `messages_downloaded` partial index, so
+    /// its cost follows the number of downloaded attachments rather than the
+    /// size of the archive. Walking every message row was what stalled the
+    /// worker on a large archive.
     pub fn storage_stats(&self) -> Result<StorageStats> {
         self.connection.query_row(
-            "SELECT
-                COUNT(*),
-                COALESCE(SUM(CASE WHEN kind = 'image' AND has_path THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN kind = 'image' AND has_path THEN size ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN kind = 'video' AND NOT is_gif AND has_path THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN kind = 'video' AND NOT is_gif AND has_path THEN size ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN (kind = 'sticker' OR is_gif) AND has_path THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN (kind = 'sticker' OR is_gif) AND has_path THEN size ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN has_path AND kind NOT IN ('image', 'video', 'sticker') THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN has_path AND kind NOT IN ('image', 'video', 'sticker') THEN size ELSE 0 END), 0)
-             FROM (
+            "WITH media(kind, size, present) AS (
                 SELECT
-                    json_extract(content, '$.kind') AS kind,
-                    json_extract(content, '$.gif') = 1 AS is_gif,
+                    CASE
+                        WHEN json_extract(content, '$.kind') = 'video'
+                            AND json_extract(content, '$.gif') = 1 THEN 'sticker'
+                        WHEN json_extract(content, '$.kind') IN ('image', 'video', 'sticker')
+                            THEN json_extract(content, '$.kind')
+                        ELSE 'other'
+                    END,
+                    CAST(COALESCE(json_extract(content, '$.media.size'), 0) AS INTEGER),
                     json_extract(content, '$.media.path') IS NOT NULL
-                        AND json_extract(content, '$.media.path') != '' AS has_path,
-                    CAST(COALESCE(json_extract(content, '$.media.size'), 0) AS INTEGER) AS size
-                FROM messages
-             )",
+                        AND json_extract(content, '$.media.path') != ''
+                FROM messages WHERE downloaded
+                UNION ALL
+                SELECT 'image',
+                    CAST(COALESCE(json_extract(content, '$.card.image.size'), 0) AS INTEGER),
+                    json_extract(content, '$.card.image.path') IS NOT NULL
+                        AND json_extract(content, '$.card.image.path') != ''
+                FROM messages WHERE downloaded
+                UNION ALL
+                SELECT 'image',
+                    CAST(COALESCE(json_extract(c.value, '$.image.size'), 0) AS INTEGER),
+                    json_extract(c.value, '$.image.path') IS NOT NULL
+                        AND json_extract(c.value, '$.image.path') != ''
+                FROM messages m, json_each(m.content, '$.card.carousel') c
+                WHERE m.downloaded
+             )
+             SELECT
+                (SELECT COUNT(*) FROM messages),
+                COALESCE(SUM(CASE WHEN kind = 'image' AND present THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN kind = 'image' AND present THEN size ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN kind = 'video' AND present THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN kind = 'video' AND present THEN size ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN kind = 'sticker' AND present THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN kind = 'sticker' AND present THEN size ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN kind = 'other' AND present THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN kind = 'other' AND present THEN size ELSE 0 END), 0)
+             FROM media",
             [],
             |row| {
                 Ok(StorageStats {
@@ -1965,6 +2024,20 @@ pub(crate) mod tests {
         }
     }
 
+    fn card(
+        image: Option<crate::model::Media>,
+        carousel: Vec<crate::model::InteractiveCard>,
+    ) -> crate::model::InteractiveCard {
+        crate::model::InteractiveCard {
+            body: "body".into(),
+            buttons: Vec::new(),
+            image,
+            needs_phone: false,
+            carousel,
+            thumbnail: None,
+        }
+    }
+
     /// Only attachments with a local file count, GIFs land in the sticker
     /// bucket, and a text-only archive reports zeroes instead of a null sum.
     #[test]
@@ -2062,6 +2135,28 @@ pub(crate) mod tests {
                 };
                 row
             },
+            {
+                let mut row = message(chat, "x1", 11, false);
+                row.content = Content::Interactive {
+                    text: "Order ready".into(),
+                    card: Some(Box::new(card(Some(media(500, Some("/x1.jpg"))), Vec::new()))),
+                };
+                row
+            },
+            {
+                let mut row = message(chat, "x2", 12, false);
+                row.content = Content::Interactive {
+                    text: "Carousel".into(),
+                    card: Some(Box::new(card(
+                        None,
+                        vec![
+                            card(Some(media(700, Some("/x2a.jpg"))), Vec::new()),
+                            card(Some(media(300, None)), Vec::new()),
+                        ],
+                    ))),
+                };
+                row
+            },
         ];
         for row in &rows {
             archive.insert_message(row, None).expect("inserted");
@@ -2072,16 +2167,20 @@ pub(crate) mod tests {
             StorageStats::default()
         );
         let stats = archive.storage_stats().expect("stats");
-        assert_eq!(stats.messages, 10, "the count includes text messages");
-        assert_eq!(stats.images, 1, "an image without a file is not counted");
-        assert_eq!(stats.image_bytes, 100);
+        assert_eq!(stats.messages, 12, "the count includes text messages");
+        assert_eq!(
+            stats.images, 3,
+            "an image without a file is not counted, a card's own image and each \
+             downloaded carousel image are"
+        );
+        assert_eq!(stats.image_bytes, 1300);
         assert_eq!(stats.videos, 1, "a GIF is not a video here");
         assert_eq!(stats.video_bytes, 1000);
         assert_eq!(stats.stickers_gifs, 2);
         assert_eq!(stats.sticker_gif_bytes, 230);
         assert_eq!(stats.other, 2);
         assert_eq!(stats.other_bytes, 120);
-        assert_eq!(stats.bytes_total(), 1450);
+        assert_eq!(stats.bytes_total(), 2650);
     }
 
     #[test]

@@ -23,6 +23,11 @@ use crate::theme::{self, Palette};
 
 /// Initial and incremental message-page size.
 pub const PAGE: usize = 60;
+
+/// How long a reading of the archive's downloaded size stays fresh. The
+/// reading itself is bounded by the `messages_downloaded` index, so this only
+/// decides how often a page left open follows a download.
+const STORAGE_STATS_TTL: Duration = Duration::from_secs(60);
 /// Minimum delay between phone history requests.
 const PHONE_COOLDOWN: Duration = Duration::from_secs(6);
 /// WhatsApp message-edit window.
@@ -422,9 +427,11 @@ pub struct App {
     pub chat_search_calendar: bool,
     /// Whether the pane's field should take focus.
     pub focus_chat_search: bool,
-    /// Counts and sizes of the downloaded attachments, for Settings.
-    pub storage_stats: StorageStats,
-    /// When [`Self::storage_stats`] was read, so a stale one is asked again.
+    /// Counts and sizes of the downloaded attachments, for Settings. `None`
+    /// until a reading succeeds, so a failed one leaves the row blank instead
+    /// of claiming the archive is empty.
+    pub storage_stats: Option<StorageStats>,
+    /// When the last reading was asked for, so a stale one is asked again.
     pub(crate) storage_stats_at: Option<Instant>,
     /// Whether a reading is already on its way to the worker.
     pub(crate) storage_stats_asked: bool,
@@ -971,7 +978,7 @@ impl App {
             chat_search_month: crate::util::today(),
             chat_search_calendar: false,
             focus_chat_search: false,
-            storage_stats: StorageStats::default(),
+            storage_stats: None,
             storage_stats_at: None,
             storage_stats_asked: false,
             locked_folder: false,
@@ -2206,7 +2213,13 @@ impl App {
                     }
                 }
                 Event::StorageStats(stats) => {
-                    self.storage_stats = stats;
+                    // A failed read answers nothing and leaves the last good
+                    // numbers, or the blank row, in place. The attempt still
+                    // counts as one, so a broken archive is retried on the
+                    // same cadence instead of on every frame.
+                    if stats.is_some() {
+                        self.storage_stats = stats;
+                    }
                     self.storage_stats_at = Some(Instant::now());
                     self.storage_stats_asked = false;
                 }
@@ -5629,6 +5642,23 @@ impl App {
         }
     }
 
+    /// Asks the worker for the archive's storage numbers while Settings is
+    /// open, at most once per [`STORAGE_STATS_TTL`]. The request lives here
+    /// rather than in the view: `src/ui` draws and pushes actions, and only
+    /// `App` talks to the worker.
+    fn refresh_storage_stats(&mut self) {
+        if self.page != Page::Settings || self.storage_stats_asked {
+            return;
+        }
+        let stale = self
+            .storage_stats_at
+            .is_none_or(|at| at.elapsed() >= STORAGE_STATS_TTL);
+        if stale {
+            self.backend.send(Command::StorageStats);
+            self.storage_stats_asked = true;
+        }
+    }
+
     pub fn frame_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
@@ -5679,6 +5709,7 @@ impl App {
         }
         crate::ui::show(self, ui);
         self.apply_actions(ctx);
+        self.refresh_storage_stats();
         // The old colours, if a change is being revealed, go over everything.
         self.theme_transition.paint(ctx);
         // Release the image caches of everything that scrolled away.

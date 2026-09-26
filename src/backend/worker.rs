@@ -53,7 +53,7 @@ use crate::app::PAGE;
 use crate::archive::Archive;
 use crate::model::{
     ATTACHMENT_DOWNLOAD_LIMIT, Chat, ChatId, ChatKind, Contact, Content, Delivery, Gif, GifError,
-    LIVE_LOCATION_LIMIT, LinkPreview, Media, MentionRef, Message, Quoted, Reaction, StorageStats,
+    LIVE_LOCATION_LIMIT, LinkPreview, Media, MentionRef, Message, Quoted, Reaction,
 };
 use crate::paths::AppDirs;
 use crate::privacy::{self, PrivacyChoice, PrivacyKind};
@@ -4364,10 +4364,11 @@ impl Worker {
                 until,
             } => self.search_chat_messages(chat, query, from, until),
             Command::StorageStats => match self.archive.storage_stats() {
-                Ok(stats) => self.emit(Event::StorageStats(stats)),
+                Ok(stats) => self.emit(Event::StorageStats(Some(stats))),
                 Err(error) => {
                     log::warn!("could not read the storage stats: {error}");
-                    self.emit(Event::StorageStats(StorageStats::default()));
+                    // Nothing to show: a blank row is honest, zeroes are not.
+                    self.emit(Event::StorageStats(None));
                 }
             },
             Command::EnsureChat { chat, name } => {

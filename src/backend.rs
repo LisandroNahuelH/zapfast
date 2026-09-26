@@ -754,8 +754,9 @@ pub enum Event {
         /// the pane can say so instead of dropping them silently.
         truncated: bool,
     },
-    /// Counts and sizes of the downloaded attachments.
-    StorageStats(StorageStats),
+    /// Counts and sizes of the downloaded attachments. `None` when the
+    /// archive could not be read.
+    StorageStats(Option<StorageStats>),
     ChatUpdated(Box<Chat>),
     /// Chat messages in ascending order. `older` prepends them; `complete`
     /// means the archive has no earlier rows.

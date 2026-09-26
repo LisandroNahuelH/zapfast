@@ -890,7 +890,7 @@ pub fn populate(app: &mut App) {
     // filled instead of disabled.
     app.account_privacy = crate::privacy::Snapshot::demo();
     // The storage row reads like an archive in use, not like an empty one.
-    app.storage_stats = StorageStats {
+    app.storage_stats = Some(StorageStats {
         messages: 128,
         images: 12,
         image_bytes: 8_388_608,
@@ -900,7 +900,7 @@ pub fn populate(app: &mut App) {
         sticker_gif_bytes: 2_097_152,
         other: 4,
         other_bytes: 524_288,
-    };
+    });
     app.storage_stats_at = Some(std::time::Instant::now());
     app.scroll_to_bottom = true;
     app.focus_composer = false;
