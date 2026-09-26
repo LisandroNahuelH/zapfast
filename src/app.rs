@@ -2006,14 +2006,15 @@ impl App {
                 Event::SyncProgress(percent) => self.sync_percent = Some(percent),
                 Event::OlderFetched { chat, more, silent } => {
                     let conversation = self.conversations.entry(chat).or_default();
-                    conversation.fetching_phone = false;
                     if silent {
                         // A background page is not an answer to a request the
-                        // reader made: it must not count against the phone, or
-                        // every successful prefetch would look like a miss and
-                        // back off the next scroll.
+                        // reader made: it must not clear the spinner of a
+                        // request still in flight, and it must not count
+                        // against the phone, or every successful prefetch would
+                        // look like a miss and back off the next scroll.
                         continue;
                     }
+                    conversation.fetching_phone = false;
                     conversation.phone_exhausted = !more;
                     conversation.phone_answered = Some(Instant::now());
                     if conversation.phone_delivered {
@@ -5439,11 +5440,11 @@ mod tests {
             "and it does not send the view back to the archive"
         );
         assert!(
-            !conversation.fetching_phone,
-            "the request it belonged to is finished"
+            conversation.fetching_phone,
+            "a background page leaves the reader's request in flight"
         );
 
-        // A page the reader asked for still counts.
+        // A page the reader asked for still counts, and ends the wait.
         events
             .send(Event::OlderFetched {
                 chat: chat.into(),
@@ -5456,6 +5457,7 @@ mod tests {
         assert_eq!(conversation.phone_misses, 3);
         assert!(conversation.phone_exhausted);
         assert!(!conversation.complete);
+        assert!(!conversation.fetching_phone);
     }
 
     #[test]
