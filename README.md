@@ -283,12 +283,13 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   when validation fails. Private read-state updates run one at a time. Failures
   pause the whole queue with backoff from 30 seconds to 15 minutes; pending reads
   remain saved and resume automatically. New messages can still arrive.
-- **Connects over either address family.** ZapFast dials every address the
-  WhatsApp host resolves to, IPv6 and IPv4, starting the next one a quarter of
-  a second after the last, and keeps the first that answers. A network whose
-  IPv6 has a route but no path past the gateway, as on some phone hotspots and
-  captive portals, still links over IPv4. Each reconnect resolves the names
-  again, so changing networks does not need a restart.
+- **Connects over either address family.** On a direct connection, ZapFast
+  dials every address the WhatsApp host resolves to, IPv6 and IPv4, starting
+  the next one a quarter of a second after the last, and keeps the first that
+  answers. A network whose IPv6 has a route but no path past the gateway, as on
+  some phone hotspots and captive portals, still links over IPv4. Each
+  reconnect resolves the names again, so changing networks does not need a
+  restart. With a proxy configured, the proxy resolves and dials instead.
 - **Reconnects after sleep.** After the computer wakes from sleep, or when the
   connection has received nothing for two minutes, ZapFast reconnects and
   fetches what arrived meanwhile, instead of waiting on a connection that
