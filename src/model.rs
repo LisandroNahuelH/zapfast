@@ -1159,6 +1159,8 @@ pub struct Toast {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Open(Page),
+    /// Opens settings, or closes them when they are already showing.
+    ToggleSettings,
     OpenChat(ChatId),
     /// Creates and opens a chat for a contact without one.
     StartChat {

@@ -5268,6 +5268,62 @@ mod tests {
         );
     }
 
+    /// The gear opens settings, and a second click on it closes them again,
+    /// landing back on the chat that was open. No close button is added.
+    #[test]
+    fn a_second_click_on_the_settings_button_closes_settings() {
+        use crate::ui::focus::Stop;
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.attach(&ctx);
+        render(&mut app, &ctx);
+        let chat = app.open_chat.clone().expect("a chat is open to start");
+        let gear = |ctx: &egui::Context| {
+            let id = crate::ui::focus::stops(ctx)
+                .into_iter()
+                .find(|(stop, _)| *stop == Stop::Settings)
+                .map(|(_, id)| id)
+                .expect("the settings button is drawn");
+            ctx.read_response(id).expect("it publishes its rect").rect
+        };
+        let click = |app: &mut App, ctx: &egui::Context, rect: egui::Rect| {
+            let pos = rect.center();
+            for pressed in [true, false] {
+                frame_sized(
+                    app,
+                    ctx,
+                    780.0,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        };
+        click(&mut app, &ctx, gear(&ctx));
+        assert_eq!(
+            app.page,
+            crate::model::Page::Settings,
+            "the first click opens settings"
+        );
+        click(&mut app, &ctx, gear(&ctx));
+        assert_eq!(
+            app.page,
+            crate::model::Page::Chats,
+            "the second click closes settings"
+        );
+        assert_eq!(
+            app.open_chat.as_deref(),
+            Some(chat.as_str()),
+            "closing settings lands back on the chat that was open"
+        );
+    }
+
     #[test]
     fn account_privacy_fetch_fills_the_rows() {
         let mut app = app();

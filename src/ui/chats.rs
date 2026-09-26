@@ -104,7 +104,7 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
                     .on_hover_text(tooltip)
                     .on_hover_cursor(egui::CursorIcon::PointingHand);
                     if response.clicked() {
-                        app.actions.push(Action::Open(Page::Settings));
+                        app.actions.push(Action::ToggleSettings);
                     }
                     ui.add_space(2.0);
                     theme::text(
@@ -119,14 +119,18 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
                         ui,
                         Icon::Settings,
                         18.0,
-                        palette.secondary,
+                        if app.page == Page::Settings {
+                            palette.accent
+                        } else {
+                            palette.secondary
+                        },
                         palette.text,
                         "Settings (Ctrl+,)",
                     )
                     .tab_stop(Stop::Settings)
                     .clicked()
                     {
-                        app.actions.push(Action::Open(Page::Settings));
+                        app.actions.push(Action::ToggleSettings);
                     }
                     if theme::icon_button(
                         ui,
