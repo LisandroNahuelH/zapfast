@@ -3256,18 +3256,23 @@ const FOOTER_MARK_GAP: f32 = 8.0;
 /// Room the mark keeps, so showing it does not change the bubble's width.
 const FOOTER_MARK_SLOT: f32 = FOOTER_MARK + FOOTER_MARK_GAP;
 
-/// Width of the message footer.
-fn footer_width(ui: &egui::Ui, message: &Message, pinned: bool) -> f32 {
-    let font = theme::regular(11.0);
-    let time = ui
-        .painter()
+/// The clock's own width at the footer's size: the floor a footer starts from,
+/// and the one part of it that depends on the reader's clock format.
+fn clock_width(ui: &egui::Ui, message: &Message) -> f32 {
+    ui.painter()
         .layout_no_wrap(
             crate::util::clock(message.timestamp),
-            font.clone(),
+            theme::regular(11.0),
             Color32::WHITE,
         )
         .size()
-        .x;
+        .x
+}
+
+/// Width of the message footer.
+fn footer_width(ui: &egui::Ui, message: &Message, pinned: bool) -> f32 {
+    let font = theme::regular(11.0);
+    let time = clock_width(ui, message);
     let edited = if message.edited {
         ui.painter()
             .layout_no_wrap("edited".to_owned(), font, Color32::WHITE)
@@ -6645,6 +6650,7 @@ mod tests {
     #[test]
     fn the_footer_reserves_the_pin_mark_slot() {
         let ctx = egui::Context::default();
+        let mut clock = 0.0;
         let mut plain = 0.0;
         let mut pinned = 0.0;
         let mut output = ctx.run_ui(
@@ -6654,18 +6660,22 @@ mod tests {
             },
             |ui| {
                 let message = crate::archive::tests::message("1@s.whatsapp.net", "m1", 0, false);
+                clock = clock_width(ui, &message);
                 plain = footer_width(ui, &message, false);
                 pinned = footer_width(ui, &message, true);
             },
         );
         output.textures_delta.clear();
+        // Measured against the clock the reader's own format produces, not a
+        // number that only holds on a 24-hour one: the same footer is a third
+        // wider where the system shows "12:00 AM".
         assert!(
-            plain < 40.0,
-            "a plain incoming footer is just the clock, got {plain}"
+            (plain - clock).abs() < 0.01,
+            "a plain incoming footer is just the clock, {plain} vs {clock}"
         );
         assert!(
-            (pinned - plain - FOOTER_MARK_SLOT).abs() < 0.5,
-            "a pin reserves one mark slot, {pinned} vs {plain}"
+            (pinned - clock - FOOTER_MARK_SLOT).abs() < 0.5,
+            "a pin reserves one mark slot, {pinned} vs {clock}"
         );
     }
 
