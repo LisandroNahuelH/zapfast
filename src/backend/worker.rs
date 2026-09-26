@@ -509,7 +509,7 @@ pub async fn run(
         online_changed: Instant::now(),
         online_sent: None,
         pending_older: HashMap::new(),
-        stale_older: HashSet::new(),
+        stale_older: HashMap::new(),
         older_warned: HashSet::new(),
         pending_avatars: HashMap::new(),
         sticker_fetches: HashSet::new(),
@@ -776,10 +776,12 @@ struct Worker {
     /// Pending phone-history request time and boundary by chat.
     pending_older: HashMap<ChatId, (Instant, super::PageKey)>,
     /// Background phone-history requests that timed out and whose answer may
-    /// still arrive. The mark outlives the request it stands for, so a late
-    /// background page is not mistaken for the answer the reader is waiting
-    /// for, and the reader's own request keeps its place in `pending_older`.
-    stale_older: HashSet<ChatId>,
+    /// still arrive, with the moment the mark was made. The mark outlives the
+    /// request it stands for, so a late background page is not mistaken for the
+    /// answer the reader is waiting for, and the reader's own request keeps its
+    /// place in `pending_older`. It lasts one patience: an answer that never
+    /// arrives must not keep the reader's next page quiet for good.
+    stale_older: HashMap<ChatId, Instant>,
     /// Chats already notified about a phone-history timeout.
     older_warned: HashSet<ChatId>,
     /// Deferred profile-picture requests and retry counts.
@@ -3943,7 +3945,14 @@ impl Worker {
             // its answer, not the one the reader is waiting for: it stays quiet
             // and the reader's request keeps its place in `pending_older`, so
             // its own answer is not mistaken for a late one.
-            if self.stale_older.remove(&chat) {
+            // A mark whose answer never came must not keep the reader's page
+            // quiet for good. Past one more patience the page in hand is the
+            // one the reader asked for, and it shows.
+            let stale = self
+                .stale_older
+                .remove(&chat)
+                .is_some_and(|marked| marked.elapsed() < PHONE_PATIENCE);
+            if stale {
                 self.emit(Event::OlderFetched {
                     chat,
                     more,
@@ -3989,6 +3998,11 @@ impl Worker {
 
     /// Times out unanswered phone-history requests.
     fn expire_older_requests(&mut self) {
+        // A mark stands for a background answer still on its way. One patience
+        // after its request timed out, that answer is not coming, and the mark
+        // would only swallow the next page for the chat.
+        self.stale_older
+            .retain(|_, marked| marked.elapsed() < PHONE_PATIENCE);
         let expired: Vec<ChatId> = self
             .pending_older
             .iter()
@@ -4002,7 +4016,7 @@ impl Worker {
             // page from a late page the reader is waiting for.
             let silent = self.prefetch_older.remove(&chat);
             if silent {
-                self.stale_older.insert(chat.clone());
+                self.stale_older.insert(chat.clone(), Instant::now());
             }
             self.prefetch.fail_history(&chat, Instant::now());
             self.emit(Event::OlderFetched {
@@ -5253,6 +5267,22 @@ impl Worker {
             }
             Command::Shutdown => {}
             Command::OlderFailed { chat, error } => {
+                // A background request that timed out and fails late is its own
+                // failure: the reader's newer request keeps its place, and
+                // nothing is shown for a request nobody made.
+                if self
+                    .stale_older
+                    .remove(&chat)
+                    .is_some_and(|marked| marked.elapsed() < PHONE_PATIENCE)
+                {
+                    self.prefetch.fail_history(&chat, Instant::now());
+                    self.emit(Event::OlderFetched {
+                        chat,
+                        more: true,
+                        silent: true,
+                    });
+                    return;
+                }
                 self.pending_older.remove(&chat);
                 let silent = self.prefetch_older.remove(&chat);
                 self.prefetch.fail_history(&chat, Instant::now());
@@ -8431,7 +8461,7 @@ mod tests {
         };
         // The background asked for older history, its request timed out, and
         // its answer is still on its way.
-        worker.stale_older.insert(CHAT.to_owned());
+        worker.stale_older.insert(CHAT.to_owned(), Instant::now());
         // The reader scrolls up while that answer is in flight.
         worker
             .pending_older
@@ -8449,7 +8479,7 @@ mod tests {
             "the reader's request keeps its place"
         );
         assert!(
-            !worker.stale_older.contains(CHAT),
+            !worker.stale_older.contains_key(CHAT),
             "the background mark is spent"
         );
         // The reader's own answer is the one that moves the view.
@@ -8462,6 +8492,75 @@ mod tests {
             "the reader's answer shows: {second:?}"
         );
         assert!(!worker.pending_older.contains_key(CHAT));
+    }
+
+    /// A mark whose answer never came is spent one patience later: the page in
+    /// hand is the reader's, so the scroll-up shows it instead of waiting for
+    /// another timeout. The sweep drops it, so the map cannot grow with chats
+    /// nobody will answer again.
+    #[test]
+    fn a_mark_past_its_patience_does_not_swallow_the_readers_page() {
+        const CHAT: &str = "fixture@s.whatsapp.net";
+        let (mut worker, mut events, _commands, _wa) = receipt_tests::worker();
+        worker.archive.ensure_chat(CHAT, "Demo").unwrap();
+        let drained = |events: &mut std::sync::mpsc::Receiver<Event>| -> Vec<Event> {
+            std::iter::from_fn(|| events.try_recv().ok()).collect()
+        };
+        let long_ago = Instant::now() - PHONE_PATIENCE - Duration::from_secs(1);
+        worker.stale_older.insert(CHAT.to_owned(), long_ago);
+        worker
+            .pending_older
+            .insert(CHAT.to_owned(), (Instant::now(), (0, "oldest".to_owned())));
+        worker.answer_older(vec![(CHAT.to_owned(), 3, Some(true))]);
+        let first = drained(&mut events);
+        assert!(
+            first
+                .iter()
+                .any(|event| matches!(event, Event::OlderFetched { silent: false, .. })),
+            "the reader's page shows: {first:?}"
+        );
+        assert!(!worker.pending_older.contains_key(CHAT));
+        assert!(!worker.stale_older.contains_key(CHAT), "the mark is spent");
+
+        // The sweep is what keeps the map bounded: a mark nobody answers is
+        // gone one patience after its request timed out.
+        worker.stale_older.insert(CHAT.to_owned(), long_ago);
+        worker.expire_older_requests();
+        assert!(!worker.stale_older.contains_key(CHAT));
+    }
+
+    /// A background request that timed out and fails late is its own failure:
+    /// the reader's newer request keeps its place, and nothing is shown for a
+    /// request nobody made.
+    #[tokio::test]
+    async fn a_late_background_failure_keeps_the_readers_request() {
+        const CHAT: &str = "fixture@s.whatsapp.net";
+        let (mut worker, events, _commands, _wa) = receipt_tests::worker();
+        worker.archive.ensure_chat(CHAT, "Demo").unwrap();
+        worker.stale_older.insert(CHAT.to_owned(), Instant::now());
+        worker
+            .pending_older
+            .insert(CHAT.to_owned(), (Instant::now(), (0, "oldest".to_owned())));
+        worker
+            .handle_command(Command::OlderFailed {
+                chat: CHAT.to_owned(),
+                error: "fixture failure".to_owned(),
+            })
+            .await;
+        let seen: Vec<Event> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+        assert!(
+            worker.pending_older.contains_key(CHAT),
+            "the reader's request keeps its place"
+        );
+        assert!(
+            seen.iter()
+                .any(|event| matches!(event, Event::OlderFetched { silent: true, .. })),
+            "the failure stays quiet: {seen:?}"
+        );
+        assert!(
+            !seen.iter().any(|event| matches!(event, Event::Error(_))),
+            "nothing is shown for a request nobody made"
+        );
     }
 
     #[test]
@@ -10314,7 +10413,7 @@ mod receipt_tests {
             online_changed: Instant::now(),
             online_sent: None,
             pending_older: HashMap::new(),
-            stale_older: HashSet::new(),
+            stale_older: HashMap::new(),
             older_warned: HashSet::new(),
             pending_avatars: HashMap::new(),
             sticker_fetches: HashSet::new(),
