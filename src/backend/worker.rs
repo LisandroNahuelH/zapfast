@@ -1669,6 +1669,8 @@ impl Worker {
         self.privacy_ready = true;
         self.load_state();
         self.emit(Event::Syncing(self.syncing));
+        // The picker may have been sent an empty Received shelf meanwhile.
+        self.emit_stickers();
         // Answer the reads made while content was withheld, now that the
         // chat list they belong to has been sent.
         for page in std::mem::take(&mut self.withheld_pages) {
@@ -6056,7 +6058,9 @@ impl Worker {
             message: id,
             result,
         });
-        if for_picker {
+        // Listing the shelves scans the archive; one pass per batch keeps
+        // a send queued behind many picker downloads from waiting on each.
+        if for_picker && self.sticker_downloads.is_empty() {
             self.emit_stickers();
         }
     }
