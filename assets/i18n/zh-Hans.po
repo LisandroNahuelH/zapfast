@@ -1477,3 +1477,40 @@ msgstr ""
 #: src/settings.rs:341
 msgid "After 1 hour"
 msgstr ""
+#: src/ui/settings.rs:686 src/ui/settings.rs:1052
+msgid "Storage used"
+msgstr "已用存储空间"
+
+#: src/ui/settings.rs:688
+msgid "Space"
+msgstr "空间"
+
+#: src/ui/settings.rs:689
+msgid "Pictures"
+msgstr "图片"
+
+#: src/ui/settings.rs:690 src/ui/settings.rs:1106
+msgid "Videos"
+msgstr "视频"
+
+#: src/ui/settings.rs:691 src/ui/settings.rs:1114
+msgid "Stickers and GIFs"
+msgstr "贴纸和 GIF"
+
+#: src/ui/settings.rs:692 src/ui/settings.rs:1123
+msgid "Other"
+msgstr "其他"
+
+#: src/ui/settings.rs:693
+msgid "Messages"
+msgstr "消息"
+
+#: src/ui/settings.rs:1086
+#, rust-format
+msgid "{} message"
+msgid_plural "{} messages"
+msgstr[0] "{} 条消息"
+
+#: src/ui/settings.rs:1098
+msgid "Images"
+msgstr "图片"
