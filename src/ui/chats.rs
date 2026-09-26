@@ -98,7 +98,13 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
                         &me,
                         34.0,
                         picture.as_deref(),
-                        "Your profile and settings",
+                        // The label follows the action: while Settings are
+                        // showing, this click closes them.
+                        if app.page == Page::Settings {
+                            "Close settings"
+                        } else {
+                            "Your profile and settings"
+                        },
                     )
                     .tab_stop(Stop::Profile)
                     .on_hover_text(tooltip)
@@ -125,7 +131,13 @@ fn header(app: &mut App, ui: &mut egui::Ui) {
                             palette.secondary
                         },
                         palette.text,
-                        "Settings (Ctrl+,)",
+                        // Same as the avatar: the label says what the click
+                        // does now, not what it opened.
+                        if app.page == Page::Settings {
+                            "Close settings (Ctrl+,)"
+                        } else {
+                            "Settings (Ctrl+,)"
+                        },
                     )
                     .tab_stop(Stop::Settings)
                     .clicked()

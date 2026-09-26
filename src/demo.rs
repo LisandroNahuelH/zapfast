@@ -5324,6 +5324,70 @@ mod tests {
         );
     }
 
+    /// While Settings are showing, both header buttons say what a click does
+    /// now: a screen reader reads the label, not the accent colour.
+    #[test]
+    fn the_header_buttons_say_they_close_settings() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        // The macOS header carries neither button, so nothing follows the page
+        // there.
+        if crate::theme::macos_chrome(&ctx) {
+            return;
+        }
+        ctx.enable_accesskit();
+        app.attach(&ctx);
+        let labels = |app: &mut App, ctx: &egui::Context| -> Vec<String> {
+            let mut labels = Vec::new();
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1180.0, 780.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let ctx = ui.ctx().clone();
+                        app.background_frame(&ctx);
+                        app.frame_ui(ui);
+                    },
+                );
+                output.textures_delta.clear();
+                labels = output
+                    .platform_output
+                    .accesskit_update
+                    .expect("accessibility tree")
+                    .nodes
+                    .iter()
+                    .filter_map(|(_, node)| node.label().map(str::to_owned))
+                    .collect();
+            }
+            labels
+        };
+        let closed = labels(&mut app, &ctx);
+        assert!(
+            closed.contains(&"Your profile and settings".to_owned()),
+            "the avatar opens settings: {closed:?}"
+        );
+        assert!(
+            closed.contains(&"Settings (Ctrl+,)".to_owned()),
+            "the gear opens settings: {closed:?}"
+        );
+        app.actions
+            .push(crate::model::Action::Open(crate::model::Page::Settings));
+        let open = labels(&mut app, &ctx);
+        assert!(
+            open.contains(&"Close settings".to_owned()),
+            "the avatar says it closes settings: {open:?}"
+        );
+        assert!(
+            open.contains(&"Close settings (Ctrl+,)".to_owned()),
+            "the gear says it closes settings: {open:?}"
+        );
+    }
+
     #[test]
     fn account_privacy_fetch_fills_the_rows() {
         let mut app = app();
