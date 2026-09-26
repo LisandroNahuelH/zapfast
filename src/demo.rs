@@ -2061,6 +2061,19 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 app.dialog = Some(Dialog::JoinGroup);
             }
             "new-contact" => app.dialog = Some(Dialog::NewContact),
+            // One pinned message: its line under the chat header and its mark
+            // on the bubble.
+            "pinned" => pin_sample(app),
+            // Every pinned message, in the left panel.
+            "pinned-list" => {
+                pin_sample(app);
+                app.show_pinned = true;
+                app.pinned = app
+                    .chat_pins
+                    .get(SAMPLES[0].id)
+                    .cloned()
+                    .unwrap_or_default();
+            }
             "light" => {
                 app.settings.theme = ThemeChoice::Light;
             }
@@ -2477,6 +2490,34 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
         }
     }
+}
+
+/// One pinned message in the first sample chat: its line under the header,
+/// its mark on the bubble, and its row in the pinned panel.
+fn pin_sample(app: &mut App) {
+    let chat = SAMPLES[0].id;
+    let now = crate::util::now();
+    let sent_at = app
+        .conversations
+        .get(chat)
+        .and_then(|conversation| conversation.message("ada-reply"))
+        .map_or(now, |message| message.timestamp);
+    app.pins
+        .entry(chat.into())
+        .or_default()
+        .insert("ada-reply".into());
+    app.chat_pins.insert(
+        chat.into(),
+        vec![crate::archive::Pinned {
+            chat: chat.into(),
+            id: "ada-reply".into(),
+            pinned_at: now,
+            expires_at: now + 7 * 24 * 60 * 60,
+            text: "Listened, agreed on all three points.".into(),
+            from_me: true,
+            sent_at,
+        }],
+    );
 }
 
 fn unlink(app: &mut App) {
@@ -3874,6 +3915,8 @@ mod tests {
             "react-picker-empty",
             "react-custom",
             "react-other",
+            "pinned",
+            "pinned-list",
         ] {
             let mut app = self::app();
             apply_flags(&mut app, Some(page));
