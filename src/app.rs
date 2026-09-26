@@ -1112,7 +1112,10 @@ impl App {
         if matches!(
             &self.dialog,
             Some(
-                Dialog::ChatInfo(chat) | Dialog::CreatePoll(chat) | Dialog::ConfirmDeleteChat(chat)
+                Dialog::ChatInfo(chat)
+                    | Dialog::CreatePoll(chat)
+                    | Dialog::ConfirmDeleteChat(chat)
+                    | Dialog::ConfirmClearChat(chat)
             ) if chat == id
         ) || matches!(&self.dialog, Some(Dialog::Forward { chat, .. }) if chat == id)
         {
@@ -2324,6 +2327,11 @@ impl App {
     /// one of its messages would otherwise refer to rows that are gone, and a
     /// pending edit would send `EditText` for a message that no longer exists.
     fn handle_chat_cleared(&mut self, id: &str, through: i64) {
+        // A confirmation that is open for this chat is about messages that are
+        // already gone: clearing again would take what arrived since.
+        if matches!(&self.dialog, Some(Dialog::ConfirmClearChat(chat)) if chat == id) {
+            self.dialog = None;
+        }
         self.notifications.clear(id);
         // Clearing a chat also removes its stored draft.
         self.drafts.remove(id);
@@ -5378,6 +5386,42 @@ mod tests {
     fn app() -> App {
         let root = std::env::temp_dir().join(format!("zapfast-app-{}", std::process::id()));
         App::headless(AppDirs::under(&root), Settings::default()).0
+    }
+
+    /// A chat that is gone or emptied takes its confirmation with it: a modal
+    /// left behind for a chat that no longer exists still dispatches its
+    /// action, and after a remote clear that action would take what arrived
+    /// since.
+    #[test]
+    fn a_remote_removal_or_clear_closes_the_confirmation() {
+        let mut app = app();
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        let chat = "peer@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Peer".into()));
+
+        app.dialog = Some(Dialog::ConfirmClearChat(chat.into()));
+        events
+            .send(Event::ChatCleared {
+                chat: chat.into(),
+                through: 100,
+            })
+            .unwrap();
+        app.handle_events();
+        assert!(
+            app.dialog.is_none(),
+            "a cleared chat closes its confirmation"
+        );
+
+        app.dialog = Some(Dialog::ConfirmClearChat(chat.into()));
+        events
+            .send(Event::ChatRemoved { chat: chat.into() })
+            .unwrap();
+        app.handle_events();
+        assert!(
+            app.dialog.is_none(),
+            "a removed chat closes its confirmation"
+        );
     }
 
     /// Demo and test runs share the machine with a linked ZapFast, whose real
