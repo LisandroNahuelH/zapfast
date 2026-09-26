@@ -722,7 +722,7 @@ fn confirm_clear_chat(app: &mut App, ui: &mut egui::Ui, id: &str) {
     theme::paragraph(
         ui,
         format!(
-            "This clears every message in your chat with {name}, including starred messages and downloaded media, on this computer and on your phone. The chat itself stays. It cannot be undone."
+            "This clears every message in your chat with {name}, including downloaded media, on this computer and on your phone. The chat itself stays. It cannot be undone."
         ),
         theme::regular(13.5),
         palette.text,

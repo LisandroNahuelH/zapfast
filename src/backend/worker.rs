@@ -1045,7 +1045,8 @@ impl Worker {
     }
 
     /// Empties a chat while keeping it listed.
-    fn empty_chat(&mut self, chat: &str, through: i64, delete_media: bool) {
+    /// Empties a chat through `through`; false when the archive could not.
+    fn empty_chat(&mut self, chat: &str, through: i64, delete_media: bool) -> bool {
         match self.archive.remove_chat_through(chat, through, false) {
             Ok(removed) => {
                 self.pending_older.remove(chat);
@@ -1059,8 +1060,12 @@ impl Worker {
                     });
                     self.emit_chat(chat);
                 }
+                true
             }
-            Err(_error) => log::warn!("could not clear a chat"),
+            Err(_error) => {
+                log::warn!("could not clear a chat");
+                false
+            }
         }
     }
 
@@ -2344,7 +2349,7 @@ impl Worker {
                         .and_then(|range| range.last_message_timestamp),
                     update.timestamp.timestamp(),
                 );
-                self.empty_chat(&chat, through, update.delete_media);
+                let _ = self.empty_chat(&chat, through, update.delete_media);
             }
             E::MarkChatAsReadUpdate(update) => {
                 let chat = self.canonical(&update.jid);
@@ -4978,7 +4983,14 @@ impl Worker {
                 through,
             } => {
                 if cleared {
-                    self.empty_chat(&chat, through, true);
+                    if !self.empty_chat(&chat, through, true) {
+                        // The phone has cleared it; say so rather than leave
+                        // the messages here looking as if nothing happened.
+                        self.emit(Event::Error(
+                            "The phone cleared this chat, but ZapFast could not clear it here"
+                                .to_owned(),
+                        ));
+                    }
                 } else {
                     log::warn!("the phone did not clear a chat");
                     self.emit(Event::Error(
@@ -12022,7 +12034,7 @@ mod chat_removal_tests {
         let (mut worker, _events, _, _) = receipt_tests::worker();
         worker.apply_history(history(CHAT, &[100, 200]), true);
 
-        worker.empty_chat(CHAT, 200, false);
+        assert!(worker.empty_chat(CHAT, 200, false));
         worker.apply_history(history(CHAT, &[150]), false);
         assert!(worker.archive.chat(CHAT).expect("chat").is_some());
         assert!(stored(&worker, CHAT).is_empty());
