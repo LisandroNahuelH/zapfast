@@ -5278,6 +5278,23 @@ mod tests {
         app.attach(&ctx);
         render(&mut app, &ctx);
         let chat = app.open_chat.clone().expect("a chat is open to start");
+        // The macOS header carries neither the avatar nor the gear: Settings
+        // lives in the menu bar there, and a headless test draws no menu bar.
+        // The toggle is the same action everywhere, so macOS drives it through
+        // the action and the clicks are exercised where the buttons exist.
+        if crate::theme::macos_chrome(&ctx) {
+            for expected in [crate::model::Page::Settings, crate::model::Page::Chats] {
+                app.actions.push(crate::model::Action::ToggleSettings);
+                frame_sized(&mut app, &ctx, 780.0, Vec::new());
+                assert_eq!(app.page, expected, "the action toggles the page");
+            }
+            assert_eq!(
+                app.open_chat.as_deref(),
+                Some(chat.as_str()),
+                "closing settings lands back on the chat that was open"
+            );
+            return;
+        }
         let gear = |ctx: &egui::Context| {
             let id = crate::ui::focus::stops(ctx)
                 .into_iter()
