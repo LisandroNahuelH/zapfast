@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-09-26 12:47+0200\n"
+"POT-Creation-Date: 2026-09-26 13:43+0200\n"
 "PO-Revision-Date: 2026-09-25 23:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -254,7 +254,7 @@ msgstr "语音消息（{duration}）未发送"
 msgid "Discard voice message"
 msgstr "放弃语音消息"
 
-#: src/ui/conversation.rs:1870
+#: src/ui/conversation.rs:1870 src/notify/badge_windows.rs:255
 #, rust-format
 msgid "{} unread message"
 msgid_plural "{} unread messages"
@@ -851,15 +851,15 @@ msgstr "正在发送贴图包…"
 msgid "You have {limit} labels, the most ZapFast keeps."
 msgstr "你已有 {limit} 个标签，这是 ZapFast 的上限。"
 
-#: src/app.rs:4838
+#: src/app.rs:4845
 msgid "This video opens in your system player"
 msgstr "此视频将用系统播放器打开"
 
-#: src/app.rs:5327
+#: src/app.rs:5334
 msgid "Copied image"
 msgstr "已复制图片"
 
-#: src/app.rs:5330 src/app.rs:5335
+#: src/app.rs:5337 src/app.rs:5342
 msgid "Failed to copy image"
 msgstr "复制图片失败"
 
