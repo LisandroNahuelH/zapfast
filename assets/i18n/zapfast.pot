@@ -1256,3 +1256,42 @@ msgstr ""
 #: src/ui/image_preview.rs:175
 msgid "Open in another app"
 msgstr ""
+
+#: src/ui/settings.rs:686 src/ui/settings.rs:1052
+msgid "Storage used"
+msgstr ""
+
+#: src/ui/settings.rs:688
+msgid "Space"
+msgstr ""
+
+#: src/ui/settings.rs:689
+msgid "Pictures"
+msgstr ""
+
+#: src/ui/settings.rs:690 src/ui/settings.rs:1106
+msgid "Videos"
+msgstr ""
+
+#: src/ui/settings.rs:691 src/ui/settings.rs:1114
+msgid "Stickers and GIFs"
+msgstr ""
+
+#: src/ui/settings.rs:692 src/ui/settings.rs:1123
+msgid "Other"
+msgstr ""
+
+#: src/ui/settings.rs:693
+msgid "Messages"
+msgstr ""
+
+#: src/ui/settings.rs:1086
+#, rust-format
+msgid "{} message"
+msgid_plural "{} messages"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/ui/settings.rs:1098
+msgid "Images"
+msgstr ""

@@ -1287,3 +1287,42 @@ msgstr "Salvar como…"
 #: src/ui/image_preview.rs:175
 msgid "Open in another app"
 msgstr "Abrir em outro aplicativo"
+
+#: src/ui/settings.rs:686 src/ui/settings.rs:1052
+msgid "Storage used"
+msgstr "Armazenamento usado"
+
+#: src/ui/settings.rs:688
+msgid "Space"
+msgstr "Espaço"
+
+#: src/ui/settings.rs:689
+msgid "Pictures"
+msgstr "Imagens"
+
+#: src/ui/settings.rs:690 src/ui/settings.rs:1106
+msgid "Videos"
+msgstr "Vídeos"
+
+#: src/ui/settings.rs:691 src/ui/settings.rs:1114
+msgid "Stickers and GIFs"
+msgstr "Figurinhas e GIFs"
+
+#: src/ui/settings.rs:692 src/ui/settings.rs:1123
+msgid "Other"
+msgstr "Outros"
+
+#: src/ui/settings.rs:693
+msgid "Messages"
+msgstr "Mensagens"
+
+#: src/ui/settings.rs:1086
+#, rust-format
+msgid "{} message"
+msgid_plural "{} messages"
+msgstr[0] "{} mensagem"
+msgstr[1] "{} mensagens"
+
+#: src/ui/settings.rs:1098
+msgid "Images"
+msgstr "Imagens"
