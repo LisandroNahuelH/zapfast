@@ -4942,12 +4942,17 @@ impl Worker {
                     ));
                     return;
                 };
-                let through = self
-                    .archive
-                    .messages(&chat, None, 1)
-                    .ok()
-                    .and_then(|page| page.last().map(|message| message.timestamp))
-                    .unwrap_or_else(crate::util::now);
+                let Some(through) = clear_boundary(self.archive.messages(&chat, None, 1)) else {
+                    // Without the boundary this archive would be cleared through
+                    // a time it never agreed to, and the two sides would drift
+                    // while the dialog said they matched. Nothing is cleared
+                    // anywhere.
+                    log::warn!("could not read the boundary of a chat to clear");
+                    self.emit(Event::Error(
+                        "Could not read this chat's messages. Try again".to_owned(),
+                    ));
+                    return;
+                };
                 let commands = self.commands.clone();
                 tokio::spawn(async move {
                     let cleared = client
@@ -8249,6 +8254,17 @@ fn ensure_message_secret(raw: Vec<u8>, secret: Option<&[u8]>) -> Vec<u8> {
     context.message_secret = Some(secret.to_vec());
     message.message_context_info = MessageField::some(context);
     message.encode_to_vec()
+}
+
+/// The newest message the archive holds for a chat: the boundary the phone is
+/// asked to clear through. An archive that cannot be read yields no boundary at
+/// all, because a guessed one would clear the phone past messages this device
+/// never saw, and the dialog would say both sides matched.
+fn clear_boundary(read: crate::archive::Result<Vec<Message>>) -> Option<i64> {
+    read.ok().map(|page| {
+        page.last()
+            .map_or_else(crate::util::now, |message| message.timestamp)
+    })
 }
 
 #[cfg(test)]
@@ -12140,6 +12156,23 @@ mod chat_removal_tests {
             events
                 .try_iter()
                 .any(|event| matches!(event, Event::ChatCleared { chat, .. } if chat == CHAT))
+        );
+    }
+
+    /// A boundary that cannot be read is not `now`: clearing the phone through
+    /// a guessed time would leave the two sides apart while the dialog said
+    /// they matched. An archive with no messages still has one.
+    #[test]
+    fn a_boundary_that_cannot_be_read_is_not_guessed() {
+        assert_eq!(
+            clear_boundary(Err(rusqlite::Error::QueryReturnedNoRows)),
+            None,
+            "no boundary means nothing is cleared anywhere"
+        );
+        let empty: Vec<Message> = Vec::new();
+        assert!(
+            clear_boundary(Ok(empty)).is_some(),
+            "an empty archive clears through now"
         );
     }
 }
