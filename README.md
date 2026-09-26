@@ -500,7 +500,19 @@ With Nix, `nix develop` provides the pinned Rust toolchain and all native build
 dependencies. From the checkout, use `nix build .#zapfast` to build the package
 or `nix run .#zapfast` to run it.
 
-The desktop file and icon are in `packaging/`.
+`cargo install` puts the binary on your `PATH`, but it does not add a launcher
+entry. On Linux, a source build can have the entry the packages install:
+
+```sh
+cargo build --release --locked
+packaging/install-user.sh
+```
+
+The script installs the binary, the icon, and a desktop entry under
+`~/.local` (or the prefix you pass), with `Exec=` set to the installed binary's
+full path, since a graphical session often lacks `~/.local/bin` on `PATH`. It
+is Linux-only; on macOS and Windows use a packaged release or run the binary
+directly.
 
 `whatsapp-rust` is pinned to a Git commit because version 0.7.0 on crates.io
 enables a `simd` feature that needs nightly Rust. The pinned commit builds on
