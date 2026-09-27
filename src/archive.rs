@@ -2139,7 +2139,10 @@ pub(crate) mod tests {
                 let mut row = message(chat, "x1", 11, false);
                 row.content = Content::Interactive {
                     text: "Order ready".into(),
-                    card: Some(Box::new(card(Some(media(500, Some("/x1.jpg"))), Vec::new()))),
+                    card: Some(Box::new(card(
+                        Some(media(500, Some("/x1.jpg"))),
+                        Vec::new(),
+                    ))),
                 };
                 row
             },
