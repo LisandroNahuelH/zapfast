@@ -9,7 +9,11 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
+<<<<<<< HEAD
 "POT-Creation-Date: 2026-10-01 19:28-0300\n"
+=======
+"POT-Creation-Date: 2026-09-29 22:26-0300\n"
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -35,7 +39,7 @@ msgstr ""
 msgid "Favorites"
 msgstr ""
 
-#: src/model.rs:77
+#: src/model.rs:77 src/privacy.rs:46
 msgid "Groups"
 msgstr ""
 
@@ -182,7 +186,11 @@ msgstr ""
 msgid "No favorites yet"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/ui/chats.rs:878 src/app.rs:1617
+=======
+#: src/ui/chats.rs:881 src/app.rs:1404 src/app.rs:1582
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Message yourself"
 msgstr ""
 
@@ -194,8 +202,13 @@ msgstr ""
 msgid "Remove from favorites"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/ui/chats.rs:1140 src/ui/chats.rs:1502 src/ui/conversation.rs:4093
 #: src/ui/dialogs.rs:1055 src/ui/picker.rs:1616
+=======
+#: src/ui/chats.rs:1143 src/ui/chats.rs:1510 src/ui/conversation.rs:3821
+#: src/ui/conversation.rs:4083 src/ui/dialogs.rs:1003 src/ui/picker.rs:1572
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Add to favorites"
 msgstr ""
 
@@ -288,6 +301,7 @@ msgid_plural "{} unread messages"
 msgstr[0] ""
 msgstr[1] ""
 
+<<<<<<< HEAD
 #: src/ui/conversation.rs:3310 src/ui/conversation.rs:4102
 msgid "Open in system player"
 msgstr ""
@@ -315,10 +329,43 @@ msgid "Live location"
 msgstr ""
 
 #: src/ui/conversation.rs:4551
+=======
+#: src/ui/conversation.rs:3300 src/ui/conversation.rs:3830
+#: src/ui/conversation.rs:4092
+msgid "Open in system player"
+msgstr ""
+
+#: src/ui/conversation.rs:3301 src/ui/conversation.rs:3889
+#: src/ui/conversation.rs:4161 src/ui/message_info.rs:17
+msgid "Message info"
+msgstr ""
+
+#: src/ui/conversation.rs:4104 src/ui/image_preview.rs:62
+#: src/ui/image_preview.rs:173 src/ui/image_preview.rs:221
+#: src/ui/image_preview.rs:475
+msgid "Copy image"
+msgstr ""
+
+#: src/ui/conversation.rs:4223 src/ui/conversation.rs:4503
+msgid "Location"
+msgstr ""
+
+#: src/ui/conversation.rs:4249 src/ui/conversation.rs:4529
+msgid "Live location ended"
+msgstr ""
+
+#: src/ui/conversation.rs:4251 src/ui/conversation.rs:4441
+#: src/ui/conversation.rs:4531 src/ui/conversation.rs:4721
+msgid "Live location"
+msgstr ""
+
+#: src/ui/conversation.rs:4261 src/ui/conversation.rs:4541
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "Updated {time}"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/ui/conversation.rs:4601
 msgid "Chat"
 msgstr ""
@@ -328,17 +375,36 @@ msgid "Add"
 msgstr ""
 
 #: src/ui/conversation.rs:4660
+=======
+#: src/ui/conversation.rs:4311 src/ui/conversation.rs:4591
+msgid "Chat"
+msgstr ""
+
+#: src/ui/conversation.rs:4325 src/ui/conversation.rs:4605
+msgid "Add"
+msgstr ""
+
+#: src/ui/conversation.rs:4370 src/ui/conversation.rs:4650
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "{} sticker"
 msgid_plural "{} stickers"
 msgstr[0] ""
 msgstr[1] ""
 
+<<<<<<< HEAD
 #: src/ui/conversation.rs:4673
 msgid "View stickers"
 msgstr ""
 
 #: src/ui/conversation.rs:4739
+=======
+#: src/ui/conversation.rs:4383 src/ui/conversation.rs:4663
+msgid "View stickers"
+msgstr ""
+
+#: src/ui/conversation.rs:4449 src/ui/conversation.rs:4729
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Open WhatsApp on your phone to follow it."
 msgstr ""
 
@@ -366,6 +432,7 @@ msgstr ""
 msgid "This message can only be seen on your phone."
 msgstr ""
 
+<<<<<<< HEAD
 #: src/ui/conversation.rs:5616
 msgid "Open in a map"
 msgstr ""
@@ -391,6 +458,26 @@ msgid "Unmute"
 msgstr ""
 
 #: src/ui/conversation.rs:6298
+=======
+#: src/ui/conversation.rs:5295 src/ui/conversation.rs:5606
+msgid "Open in a map"
+msgstr ""
+
+#: src/ui/conversation.rs:5858 src/ui/conversation.rs:6166
+msgid "Pause"
+msgstr ""
+
+#: src/ui/conversation.rs:5860 src/ui/conversation.rs:6168
+#: src/ui/settings.rs:1613
+msgid "Play"
+msgstr ""
+
+#: src/ui/conversation.rs:5883 src/ui/conversation.rs:6191
+msgid "Unmute"
+msgstr ""
+
+#: src/ui/conversation.rs:5885 src/ui/conversation.rs:6193
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Mute"
 msgstr ""
 
@@ -536,7 +623,7 @@ msgstr ""
 msgid "Follow system uses your Omarchy colours."
 msgstr ""
 
-#: src/ui/settings.rs:315
+#: src/ui/settings.rs:315 src/ui/settings.rs:1036
 msgid "Theme"
 msgstr ""
 
@@ -554,7 +641,11 @@ msgstr ""
 msgid "Wallpaper"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/ui/settings.rs:329
+=======
+#: src/ui/settings.rs:321 src/ui/image_preview.rs:179
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Image"
 msgstr ""
 
@@ -748,8 +839,13 @@ msgstr ""
 msgid "Your name"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/ui/settings.rs:652 src/ui/settings.rs:732 src/ui/settings.rs:1380
 #: src/ui/settings.rs:1535
+=======
+#: src/ui/settings.rs:644 src/ui/settings.rs:724 src/ui/settings.rs:1350
+#: src/ui/settings.rs:1512 src/privacy.rs:45
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "About"
 msgstr ""
 
@@ -908,7 +1004,11 @@ msgstr ""
 msgid "Remove image"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/ui/settings.rs:1259
+=======
+#: src/ui/settings.rs:1036 src/ui/settings.rs:1229
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgctxt "wallpaper colour"
 msgid "Theme"
 msgstr ""
@@ -1029,16 +1129,25 @@ msgstr[1] ""
 msgid "No one yet"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/app.rs:1538
+=======
+#: src/app.rs:1325 src/app.rs:1503
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "A label named “{name}” already exists."
 msgstr ""
 
+<<<<<<< HEAD
 #: src/app.rs:1598
+=======
+#: src/app.rs:1385 src/app.rs:1563
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "{name} (You)"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/app.rs:1599 src/app.rs:1618
 msgid "You"
 msgstr ""
@@ -1048,6 +1157,17 @@ msgid "Could not use this image"
 msgstr ""
 
 #: src/app.rs:2903
+=======
+#: src/app.rs:1386 src/app.rs:1405 src/app.rs:1564 src/app.rs:1583
+msgid "You"
+msgstr ""
+
+#: src/app.rs:2197 src/app.rs:2395
+msgid "Could not use this image"
+msgstr ""
+
+#: src/app.rs:2660 src/app.rs:2861
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Not sent: ZapFast is not connected to WhatsApp."
 msgstr ""
 
@@ -1057,6 +1177,7 @@ msgid ""
 "Cancel the reply to send without a quote."
 msgstr ""
 
+<<<<<<< HEAD
 #: src/app.rs:4324
 msgid "Added to favorites"
 msgstr ""
@@ -1066,6 +1187,17 @@ msgid "Sending the sticker pack…"
 msgstr ""
 
 #: src/app.rs:4687 src/ui/labels.rs:237
+=======
+#: src/app.rs:4114 src/app.rs:4254
+msgid "Added to favorites"
+msgstr ""
+
+#: src/app.rs:4189 src/app.rs:4329
+msgid "Sending the sticker pack…"
+msgstr ""
+
+#: src/app.rs:4479 src/app.rs:4617 src/ui/labels.rs:237
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "You have {limit} labels, the most ZapFast keeps."
 msgstr ""
@@ -1078,6 +1210,7 @@ msgstr ""
 msgid "App lock turned off"
 msgstr ""
 
+<<<<<<< HEAD
 #: src/app.rs:5444
 msgid "This video opens in your system player"
 msgstr ""
@@ -1087,6 +1220,17 @@ msgid "Copied image"
 msgstr ""
 
 #: src/app.rs:5982 src/app.rs:5987
+=======
+#: src/app.rs:5044 src/app.rs:5364
+msgid "This video opens in your system player"
+msgstr ""
+
+#: src/app.rs:5535 src/app.rs:5900
+msgid "Copied image"
+msgstr ""
+
+#: src/app.rs:5538 src/app.rs:5543 src/app.rs:5903 src/app.rs:5908
+>>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Failed to copy image"
 msgstr ""
 
@@ -1408,12 +1552,87 @@ msgctxt "privacy"
 msgid "Silence unknown callers"
 msgstr ""
 
-#: src/ui/image_preview.rs:174
+#: src/ui/image_preview.rs:174 src/ui/image_preview.rs:355
+#: src/ui/image_preview.rs:476
 msgid "Save as…"
 msgstr ""
 
-#: src/ui/image_preview.rs:176
+#: src/ui/image_preview.rs:176 src/ui/image_preview.rs:213
+#: src/ui/image_preview.rs:478
 msgid "Open in another app"
+msgstr ""
+
+#: src/ui/image_preview.rs:200
+msgid "Close preview (Esc)"
+msgstr ""
+
+#: src/ui/image_preview.rs:249
+msgid "Zoom in"
+msgstr ""
+
+#: src/ui/image_preview.rs:259
+msgid "Fit"
+msgstr ""
+
+#: src/ui/image_preview.rs:260
+msgid "Show at original size"
+msgstr ""
+
+#: src/ui/image_preview.rs:266
+msgid "Fit to the window (0)"
+msgstr ""
+
+#: src/ui/image_preview.rs:282
+msgid "Zoom out"
+msgstr ""
+
+#: src/ui/image_preview.rs:298
+msgid "Reply"
+msgstr ""
+
+#: src/ui/image_preview.rs:311
+msgid "React"
+msgstr ""
+
+#: src/ui/image_preview.rs:330
+msgid "Forward"
+msgstr ""
+
+#: src/ui/image_preview.rs:371 src/ui/image_preview.rs:636
+#: src/ui/image_preview.rs:644 src/ui/image_preview.rs:715
+msgid "Download"
+msgstr ""
+
+#: src/ui/image_preview.rs:390
+msgid "Show in the chat"
+msgstr ""
+
+#: src/ui/image_preview.rs:577
+msgid "This image could not be displayed in ZapFast."
+msgstr ""
+
+#: src/ui/image_preview.rs:580
+msgid "Open externally"
+msgstr ""
+
+#: src/ui/image_preview.rs:713
+msgid "Play or pause the video"
+msgstr ""
+
+#: src/ui/image_preview.rs:833
+msgid "Video"
+msgstr ""
+
+#: src/ui/image_preview.rs:835
+msgid "Photo"
+msgstr ""
+
+#: src/ui/image_preview.rs:926
+msgid "Previous (,)"
+msgstr ""
+
+#: src/ui/image_preview.rs:932
+msgid "Next (.)"
 msgstr ""
 
 #: src/ui/lock.rs:17

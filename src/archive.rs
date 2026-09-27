@@ -30,6 +30,18 @@ pub struct Removed {
     pub media: Vec<PathBuf>,
 }
 
+/// One item of a chat's viewer album: what it is, when it arrived, and what
+/// the strip needs to draw it before the file itself is loaded.
+#[derive(Clone, Debug)]
+pub struct ChatMedia {
+    pub id: String,
+    pub timestamp: i64,
+    pub video: bool,
+    /// `None` until the attachment is downloaded.
+    pub path: Option<PathBuf>,
+    pub thumbnail: Option<Vec<u8>>,
+}
+
 /// Recent phone sticker metadata, last-used time, and optional local file.
 #[derive(Clone, Debug)]
 pub struct PhoneSticker {
@@ -325,6 +337,11 @@ fn kind_from_name(name: &str) -> ChatKind {
         _ => ChatKind::Direct,
     }
 }
+
+/// The most album items one answer carries. The strip cannot show more, and
+/// every item brings its thumbnail with it, so the album is a page of the chat
+/// rather than every photo it ever held.
+pub const GALLERY_PAGE: usize = 200;
 
 impl Archive {
     /// Unlocks the on-disk archive with its OS keyring key, migrating plaintext
@@ -1373,7 +1390,56 @@ impl Archive {
         Ok(())
     }
 
-    /// Attachment paths recorded for one chat.
+    /// The chat's photos and playable clips for the viewer album, oldest
+    /// first: the newest page of at most `limit` items.
+    ///
+    /// The path each row records is checked here, once: an attachment that was
+    /// deleted or moved is reported as missing, so the item offers Download
+    /// again instead of drawing a dead frame, and the strip never has to ask
+    /// the filesystem again for a thumbnail it is drawing.
+    pub fn gallery_media(&self, chat: &str, limit: usize) -> Result<Vec<ChatMedia>> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, timestamp, content, thumbnail FROM messages
+             WHERE chat = ?1 AND json_valid(content)
+             AND json_extract(content, '$.kind') IN ('image', 'video')
+             ORDER BY timestamp DESC, rowid DESC
+             LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![chat, limit as i64], |row| {
+            let id: String = row.get(0)?;
+            let timestamp: i64 = row.get(1)?;
+            let raw: String = row.get(2)?;
+            let thumbnail: Option<Vec<u8>> = row.get(3)?;
+            Ok((id, timestamp, raw, thumbnail))
+        })?;
+        let mut list = Vec::new();
+        for row in rows {
+            let (id, timestamp, raw, thumbnail) = row?;
+            let content: Content = serde_json::from_str(&raw).unwrap_or(Content::Unsupported {
+                what: "unreadable".into(),
+            });
+            let Some(kind) = content.gallery_kind() else {
+                continue;
+            };
+            let path = content
+                .media()
+                .and_then(|media| media.path.clone())
+                .filter(|path| path.is_file());
+            list.push(ChatMedia {
+                id,
+                timestamp,
+                video: kind == crate::model::GalleryKind::Video,
+                path,
+                thumbnail,
+            });
+        }
+        // The query walks the newest first, so the page is turned back round:
+        // the strip and the stepping both read oldest to newest.
+        list.reverse();
+        Ok(list)
+    }
+
+    /// Attachment paths of one chat.
     fn chat_media(&self, chat: &str) -> Result<Vec<PathBuf>> {
         self.cached_media("m.chat = ?1", params![chat])
     }
@@ -3411,6 +3477,49 @@ mod media_path_tests {
             forwarded: false,
             thumbnail: None,
         }
+    }
+
+    /// A recorded path whose file is gone is not a downloaded attachment: the
+    /// viewer would draw a dead frame and offer Save and Play instead of
+    /// Download, so the album reports it as missing. The page comes back
+    /// oldest first, and a document is not an album item at all.
+    #[test]
+    fn the_album_keeps_a_photo_and_forgets_a_missing_file() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("photo.jpg");
+        std::fs::write(&file, b"jpeg").unwrap();
+
+        let archive = Archive::in_memory().expect("opens");
+        archive.ensure_chat("a@s.whatsapp.net", "A").expect("chat");
+        archive
+            .insert_message(&picture("p1"), None)
+            .expect("inserted");
+        let mut later = picture("p2");
+        later.timestamp = 2;
+        archive.insert_message(&later, None).expect("inserted");
+        archive
+            .set_media_path("a@s.whatsapp.net", "p1", &file)
+            .expect("filed");
+        archive
+            .set_media_path("a@s.whatsapp.net", "p2", Path::new("/gone/photo.jpg"))
+            .expect("filed");
+
+        let album = archive
+            .gallery_media("a@s.whatsapp.net", GALLERY_PAGE)
+            .expect("album");
+        assert_eq!(album.len(), 2);
+        assert_eq!(album[0].id, "p1", "the page is oldest first");
+        assert_eq!(album[0].path.as_deref(), Some(file.as_path()));
+        assert_eq!(
+            album[1].path, None,
+            "the file that is gone is not a downloaded attachment"
+        );
+
+        // One item is a page too: the newest one, which is where a chat's
+        // album is looked at.
+        let page = archive.gallery_media("a@s.whatsapp.net", 1).expect("album");
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].id, "p2");
     }
 
     #[test]
