@@ -1844,6 +1844,14 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                 app.page = Page::Settings;
                 app.settings_search = choice["settings-search=".len()..].to_owned();
             }
+            // `language=zh-Hans` renders the interface in that language, so a
+            // capture can show the picker's own choice at work.
+            choice if choice.starts_with("language=") => {
+                let tag = &choice["language=".len()..];
+                let locale = crate::i18n::Locale::from_system(tag);
+                app.settings.interface_language = locale;
+                app.locale = crate::i18n::resolve(locale);
+            }
             "wallpaper" => app.page = Page::Wallpaper,
             "omarchy" | "omarchy-light" => {
                 let mut themes: Vec<_> = crate::theme::presets().collect();
@@ -3775,6 +3783,25 @@ mod tests {
             "{labels:?}"
         );
         assert!(!labels.contains(&"admins"));
+    }
+
+    /// `language=zh-Hans` renders the interface in that language, which is
+    /// what a capture of the picker's own choice needs. An unsupported tag
+    /// falls back to the system language rather than to a wrong catalog.
+    #[test]
+    fn the_language_flag_picks_the_interface_language() {
+        let mut app = app();
+        apply_flags(&mut app, Some("settings-search=Language,language=zh-Hans"));
+        assert_eq!(app.page, crate::model::Page::Settings);
+        assert_eq!(
+            app.settings.interface_language,
+            Some(crate::i18n::Locale::ChineseSimplified)
+        );
+        assert_eq!(app.locale, crate::i18n::Locale::ChineseSimplified);
+
+        apply_flags(&mut app, Some("language=ja-JP"));
+        assert_eq!(app.settings.interface_language, None);
+        assert_eq!(app.locale, crate::i18n::resolve(None));
     }
 
     #[test]
