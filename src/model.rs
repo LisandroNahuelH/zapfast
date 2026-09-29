@@ -847,7 +847,7 @@ pub(crate) const ATTACHMENT_DOWNLOAD_LIMIT: u64 = 64 * 1024 * 1024;
 
 /// Attachment metadata, download state, and optional local file. Download keys
 /// remain in the archive's raw message.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Media {
     pub mime: String,
     pub size: u64,
@@ -1607,6 +1607,7 @@ pub enum Action {
     SetCustomTheme(String),
     SetWallpaperColor(crate::settings::WallpaperColor),
     SetWallpaperDoodles(bool),
+    SetHistoryPrefetch(crate::settings::HistoryPrefetch),
     /// Asks for an image to use as the chat wallpaper.
     PickWallpaperImage,
     /// Goes back to the wallpaper colour and deletes the copied image.
@@ -1892,10 +1893,8 @@ mod tests {
         let image = |path: Option<&str>| Media {
             mime: "image/jpeg".into(),
             size: 1,
-            width: None,
-            height: None,
             path: path.map(PathBuf::from),
-            state: MediaState::Idle,
+            ..Default::default()
         };
         let content = |main: Option<&str>, cards: [Option<&str>; 2]| Content::Interactive {
             text: String::new(),
@@ -1944,10 +1943,7 @@ mod tests {
         Media {
             mime: "image/jpeg".into(),
             size: 1,
-            width: None,
-            height: None,
-            path: None,
-            state: MediaState::Idle,
+            ..Default::default()
         }
     }
 

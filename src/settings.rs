@@ -1,8 +1,11 @@
 //! User preferences stored in JSON.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+
+use crate::i18n::{Locale, gettext};
 
 /// Verifying the locked-chat code costs about 20 ms, paid once per distinct
 /// typed string. ponytail: fixed cost, revisit if it lags the search field.
@@ -64,6 +67,49 @@ impl FontChoice {
         match self {
             Self::System => "System",
             Self::Inter => "Inter",
+        }
+    }
+}
+
+/// How much older phone history and its files are fetched in the background.
+///
+/// Off is the default: prefetching asks the phone for history and its files
+/// without anyone asking for them, so an install that has never opened Settings
+/// does not do it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryPrefetch {
+    /// Nothing is fetched in the background.
+    #[default]
+    Off,
+    /// Only the chat that is open.
+    Focused,
+    /// Every pinned chat and the ten most recently active ones.
+    RecentAndPinned,
+}
+
+impl HistoryPrefetch {
+    /// The choices, in the order the picker shows them.
+    pub const ALL: [HistoryPrefetch; 3] = [Self::Off, Self::Focused, Self::RecentAndPinned];
+
+    /// The choice's name, in `locale`.
+    pub fn label(self, locale: Locale) -> Cow<'static, str> {
+        match self {
+            Self::Off => gettext(locale, "Off"),
+            Self::Focused => gettext(locale, "Current chat"),
+            Self::RecentAndPinned => gettext(locale, "Recent and pinned"),
+        }
+    }
+
+    /// What the choice does, shown while the pointer rests on it.
+    pub fn hint(self, locale: Locale) -> Cow<'static, str> {
+        match self {
+            Self::Off => gettext(locale, "Do not fetch older messages in the background."),
+            Self::Focused => gettext(locale, "Fetch older messages for the open chat only."),
+            Self::RecentAndPinned => gettext(
+                locale,
+                "Fetch older history for pinned chats and the ten most recent ones.",
+            ),
         }
     }
 }
@@ -470,6 +516,9 @@ pub struct Settings {
     pub app_lock_hash: Option<String>,
     /// How long ZapFast may go unused before the app lock locks it.
     pub app_lock_after: AutoLock,
+    /// How much older phone history and its files are fetched in the
+    /// background. Local: nothing here reaches WhatsApp.
+    pub history_prefetch: HistoryPrefetch,
 }
 
 impl Default for Settings {
@@ -517,6 +566,7 @@ impl Default for Settings {
             chat_lock_hint_dismissed: false,
             app_lock_hash: None,
             app_lock_after: AutoLock::default(),
+            history_prefetch: HistoryPrefetch::Off,
         }
     }
 }
@@ -734,6 +784,11 @@ mod tests {
         assert!(parsed.show_wallpaper);
         assert_eq!(parsed.wallpaper_color, WallpaperColor::Theme);
         assert!(parsed.pause_other_media);
+        assert_eq!(
+            parsed.history_prefetch,
+            HistoryPrefetch::Off,
+            "an install that has never opened Settings does not prefetch"
+        );
     }
 
     fn load_from(contents: &str) -> (Settings, serde_json::Value) {
@@ -792,6 +847,23 @@ mod tests {
         assert!(merged(r#"{"pause_media_while_recording":true}"#));
         assert!(merged("{}"), "on by default");
         assert!(!merged(r#"{"pause_other_media":false}"#));
+    }
+
+    #[test]
+    fn history_prefetch_names_its_modes_and_what_they_fetch() {
+        let english = Locale::English;
+        assert_eq!(HistoryPrefetch::ALL.len(), 3);
+        assert_eq!(
+            HistoryPrefetch::Focused.label(english).as_ref(),
+            "Current chat"
+        );
+        assert!(HistoryPrefetch::Off.hint(english).contains("Do not fetch"));
+        assert!(HistoryPrefetch::Focused.hint(english).contains("open chat"));
+        assert!(
+            HistoryPrefetch::RecentAndPinned
+                .hint(english)
+                .contains("pinned")
+        );
     }
 
     #[test]

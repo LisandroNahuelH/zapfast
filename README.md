@@ -188,6 +188,17 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   and the chat only leaves this computer once the phone has confirmed. Chats
   you delete or clear on the phone disappear here as well, and history that
   was already on its way does not bring them back.
+- **Older history in the background.** **Settings > Chats > Download older
+  history in the background** fills the archive while you read: one phone
+  request every twenty seconds, so scrolling up does not run into the phone's
+  rate limit. **Off** is the default and fetches nothing in the background,
+  **Current chat** covers only the open one, and **Recent and pinned** covers
+  every pinned chat and the ten most recently active ones. The open chat goes
+  first, each chat is asked for a few pages and then makes way for the others,
+  and a chat the phone does not answer goes to the back of the queue instead of
+  holding up the rest. A chat the phone says it has no more of is left alone
+  until the link reconnects, and a background request never moves the view or
+  interrupts one you asked for.
 - **Clear chats.** Empty a chat's messages from the menu in its header, in the
   same way as WhatsApp Web, and keep the chat itself in the list. The phone
   clears it first, so this needs a connection, and the messages only go from
