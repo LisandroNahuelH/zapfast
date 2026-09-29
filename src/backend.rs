@@ -227,6 +227,12 @@ pub enum Command {
         chat: ChatId,
         message: String,
     },
+    /// Whether the background may fetch older history, and the chat the reader
+    /// has open, so it is asked for its older messages first.
+    SetHistoryPrefetch {
+        on: bool,
+        focused: Option<ChatId>,
+    },
     Download {
         card: Option<usize>,
         chat: ChatId,
@@ -897,9 +903,12 @@ pub enum Event {
     /// Reported history-sync percentage.
     SyncProgress(u32),
     /// Phone-history result. `more` indicates whether another request may help.
+    /// `silent` marks a background page the reader did not ask for, which must
+    /// not count against the phone's answers.
     OlderFetched {
         chat: ChatId,
         more: bool,
+        silent: bool,
     },
     /// Whether account privacy disables direct-chat read receipts.
     ReceiptsPrivacy {
