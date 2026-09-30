@@ -117,6 +117,15 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
   Clicking a row opens that chat at the message, and right-clicking it offers
   the chat's own menu, so **Reply**, **Edit**, **Select**, and **Unstar** work
   from the list too.
+- **Pinned messages.** **Pin message** in a message's menu pins it for
+  everyone in the chat, for the seven days WhatsApp offers. A chat keeps three
+  active pins and a fourth is refused here instead of quietly replacing one. An
+  open chat shows its pins in a line under the header, one per pin, and clicking
+  one opens the message it names; the pin beside a row steps to the next pin, so
+  clicking it walks the chat's pins one after another. The pinned message also
+  carries a pin mark beside its time, and the chat shows a notice where the pin
+  happened, naming whoever made it. A pin that runs out its seven days leaves
+  the line, and a message deleted here or for everyone stops being a pin.
 - **WhatsApp formatting.** Bold, italic, strikethrough, code, lists, quotes,
   mentions, and link previews are supported. Links are clickable. Hebrew,
   Arabic, and mixed lines follow the Unicode Bidirectional Algorithm, so
