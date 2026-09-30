@@ -846,14 +846,16 @@ pub(crate) fn gallery_kind_for_path(path: &Path) -> Option<GalleryKind> {
 }
 
 /// The viewer kind of a file, from its name. A GIF is an inline animation, not
-/// a clip, so it is left out.
+/// a clip, so it is left out, and a photo is only a format the image crate is
+/// built to draw (`jpeg`, `png`, `webp`): a `bmp` or a `tif` opens the viewer
+/// and fails to decode, where the system viewer draws it.
 fn gallery_file(file_name: &str) -> Option<GalleryKind> {
     let ext = Path::new(file_name)
         .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_ascii_lowercase())?;
     match ext.as_str() {
-        "jpg" | "jpeg" | "png" | "webp" | "bmp" | "tif" | "tiff" => Some(GalleryKind::Photo),
+        "jpg" | "jpeg" | "png" | "webp" => Some(GalleryKind::Photo),
         "mp4" | "m4v" | "mov" | "webm" | "mkv" | "3gp" | "3gpp" => Some(GalleryKind::Video),
         _ => None,
     }

@@ -208,8 +208,11 @@ pub enum Command {
     /// Requests messages before the archive's earliest message.
     FetchOlder(ChatId),
     /// The chat's photos and playable videos, for the media viewer album.
+    /// `around` centres the page on one message, so a viewer opened on a photo
+    /// older than the newest page still has an album to step through.
     LoadChatMedia {
         chat: ChatId,
+        around: Option<String>,
     },
     Download {
         card: Option<usize>,

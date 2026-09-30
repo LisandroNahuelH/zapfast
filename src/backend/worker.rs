@@ -1148,12 +1148,19 @@ impl Worker {
         }
     }
 
-    /// Hands the chat's viewer album to the interface.
-    fn emit_chat_media(&mut self, chat: ChatId) {
-        match self
-            .archive
-            .gallery_media(&chat, crate::archive::GALLERY_PAGE)
-        {
+    /// Hands the chat's viewer album to the interface, centred on `around`
+    /// when the viewer opened on a message rather than on the newest page.
+    fn emit_chat_media(&mut self, chat: ChatId, around: Option<String>) {
+        let page = match around.as_deref() {
+            Some(message) => {
+                self.archive
+                    .gallery_around(&chat, message, crate::archive::GALLERY_PAGE)
+            }
+            None => self
+                .archive
+                .gallery_media(&chat, crate::archive::GALLERY_PAGE),
+        };
+        match page {
             Ok(items) => self.emit(Event::ChatMedia { chat, items }),
             Err(error) => self.emit(Event::Error(error.to_string())),
         }
@@ -4398,7 +4405,7 @@ impl Worker {
                 message,
             } => self.download_media(chat, message, card),
             Command::FetchAvatar { id, full } => self.fetch_avatar(id, full),
-            Command::LoadChatMedia { chat } => self.emit_chat_media(chat),
+            Command::LoadChatMedia { chat, around } => self.emit_chat_media(chat, around),
             Command::EditText {
                 chat,
                 id,

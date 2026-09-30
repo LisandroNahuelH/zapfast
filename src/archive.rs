@@ -1398,14 +1398,84 @@ impl Archive {
     /// again instead of drawing a dead frame, and the strip never has to ask
     /// the filesystem again for a thumbnail it is drawing.
     pub fn gallery_media(&self, chat: &str, limit: usize) -> Result<Vec<ChatMedia>> {
-        let mut statement = self.connection.prepare(
+        // The query walks the newest first, so the page is turned back round:
+        // the strip and the stepping both read oldest to newest.
+        let mut list = self.gallery_query(
             "SELECT id, timestamp, content, thumbnail FROM messages
              WHERE chat = ?1 AND json_valid(content)
              AND json_extract(content, '$.kind') IN ('image', 'video')
              ORDER BY timestamp DESC, rowid DESC
              LIMIT ?2",
+            params![chat, limit as i64],
         )?;
-        let rows = statement.query_map(params![chat, limit as i64], |row| {
+        list.reverse();
+        Ok(list)
+    }
+
+    /// The album around one message, oldest first: the newest items at or
+    /// before it, and the ones after it, up to `limit` in all. A viewer opened
+    /// on a photo older than the newest page still has an album to step
+    /// through, instead of a position of `None` and arrows that do nothing.
+    ///
+    /// A message the album does not hold, or that this archive does not have,
+    /// falls back to the newest page.
+    pub fn gallery_around(
+        &self,
+        chat: &str,
+        message: &str,
+        limit: usize,
+    ) -> Result<Vec<ChatMedia>> {
+        let anchor = self
+            .connection
+            .query_row(
+                "SELECT timestamp, rowid FROM messages WHERE chat = ?1 AND id = ?2",
+                params![chat, message],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        let Some((timestamp, rowid)) = anchor else {
+            return self.gallery_media(chat, limit);
+        };
+        // Half the page looks forward, so stepping works both ways from the
+        // item the viewer opened on.
+        let ahead = limit / 2;
+        let behind = limit - ahead;
+        let mut list = self.gallery_query(
+            "SELECT id, timestamp, content, thumbnail FROM messages
+             WHERE chat = ?1 AND json_valid(content)
+             AND json_extract(content, '$.kind') IN ('image', 'video')
+             AND (timestamp < ?2 OR (timestamp = ?2 AND rowid <= ?3))
+             ORDER BY timestamp DESC, rowid DESC
+             LIMIT ?4",
+            params![chat, timestamp, rowid, behind as i64],
+        )?;
+        list.reverse();
+        let mut newer = self.gallery_query(
+            "SELECT id, timestamp, content, thumbnail FROM messages
+             WHERE chat = ?1 AND json_valid(content)
+             AND json_extract(content, '$.kind') IN ('image', 'video')
+             AND (timestamp > ?2 OR (timestamp = ?2 AND rowid > ?3))
+             ORDER BY timestamp ASC, rowid ASC
+             LIMIT ?4",
+            params![chat, timestamp, rowid, ahead as i64],
+        )?;
+        list.append(&mut newer);
+        Ok(list)
+    }
+
+    /// Runs one album query and maps its rows, in the order the query asks for.
+    ///
+    /// The path each row records is checked here, once: an attachment that was
+    /// deleted or moved is reported as missing, so the item offers Download
+    /// again instead of drawing a dead frame, and the strip never has to ask
+    /// the filesystem again for a thumbnail it is drawing.
+    fn gallery_query(
+        &self,
+        sql: &str,
+        parameters: impl rusqlite::Params,
+    ) -> Result<Vec<ChatMedia>> {
+        let mut statement = self.connection.prepare(sql)?;
+        let rows = statement.query_map(parameters, |row| {
             let id: String = row.get(0)?;
             let timestamp: i64 = row.get(1)?;
             let raw: String = row.get(2)?;
@@ -1433,9 +1503,6 @@ impl Archive {
                 thumbnail,
             });
         }
-        // The query walks the newest first, so the page is turned back round:
-        // the strip and the stepping both read oldest to newest.
-        list.reverse();
         Ok(list)
     }
 
@@ -3520,6 +3587,38 @@ mod media_path_tests {
         let page = archive.gallery_media("a@s.whatsapp.net", 1).expect("album");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].id, "p2");
+    }
+
+    /// The album around one message holds it with its neighbours on both sides,
+    /// oldest first, so a viewer opened on a photo older than the newest page
+    /// can still step through it.
+    #[test]
+    fn the_album_around_a_message_holds_it_with_its_neighbours() {
+        let archive = Archive::in_memory().expect("opens");
+        archive.ensure_chat("a@s.whatsapp.net", "A").expect("chat");
+        for n in 0..10 {
+            let mut row = picture(&format!("p{n}"));
+            row.timestamp = n;
+            archive.insert_message(&row, None).expect("inserted");
+        }
+
+        // A page of four centred on p5 holds two either side of it.
+        let around = archive
+            .gallery_around("a@s.whatsapp.net", "p5", 4)
+            .expect("album");
+        let ids: Vec<&str> = around.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["p4", "p5", "p6", "p7"],
+            "oldest first, around the item"
+        );
+
+        // A message the album does not hold falls back to the newest page.
+        let fallback = archive
+            .gallery_around("a@s.whatsapp.net", "gone", 3)
+            .expect("album");
+        assert_eq!(fallback.len(), 3);
+        assert_eq!(fallback.last().unwrap().id, "p9", "the newest page");
     }
 
     #[test]

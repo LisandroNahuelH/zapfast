@@ -433,7 +433,11 @@ fn still(
     // its thumbnail and a way to fetch it, instead of standing in for another
     // picture.
     let Some(path) = path else {
-        pending(app, ui, thumbnail, video, message, chat, stage, actions);
+        let idle = crate::model::MediaState::Idle;
+        let state = app.viewer_media_state.get(message).unwrap_or(&idle);
+        pending(
+            app, ui, thumbnail, video, message, chat, stage, state, actions,
+        );
         return;
     };
     // Registered with the image cache like every other draw site, so a sweep
@@ -603,6 +607,7 @@ fn pending(
     message: &str,
     chat: &str,
     stage: Rect,
+    state: &crate::model::MediaState,
     actions: &mut Vec<Action>,
 ) {
     let palette = app.palette;
@@ -621,10 +626,26 @@ fn pending(
             palette.secondary,
         );
     }
+    // A download that is running says so, and one that failed shows the
+    // worker's own message, the way the chat bubble does: a button that
+    // looks dead is what the review asked to avoid.
+    if matches!(state, crate::model::MediaState::Downloading) {
+        theme::paint_spinner(ui, disc, 28.0, palette.text);
+        return;
+    }
     let button = Rect::from_center_size(
         pos2(stage.center().x, disc.bottom() + 34.0),
         vec2(160.0, 32.0),
     );
+    if let crate::model::MediaState::Failed(error) = state {
+        ui.painter().text(
+            pos2(stage.center().x, disc.bottom() + 12.0),
+            egui::Align2::CENTER_CENTER,
+            error,
+            theme::regular(12.5),
+            palette.danger,
+        );
+    }
     let response = ui
         .interact(
             button,
@@ -712,6 +733,15 @@ fn video(
     let response = ui
         .interact(media, egui::Id::new("viewer-video"), Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let downloading = path.is_none()
+        && matches!(
+            app.viewer_media_state.get(message),
+            Some(crate::model::MediaState::Downloading)
+        );
+    let failed = match (path, app.viewer_media_state.get(message)) {
+        (None, Some(crate::model::MediaState::Failed(error))) => Some(error.as_str()),
+        _ => None,
+    };
     let label = if path.is_some() {
         crate::i18n::gettext(app.locale, "Play or pause the video")
     } else {
@@ -721,7 +751,7 @@ fn video(
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label.as_ref())
     });
     theme::reveal_focus(&response);
-    if response.clicked() {
+    if response.clicked() && !downloading {
         match path {
             Some(path) => actions.push(Action::PlayVideo {
                 message: message.to_owned(),
@@ -750,6 +780,11 @@ fn video(
         let fraction = status.map_or(0.0, |status| status.fraction());
         let played = Rect::from_min_size(bar.min, vec2(bar.width() * fraction, bar.height()));
         ui.painter().rect_filled(played, 1.5, palette.accent);
+    } else if downloading {
+        let disc = Rect::from_center_size(media.center(), Vec2::splat(64.0));
+        ui.painter()
+            .circle_filled(disc.center(), 32.0, palette.shadow);
+        theme::paint_spinner(ui, disc, 28.0, palette.text);
     } else {
         let disc = Rect::from_center_size(media.center(), Vec2::splat(64.0));
         ui.painter()
@@ -757,6 +792,15 @@ fn video(
         // A control painted over a picture, so it stays light on its own scrim
         // in either theme, exactly as the bubble paints the same button.
         theme::paint_icon(ui, Icon::Play, disc, 28.0, palette.text);
+        if let Some(error) = failed {
+            ui.painter().text(
+                pos2(media.center().x, media.bottom() + 18.0),
+                egui::Align2::CENTER_CENTER,
+                error,
+                theme::regular(12.5),
+                palette.danger,
+            );
+        }
     }
 }
 
@@ -861,6 +905,58 @@ fn strip_bar(
         });
 }
 
+/// Where a strip tile's picture comes from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Tile {
+    /// The thumbnail the archive stored with the message: already the 56 px the
+    /// strip wants.
+    Stored,
+    /// The message's kind icon. A tile is never drawn from the file itself: a
+    /// 56 px square is not worth decoding a whole photo on the interface
+    /// thread, nor holding its full-size texture for a strip that scrolls.
+    Icon,
+}
+
+fn tile_of(item: &ChatMedia) -> Tile {
+    if item.thumbnail.is_some() {
+        Tile::Stored
+    } else {
+        Tile::Icon
+    }
+}
+
+#[cfg(test)]
+mod tile_tests {
+    use super::*;
+    use crate::archive::ChatMedia;
+    use std::path::PathBuf;
+
+    /// The strip draws the thumbnail the archive stored, and the message's
+    /// kind icon when there is none: decoding the file for a 56 px tile
+    /// would run on the interface thread and hold its full-size texture.
+    #[test]
+    fn a_tile_is_drawn_from_the_stored_thumbnail_or_not_at_all() {
+        let stored = ChatMedia {
+            id: "m1".into(),
+            timestamp: 0,
+            video: false,
+            path: Some(PathBuf::from("/photos/a.jpg")),
+            thumbnail: Some(vec![1, 2, 3]),
+        };
+        assert_eq!(tile_of(&stored), Tile::Stored);
+        let file_only = ChatMedia {
+            thumbnail: None,
+            ..stored.clone()
+        };
+        assert_eq!(tile_of(&file_only), Tile::Icon);
+        let clip = ChatMedia {
+            video: true,
+            ..file_only
+        };
+        assert_eq!(tile_of(&clip), Tile::Icon);
+    }
+}
+
 fn thumb(
     ui: &egui::Ui,
     palette: &crate::theme::Palette,
@@ -870,30 +966,24 @@ fn thumb(
     current: bool,
 ) {
     ui.painter().rect_filled(rect, 6.0, palette.surface_hover);
-    // The stored thumbnail first: it is the 56 px the strip wants, and a
-    // downloaded file is not an image, so decoding it here would show a load
-    // error for every clip. The file itself is only a fallback, and through
-    // `file_image` so egui releases its texture.
-    if let Some(bytes) = item.thumbnail.as_deref() {
+    match (tile_of(item), item.thumbnail.as_deref()) {
         // A message id is only unique inside its chat, and the image cache
         // keeps the first bytes for a URI, so the chat has to be part of it.
-        egui::Image::new(thumbnail_uri(ui.ctx(), chat, &item.id, bytes))
-            .fit_to_exact_size(rect.size())
-            .corner_radius(6.0)
-            .paint_at(ui, rect);
-    } else if let Some(path) = item.path.as_deref().filter(|_| !item.video) {
-        crate::ui::widgets::file_image(ui, path)
-            .fit_to_exact_size(rect.size())
-            .corner_radius(6.0)
-            .paint_at(ui, rect);
-    } else {
-        theme::paint_icon(
-            ui,
-            if item.video { Icon::Video } else { Icon::Image },
-            rect,
-            22.0,
-            palette.secondary,
-        );
+        (Tile::Stored, Some(bytes)) => {
+            egui::Image::new(thumbnail_uri(ui.ctx(), chat, &item.id, bytes))
+                .fit_to_exact_size(rect.size())
+                .corner_radius(6.0)
+                .paint_at(ui, rect);
+        }
+        _ => {
+            theme::paint_icon(
+                ui,
+                if item.video { Icon::Video } else { Icon::Image },
+                rect,
+                22.0,
+                palette.secondary,
+            );
+        }
     }
     if item.video {
         let disc = Rect::from_center_size(rect.center(), Vec2::splat(18.0));

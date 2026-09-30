@@ -436,6 +436,28 @@ mod tests {
         assert!(!is_video(Path::new("no-extension")));
     }
 
+    /// The album is what the viewer can draw, so a photo format the image crate
+    /// is not built with stays out and opens in the system viewer instead of
+    /// failing to decode here.
+    #[test]
+    fn the_album_takes_only_the_photo_formats_the_decoder_draws() {
+        for name in ["photo.jpg", "photo.JPEG", "photo.png", "photo.webp"] {
+            assert_eq!(
+                crate::model::gallery_kind_for_path(Path::new(name)),
+                Some(crate::model::GalleryKind::Photo),
+                "{name}"
+            );
+        }
+        for name in ["scan.bmp", "scan.tif", "scan.tiff", "anim.gif", "notes.pdf"] {
+            assert_eq!(
+                crate::model::gallery_kind_for_path(Path::new(name)),
+                None,
+                "{name}"
+            );
+            assert!(!can_view(Path::new(name)), "{name}");
+        }
+    }
+
     #[test]
     fn preview_keys_map_to_zoom_commands_including_shifted_equals() {
         use egui::{Key, Modifiers};

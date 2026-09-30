@@ -21,6 +21,16 @@ use crate::settings::{NotificationSound, Settings, ThemeChoice};
 use crate::single_instance::{ControlCommand, Guard};
 use crate::theme::{self, Palette};
 
+/// The notice a failed attachment download shows, in the chat bubble and in
+/// the viewer alike: an expired file has a name of its own.
+fn download_notice(error: String) -> String {
+    if error.contains("403") || error.contains("404") {
+        "No longer available on WhatsApp's servers".to_owned()
+    } else {
+        error
+    }
+}
+
 /// Initial and incremental message-page size.
 pub const PAGE: usize = 60;
 /// Minimum delay between phone history requests.
@@ -529,6 +539,10 @@ pub struct App {
     /// Chat whose album `viewer_media` belongs to, so a late answer for another
     /// chat is dropped instead of shown.
     pub viewer_media_chat: Option<ChatId>,
+    /// What each viewer item's download is doing, keyed by message id. The
+    /// album reaches messages the transcript has not paged in, so their
+    /// progress and their failure have nowhere else to live.
+    pub viewer_media_state: HashMap<String, MediaState>,
     /// Voice messages with a sent played receipt.
     played_told: HashSet<String>,
     /// Message bodies registered for transcript copy formatting.
@@ -1025,6 +1039,7 @@ impl App {
             video_expanded: false,
             viewer_media: Vec::new(),
             viewer_media_chat: None,
+            viewer_media_state: HashMap::new(),
             played_told: HashSet::new(),
             copy_rows: Default::default(),
             selection_view: Default::default(),
@@ -2141,6 +2156,7 @@ impl App {
                 } => {
                     let conversation = self.conversations.entry(chat.clone()).or_default();
                     let was_empty = conversation.messages.is_empty();
+                    let album_chat = chat.clone();
                     if older && !messages.is_empty() {
                         conversation.phone_delivered = true;
                     }
@@ -2175,6 +2191,9 @@ impl App {
                                 before: (oldest.timestamp, oldest.id.clone()),
                             });
                         }
+                    }
+                    if !older {
+                        self.refresh_viewer_album(&album_chat);
                     }
                 }
                 Event::ChatHits {
@@ -2364,6 +2383,10 @@ impl App {
                         self.editing = None;
                         self.composer.clear();
                     }
+                    let deleted = id.clone();
+                    self.forget_viewer_item(&chat, &deleted);
+                    // A photo that left the chat leaves the album on screen.
+                    self.refresh_viewer_album(&chat);
                 }
                 Event::ChatRemoved { chat } => self.forget_chat(&chat),
                 Event::ChatCleared { chat, through } => self.handle_chat_cleared(&chat, through),
@@ -2959,6 +2982,33 @@ impl App {
         });
     }
 
+    /// Asks for the viewer's album again, anchored on what is on screen, so
+    /// a message that arrives or is deleted while the viewer is open shows
+    /// up there instead of waiting for the next open.
+    fn refresh_viewer_album(&mut self, chat: &str) {
+        if self.viewer_media_chat.as_deref() != Some(chat) {
+            return;
+        }
+        let around = self
+            .image_preview
+            .as_ref()
+            .map(|preview| preview.message().to_owned());
+        self.backend.send(Command::LoadChatMedia {
+            chat: chat.to_owned(),
+            around,
+        });
+    }
+
+    /// Drops a message from the viewer's album and from its download
+    /// state, for a message deleted while the viewer is open.
+    fn forget_viewer_item(&mut self, chat: &str, id: &str) {
+        if self.viewer_media_chat.as_deref() != Some(chat) {
+            return;
+        }
+        self.viewer_media.retain(|item| item.id != id);
+        self.viewer_media_state.remove(id);
+    }
+
     fn handle_media(
         &mut self,
         chat: &str,
@@ -2967,21 +3017,31 @@ impl App {
         result: Result<PathBuf, String>,
     ) {
         // The album can hold a message the transcript has not paged in, so its
-        // item is updated from here, before the transcript lookup below, which
-        // only the chat's own bubble needs.
-        if let Ok(path) = &result
-            && card.is_none()
-            && self.viewer_media_chat.as_deref() == Some(chat)
-        {
-            if let Some(item) = self.viewer_media.iter_mut().find(|item| item.id == id) {
-                item.path = Some(path.clone());
-            }
-            // The viewer may be showing that item, waiting for its file: give
-            // it the file too, or it keeps offering the download it just did.
-            if let Some(preview) = &mut self.image_preview
-                && preview.message() == id
-            {
-                preview.show_item(Some(path.clone()), id.to_owned());
+        // item, and the viewer's own download state, are updated from here,
+        // before the transcript lookup below, which only the chat's own bubble
+        // needs: a failure of an archived item has nowhere else to show.
+        if card.is_none() && self.viewer_media_chat.as_deref() == Some(chat) {
+            match &result {
+                Ok(path) => {
+                    if let Some(item) = self.viewer_media.iter_mut().find(|item| item.id == id) {
+                        item.path = Some(path.clone());
+                    }
+                    // The viewer may be showing that item, waiting for its
+                    // file: give it the file too, or it keeps offering the
+                    // download it just did.
+                    if let Some(preview) = &mut self.image_preview
+                        && preview.message() == id
+                    {
+                        preview.show_item(Some(path.clone()), id.to_owned());
+                    }
+                    self.viewer_media_state.remove(id);
+                }
+                Err(error) => {
+                    self.viewer_media_state.insert(
+                        id.to_owned(),
+                        MediaState::Failed(download_notice(error.clone())),
+                    );
+                }
             }
         }
         let Some(message) = self
@@ -3033,11 +3093,7 @@ impl App {
                     self.voice_wanted = None;
                 }
                 // Show expired-file failures in the bubble, not as a toast.
-                let notice = if error.contains("403") || error.contains("404") {
-                    "No longer available on WhatsApp's servers".to_owned()
-                } else {
-                    error
-                };
+                let notice = download_notice(error);
                 log::warn!("attachment download failed; details are shown in the bubble");
                 media.state = MediaState::Failed(notice);
             }
@@ -3848,16 +3904,21 @@ impl App {
                     .and_then(|message| message.content.media_at_mut(card))
                 {
                     if !media.is_within_download_limit() {
-                        media.state = MediaState::Failed(
-                            "This attachment is larger than the 64 MiB download limit".into(),
-                        );
+                        let notice = "This attachment is larger than the 64 MiB download limit";
+                        media.state = MediaState::Failed(notice.into());
+                        self.viewer_media_state
+                            .insert(message.clone(), MediaState::Failed(notice.into()));
                         return;
                     }
                     if matches!(media.state, MediaState::Downloading) {
+                        self.viewer_media_state
+                            .insert(message.clone(), MediaState::Downloading);
                         return;
                     }
                     media.state = MediaState::Downloading;
                 }
+                self.viewer_media_state
+                    .insert(message.clone(), MediaState::Downloading);
                 self.backend.send(Command::Download {
                     card,
                     chat,
@@ -3879,8 +3940,10 @@ impl App {
                     // through it works from the first frame.
                     self.viewer_media.clear();
                     self.viewer_media_chat = Some(chat.clone());
-                    self.backend
-                        .send(Command::LoadChatMedia { chat: chat.clone() });
+                    self.backend.send(Command::LoadChatMedia {
+                        chat: chat.clone(),
+                        around: Some(message.clone()),
+                    });
                     self.image_preview = Some(PreviewState::new(Some(path), chat, message));
                     self.dialog = None;
                     self.picker = None;
@@ -7068,6 +7131,165 @@ mod tests {
             app.viewer_media[2].path.as_deref(),
             Some(std::path::Path::new("/fixture/2.png")),
             "and so does the album"
+        );
+    }
+
+    /// The album is centred on the message the viewer opened on, so a photo
+    /// older than the newest page still has neighbours to step through.
+    #[test]
+    fn opening_a_photo_asks_for_the_album_around_it() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_album(3);
+        let (backend, mut commands) = Backend::recording();
+        app.backend = backend;
+        let file = tempfile::NamedTempFile::with_suffix(".png").unwrap();
+        std::fs::write(file.path(), b"not a real image").unwrap();
+
+        app.apply(
+            Action::PreviewImage {
+                path: file.path().to_owned(),
+                chat: "1@s.whatsapp.net".into(),
+                message: "m1".into(),
+            },
+            &ctx,
+        );
+
+        assert!(
+            matches!(
+                commands.try_recv(),
+                Ok(Command::LoadChatMedia { ref around, .. }) if around.as_deref() == Some("m1")
+            ),
+            "the album is asked for around the opened message"
+        );
+    }
+
+    /// The viewer tracks its own download: progress while it runs, and the
+    /// worker's own message when it fails, instead of a button that looks dead.
+    #[test]
+    fn a_download_from_the_viewer_shows_progress_and_a_failure() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_album(3);
+        app.viewer_media[2].path = None;
+        open_viewer(&mut app, 0);
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+
+        app.apply(
+            Action::Download {
+                card: None,
+                chat: "1@s.whatsapp.net".into(),
+                message: "m2".into(),
+            },
+            &ctx,
+        );
+        assert_eq!(
+            app.viewer_media_state.get("m2"),
+            Some(&MediaState::Downloading),
+            "the viewer shows the download it started"
+        );
+
+        events
+            .send(Event::Media {
+                card: None,
+                chat: "1@s.whatsapp.net".into(),
+                message: "m2".into(),
+                result: Err("403 Forbidden".into()),
+            })
+            .unwrap();
+        app.handle_events();
+        assert_eq!(
+            app.viewer_media_state.get("m2"),
+            Some(&MediaState::Failed(
+                "No longer available on WhatsApp's servers".into()
+            )),
+            "and why it failed"
+        );
+
+        events
+            .send(Event::Media {
+                card: None,
+                chat: "1@s.whatsapp.net".into(),
+                message: "m2".into(),
+                result: Ok(PathBuf::from("/fixture/2.png")),
+            })
+            .unwrap();
+        app.handle_events();
+        assert_eq!(
+            app.viewer_media_state.get("m2"),
+            None,
+            "the file landing ends the progress"
+        );
+    }
+
+    /// The album on screen follows the chat: a message deleted while the viewer
+    /// is open leaves the strip, and the page is asked for again so a photo
+    /// that arrives does not wait for the next open.
+    #[test]
+    fn the_album_follows_a_chat_while_the_viewer_is_open() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_album(3);
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        open_viewer(&mut app, 1);
+        app.viewer_media_state
+            .insert("m1".into(), MediaState::Downloading);
+
+        events
+            .send(Event::MessageDeleted {
+                chat: "1@s.whatsapp.net".into(),
+                id: "m1".into(),
+            })
+            .unwrap();
+        app.handle_events();
+        let ids: Vec<&str> = app
+            .viewer_media
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect();
+        assert_eq!(ids, ["m0", "m2"], "the deleted message left the album");
+        assert_eq!(
+            app.viewer_media_state.get("m1"),
+            None,
+            "and its download state"
+        );
+        assert!(
+            matches!(
+                commands.try_recv(),
+                Ok(Command::LoadChatMedia { ref around, .. }) if around.as_deref() == Some("m1")
+            ),
+            "the page is asked for again, anchored on what is on screen"
+        );
+
+        // A message arriving in the same chat asks for it again too.
+        events
+            .send(Event::Messages {
+                chat: "1@s.whatsapp.net".into(),
+                messages: Vec::new(),
+                older: false,
+                complete: true,
+            })
+            .unwrap();
+        app.handle_events();
+        assert!(
+            matches!(commands.try_recv(), Ok(Command::LoadChatMedia { .. })),
+            "a message that arrives refreshes the album"
+        );
+
+        // And a chat the viewer is not showing is left alone.
+        let ctx = ctx;
+        app.apply(Action::CloseImagePreview, &ctx);
+        events
+            .send(Event::Messages {
+                chat: "1@s.whatsapp.net".into(),
+                messages: Vec::new(),
+                older: false,
+                complete: true,
+            })
+            .unwrap();
+        app.handle_events();
+        assert!(
+            commands.try_recv().is_err(),
+            "no album is asked for once the viewer is closed"
         );
     }
 
