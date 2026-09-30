@@ -2377,6 +2377,13 @@ impl App {
                         // request still in flight, and it must not count
                         // against the phone, or every successful prefetch would
                         // look like a miss and back off the next scroll.
+                        //
+                        // It does fill the archive with older messages, so a
+                        // chat that had reached its start has not any more:
+                        // without this, scrolling up asks the phone instead of
+                        // reading what the page just filed, and the page stays
+                        // out of sight until the chat is opened again.
+                        conversation.complete = false;
                         continue;
                     }
                     conversation.fetching_phone = false;
@@ -3495,15 +3502,14 @@ impl App {
         self.settings_dirty = true;
     }
 
-    /// Tells the worker how much older history the background may fetch, and
-    /// which chat is open so it goes first.
+    /// Tells the worker whether the background may fetch older history, and
+    /// which chat is open so it goes first. Only the open chat counts: the one
+    /// that was last open is not open any more, and asking for it first would
+    /// spend the turn on a chat nobody is reading.
     fn sync_prefetch(&mut self) {
         self.backend.send(Command::SetHistoryPrefetch {
-            mode: self.settings.history_prefetch,
-            focused: self
-                .open_chat
-                .clone()
-                .or_else(|| self.settings.last_chat.clone()),
+            on: self.settings.history_prefetch,
+            focused: self.open_chat.clone(),
         });
     }
 
@@ -4883,8 +4889,8 @@ impl App {
                 self.locale = crate::i18n::resolve(choice);
                 self.mark_settings_dirty();
             }
-            Action::SetHistoryPrefetch(mode) => {
-                self.settings.history_prefetch = mode;
+            Action::SetHistoryPrefetch(on) => {
+                self.settings.history_prefetch = on;
                 self.mark_settings_dirty();
                 self.sync_prefetch();
             }
@@ -6450,8 +6456,8 @@ mod tests {
             "a background page is not a miss"
         );
         assert!(
-            conversation.complete,
-            "and it does not send the view back to the archive"
+            !conversation.complete,
+            "and it sends the view back to the archive, which holds the older messages the page just filed"
         );
         assert!(
             conversation.fetching_phone,

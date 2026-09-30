@@ -207,10 +207,10 @@ pub enum Command {
     },
     /// Requests messages before the archive's earliest message.
     FetchOlder(ChatId),
-    /// Background history mode and the chat the reader last opened, so the
-    /// open chat is asked for its older messages first.
+    /// Whether the background may fetch older history, and the chat the reader
+    /// has open, so it is asked for its older messages first.
     SetHistoryPrefetch {
-        mode: crate::settings::HistoryPrefetch,
+        on: bool,
         focused: Option<ChatId>,
     },
     Download {

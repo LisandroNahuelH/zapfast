@@ -71,47 +71,14 @@ impl FontChoice {
     }
 }
 
-/// How much older phone history and its files are fetched in the background.
-///
-/// Off is the default: prefetching asks the phone for history and its files
-/// without anyone asking for them, so an install that has never opened Settings
-/// does not do it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HistoryPrefetch {
-    /// Nothing is fetched in the background.
-    #[default]
-    Off,
-    /// Only the chat that is open.
-    Focused,
-    /// Every pinned chat and the ten most recently active ones.
-    RecentAndPinned,
-}
-
-impl HistoryPrefetch {
-    /// The choices, in the order the picker shows them.
-    pub const ALL: [HistoryPrefetch; 3] = [Self::Off, Self::Focused, Self::RecentAndPinned];
-
-    /// The choice's name, in `locale`.
-    pub fn label(self, locale: Locale) -> Cow<'static, str> {
-        match self {
-            Self::Off => gettext(locale, "Off"),
-            Self::Focused => gettext(locale, "Current chat"),
-            Self::RecentAndPinned => gettext(locale, "Recent and pinned"),
-        }
-    }
-
-    /// What the choice does, shown while the pointer rests on it.
-    pub fn hint(self, locale: Locale) -> Cow<'static, str> {
-        match self {
-            Self::Off => gettext(locale, "Do not fetch older messages in the background."),
-            Self::Focused => gettext(locale, "Fetch older messages for the open chat only."),
-            Self::RecentAndPinned => gettext(
-                locale,
-                "Fetch older history for pinned chats and the ten most recent ones.",
-            ),
-        }
-    }
+/// What the background history switch does, shown while the pointer rests on
+/// it. A single switch, not a set of modes: the open chat is asked first and
+/// the pinned and recent ones follow, which is what a reader wants either way.
+pub fn history_prefetch_hint(locale: Locale) -> Cow<'static, str> {
+    gettext(
+        locale,
+        "Fetch older history for the open chat, the pinned chats and the ten most recent ones.",
+    )
 }
 
 /// Background colours offered by WhatsApp's wallpaper picker, after the
@@ -516,9 +483,11 @@ pub struct Settings {
     pub app_lock_hash: Option<String>,
     /// How long ZapFast may go unused before the app lock locks it.
     pub app_lock_after: AutoLock,
-    /// How much older phone history and its files are fetched in the
-    /// background. Local: nothing here reaches WhatsApp.
-    pub history_prefetch: HistoryPrefetch,
+    /// Whether older phone history is fetched in the background. Off by
+    /// default: prefetching asks the phone for history nobody asked for, so an
+    /// install that has never opened Settings does not do it. Local: nothing
+    /// here reaches WhatsApp.
+    pub history_prefetch: bool,
 }
 
 impl Default for Settings {
@@ -566,7 +535,7 @@ impl Default for Settings {
             chat_lock_hint_dismissed: false,
             app_lock_hash: None,
             app_lock_after: AutoLock::default(),
-            history_prefetch: HistoryPrefetch::Off,
+            history_prefetch: false,
         }
     }
 }
@@ -784,9 +753,8 @@ mod tests {
         assert!(parsed.show_wallpaper);
         assert_eq!(parsed.wallpaper_color, WallpaperColor::Theme);
         assert!(parsed.pause_other_media);
-        assert_eq!(
-            parsed.history_prefetch,
-            HistoryPrefetch::Off,
+        assert!(
+            !parsed.history_prefetch,
             "an install that has never opened Settings does not prefetch"
         );
     }
@@ -850,20 +818,11 @@ mod tests {
     }
 
     #[test]
-    fn history_prefetch_names_its_modes_and_what_they_fetch() {
-        let english = Locale::English;
-        assert_eq!(HistoryPrefetch::ALL.len(), 3);
-        assert_eq!(
-            HistoryPrefetch::Focused.label(english).as_ref(),
-            "Current chat"
-        );
-        assert!(HistoryPrefetch::Off.hint(english).contains("Do not fetch"));
-        assert!(HistoryPrefetch::Focused.hint(english).contains("open chat"));
-        assert!(
-            HistoryPrefetch::RecentAndPinned
-                .hint(english)
-                .contains("pinned")
-        );
+    fn the_history_switch_hint_names_what_it_fetches() {
+        let hint = history_prefetch_hint(Locale::English);
+        assert!(hint.contains("open chat"), "{hint}");
+        assert!(hint.contains("pinned"), "{hint}");
+        assert!(hint.contains("ten most recent"), "{hint}");
     }
 
     #[test]

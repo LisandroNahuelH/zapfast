@@ -1607,7 +1607,7 @@ pub enum Action {
     SetCustomTheme(String),
     SetWallpaperColor(crate::settings::WallpaperColor),
     SetWallpaperDoodles(bool),
-    SetHistoryPrefetch(crate::settings::HistoryPrefetch),
+    SetHistoryPrefetch(bool),
     /// Asks for an image to use as the chat wallpaper.
     PickWallpaperImage,
     /// Goes back to the wallpaper colour and deletes the copied image.
