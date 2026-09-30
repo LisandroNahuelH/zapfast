@@ -236,8 +236,12 @@ pub enum Command {
         from: Option<i64>,
         until: Option<i64>,
     },
-    /// Counts and sizes of the downloaded attachments, for Settings.
-    StorageStats,
+    /// Counts and sizes of the downloaded attachments, for Settings. Counting
+    /// the messages is a scan of the whole table, so it is asked for once per
+    /// opening and left out of the refresh that follows a download.
+    StorageStats {
+        messages: bool,
+    },
     /// Creates an archive chat before its first message is sent.
     EnsureChat {
         chat: ChatId,

@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS messages_by_time ON messages (chat, timestamp);
 CREATE INDEX IF NOT EXISTS messages_stickers ON messages (from_me, timestamp)
-    WHERE json_extract(content, '$.kind') = 'sticker';
+    WHERE CASE WHEN json_valid(content) THEN json_extract(content, '$.kind') = 'sticker'
+        ELSE 0 END;
 CREATE TABLE IF NOT EXISTS contacts (
     id TEXT PRIMARY KEY,
     full_name TEXT,
@@ -167,9 +168,16 @@ const MIGRATIONS: &[(&str, &str, &str)] = &[
 /// file, an interactive card's image, or any of that card's carousel images.
 /// Kept as a virtual generated column so SQLite maintains it from `content`
 /// on every write and it cannot drift from what the row says.
-const DOWNLOADED: &str = "json_extract(content, '$.media.path') IS NOT NULL
-    OR json_extract(content, '$.card.image.path') IS NOT NULL
-    OR json_array_length(json_extract(content, '$.card.carousel')) > 0";
+///
+/// `json_extract` raises on a row whose content is not JSON, and an archive
+/// written before this column existed can hold one. The guard turns such a row
+/// into "not downloaded" instead: without it the `CREATE INDEX ... WHERE
+/// downloaded` below fails, and with it every later open of that archive.
+const DOWNLOADED: &str = "CASE WHEN json_valid(content) THEN (
+        json_extract(content, '$.media.path') IS NOT NULL
+        OR json_extract(content, '$.card.image.path') IS NOT NULL
+        OR json_array_length(json_extract(content, '$.card.carousel')) > 0
+    ) ELSE 0 END";
 
 const CHAT_JOIN: &str = "FROM chats c
              LEFT JOIN messages m ON m.chat = c.id AND m.rowid = (
@@ -399,6 +407,27 @@ impl Archive {
         connection.execute_batch(
             "CREATE INDEX IF NOT EXISTS messages_downloaded ON messages (chat, id) WHERE downloaded",
         )?;
+        // The sticker index predates the guard, and `CREATE INDEX IF NOT
+        // EXISTS` leaves an archive's own copy alone. One that still reads the
+        // content unguarded is rebuilt, or the archive cannot be opened at all
+        // once it holds a row whose content is not JSON.
+        let unguarded = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'messages_stickers'",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .is_some_and(|sql| !sql.contains("json_valid"));
+        if unguarded {
+            connection.execute_batch(
+                "DROP INDEX messages_stickers;
+                 CREATE INDEX messages_stickers ON messages (from_me, timestamp)
+                     WHERE CASE WHEN json_valid(content) THEN json_extract(content, '$.kind') = 'sticker'
+                         ELSE 0 END;",
+            )?;
+        }
         Ok(())
     }
 
@@ -1100,9 +1129,18 @@ impl Archive {
     /// its cost follows the number of downloaded attachments rather than the
     /// size of the archive. Walking every message row was what stalled the
     /// worker on a large archive.
-    pub fn storage_stats(&self) -> Result<StorageStats> {
+    pub fn storage_stats(&self, messages: bool) -> Result<StorageStats> {
+        // Counting every message is a scan of the whole table, so the caller
+        // asks for it when Settings opens and lets the refresh that follows a
+        // download read the sizes alone.
+        let counted = if messages {
+            "(SELECT COUNT(*) FROM messages)"
+        } else {
+            "0"
+        };
         self.connection.query_row(
-            "WITH media(kind, size, present) AS (
+            &format!(
+                "WITH media(kind, size, present) AS (
                 SELECT
                     CASE
                         WHEN json_extract(content, '$.kind') = 'video'
@@ -1114,23 +1152,23 @@ impl Archive {
                     CAST(COALESCE(json_extract(content, '$.media.size'), 0) AS INTEGER),
                     json_extract(content, '$.media.path') IS NOT NULL
                         AND json_extract(content, '$.media.path') != ''
-                FROM messages WHERE downloaded
+                FROM messages WHERE downloaded AND json_valid(content)
                 UNION ALL
                 SELECT 'image',
                     CAST(COALESCE(json_extract(content, '$.card.image.size'), 0) AS INTEGER),
                     json_extract(content, '$.card.image.path') IS NOT NULL
                         AND json_extract(content, '$.card.image.path') != ''
-                FROM messages WHERE downloaded
+                FROM messages WHERE downloaded AND json_valid(content)
                 UNION ALL
                 SELECT 'image',
                     CAST(COALESCE(json_extract(c.value, '$.image.size'), 0) AS INTEGER),
                     json_extract(c.value, '$.image.path') IS NOT NULL
                         AND json_extract(c.value, '$.image.path') != ''
                 FROM messages m, json_each(m.content, '$.card.carousel') c
-                WHERE m.downloaded
+                WHERE m.downloaded AND json_valid(m.content)
              )
              SELECT
-                (SELECT COUNT(*) FROM messages),
+                {counted},
                 COALESCE(SUM(CASE WHEN kind = 'image' AND present THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN kind = 'image' AND present THEN size ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN kind = 'video' AND present THEN 1 ELSE 0 END), 0),
@@ -1139,7 +1177,8 @@ impl Archive {
                 COALESCE(SUM(CASE WHEN kind = 'sticker' AND present THEN size ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN kind = 'other' AND present THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN kind = 'other' AND present THEN size ELSE 0 END), 0)
-             FROM media",
+             FROM media"
+            ),
             [],
             |row| {
                 Ok(StorageStats {
@@ -2166,10 +2205,10 @@ pub(crate) mod tests {
         }
         let empty = Archive::in_memory().expect("opens");
         assert_eq!(
-            empty.storage_stats().expect("empty"),
+            empty.storage_stats(true).expect("empty"),
             StorageStats::default()
         );
-        let stats = archive.storage_stats().expect("stats");
+        let stats = archive.storage_stats(true).expect("stats");
         assert_eq!(stats.messages, 12, "the count includes text messages");
         assert_eq!(
             stats.images, 3,
@@ -2184,6 +2223,81 @@ pub(crate) mod tests {
         assert_eq!(stats.other, 2);
         assert_eq!(stats.other_bytes, 120);
         assert_eq!(stats.bytes_total(), 2650);
+    }
+
+    /// An archive written before the marker existed can hold a row whose
+    /// content is not JSON, and `json_extract` raises on one. The marker and
+    /// its index must read such a row as "not downloaded": without the guard
+    /// `CREATE INDEX ... WHERE downloaded` fails on it and takes the whole
+    /// open with it.
+    #[test]
+    fn an_archive_with_unreadable_content_still_opens_and_counts() {
+        let connection = Connection::open_in_memory().expect("opens");
+        // The schema before the marker: no generated column, no partial index.
+        connection.execute_batch(SCHEMA).expect("schema");
+        connection
+            .execute(
+                "INSERT INTO chats (id, name, kind) VALUES ('1@s.whatsapp.net', 'Ada', 'Direct')",
+                [],
+            )
+            .expect("chat");
+        for (id, content) in [
+            ("broken", "not json at all"),
+            (
+                "i1",
+                r#"{"kind":"image","media":{"path":"/i1.jpg","size":100}}"#,
+            ),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO messages (chat, id, sender, timestamp, from_me, content)
+                     VALUES ('1@s.whatsapp.net', ?1, 'me', 1, 0, ?2)",
+                    params![id, content],
+                )
+                .expect("insert");
+        }
+        // The upgrade: the column and its index are built over a row the
+        // archive cannot read.
+        let archive = Archive::prepare(connection).expect("the archive opens");
+        let stats = archive.storage_stats(true).expect("stats");
+        assert_eq!(stats.messages, 2, "both rows are counted");
+        assert_eq!(stats.images, 1, "only the readable attachment counts");
+        assert_eq!(stats.image_bytes, 100);
+        // The refresh asks for the sizes alone, so the count is left at zero
+        // and the window keeps the one this read answered with.
+        let sizes_only = archive.storage_stats(false).expect("sizes");
+        assert_eq!(sizes_only.messages, 0);
+        assert_eq!(sizes_only.images, 1);
+        assert_eq!(sizes_only.image_bytes, 100);
+    }
+
+    /// The sticker index predates the guard, and an archive carries its own
+    /// copy of it. One that still reads the content unguarded is rebuilt, or
+    /// the archive cannot be opened at all.
+    #[test]
+    fn an_unguarded_sticker_index_is_rebuilt() {
+        let connection = Connection::open_in_memory().expect("opens");
+        connection.execute_batch(SCHEMA).expect("schema");
+        connection
+            .execute_batch(
+                "DROP INDEX messages_stickers;
+                 CREATE INDEX messages_stickers ON messages (from_me, timestamp)
+                     WHERE json_extract(content, '$.kind') = 'sticker';",
+            )
+            .expect("the index as it was");
+        let archive = Archive::prepare(connection).expect("the archive opens");
+        let sql: Option<String> = archive
+            .connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'messages_stickers'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the index is there");
+        assert!(
+            sql.as_deref().is_some_and(|sql| sql.contains("json_valid")),
+            "the index was rebuilt with the guard: {sql:?}"
+        );
     }
 
     #[test]

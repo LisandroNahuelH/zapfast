@@ -433,6 +433,9 @@ pub struct App {
     pub storage_stats: Option<StorageStats>,
     /// When the last reading was asked for, so a stale one is asked again.
     pub(crate) storage_stats_at: Option<Instant>,
+    /// Whether the message count has been read for the current visit to
+    /// Settings. The refresh reads the sizes alone.
+    pub(crate) storage_stats_counted: bool,
     /// Whether a reading is already on its way to the worker.
     pub(crate) storage_stats_asked: bool,
     /// Whether the locked-chats folder is open.
@@ -981,6 +984,7 @@ impl App {
             storage_stats: None,
             storage_stats_at: None,
             storage_stats_asked: false,
+            storage_stats_counted: false,
             locked_folder: false,
             chat_lock_session: None,
             chat_lock_entry: String::new(),
@@ -2217,8 +2221,18 @@ impl App {
                     // numbers, or the blank row, in place. The attempt still
                     // counts as one, so a broken archive is retried on the
                     // same cadence instead of on every frame.
-                    if stats.is_some() {
-                        self.storage_stats = stats;
+                    if let Some(mut stats) = stats {
+                        if self.storage_stats_counted {
+                            // This was the refresh, which leaves the count
+                            // alone: it came with the read that opened the
+                            // page.
+                            stats.messages = self
+                                .storage_stats
+                                .map_or(stats.messages, |last| last.messages);
+                        } else {
+                            self.storage_stats_counted = true;
+                        }
+                        self.storage_stats = Some(stats);
                     }
                     self.storage_stats_at = Some(Instant::now());
                     self.storage_stats_asked = false;
@@ -3648,6 +3662,10 @@ impl App {
                 // announces it: read it again whenever Settings opens.
                 if page == Page::Settings && self.page != Page::Settings && self.is_connected() {
                     self.backend.send(Command::FetchAccountPrivacy);
+                }
+                // Each visit to Settings reads the message count again.
+                if page == Page::Settings && self.page != Page::Settings {
+                    self.storage_stats_counted = false;
                 }
                 // Typed passwords do not wait in a form nobody sees.
                 if page != Page::Settings && !self.app_lock.checking() {
@@ -5654,7 +5672,9 @@ impl App {
             .storage_stats_at
             .is_none_or(|at| at.elapsed() >= STORAGE_STATS_TTL);
         if stale {
-            self.backend.send(Command::StorageStats);
+            self.backend.send(Command::StorageStats {
+                messages: !self.storage_stats_counted,
+            });
             self.storage_stats_asked = true;
         }
     }

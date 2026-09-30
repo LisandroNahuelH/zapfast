@@ -1345,8 +1345,9 @@ fn storage_usage(ui: &mut egui::Ui, app: &App) {
         ui,
         &crate::i18n::gettext(
             app.locale,
-            "Space taken by the pictures, videos, stickers, and GIFs already on this \
-             computer. Documents and audio count under Other.",
+            "Space taken by the pictures, videos, stickers, and GIFs ZapFast has \
+             downloaded. The size is the one WhatsApp declared. Documents and audio \
+             count under Other.",
         ),
         theme::regular(12.5),
         palette.secondary,
