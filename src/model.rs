@@ -1427,6 +1427,12 @@ pub enum Action {
         chat: ChatId,
         id: String,
     },
+    /// Stars or unstars one message from its bubble's menu.
+    SetStar {
+        chat: ChatId,
+        message: String,
+        starred: bool,
+    },
     /// Opens the attachment picker for the current chat.
     Attach,
     /// Opens or closes the composer tools menu.
@@ -1567,6 +1573,8 @@ pub enum Action {
     DeleteLabel(String),
     /// Shows or leaves the archived chats.
     ShowArchived(bool),
+    /// Shows or hides the starred messages in the left panel.
+    ToggleStarred,
     /// Mutes (`true`) or unmutes every followed channel.
     MuteAllChannels(bool),
     /// Joins the group of the invite being previewed.
