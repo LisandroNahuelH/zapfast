@@ -2216,21 +2216,20 @@ impl App {
                             .collect();
                     }
                 }
-                Event::StorageStats(stats) => {
+                Event::StorageStats { stats, counted } => {
                     // A failed read answers nothing and leaves the last good
                     // numbers, or the blank row, in place. The attempt still
                     // counts as one, so a broken archive is retried on the
                     // same cadence instead of on every frame.
                     if let Some(mut stats) = stats {
-                        if self.storage_stats_counted {
-                            // This was the refresh, which leaves the count
-                            // alone: it came with the read that opened the
-                            // page.
+                        if counted {
+                            self.storage_stats_counted = true;
+                        } else {
+                            // A sizes-only refresh carries a zero message
+                            // total. Keep the total from the counted read.
                             stats.messages = self
                                 .storage_stats
                                 .map_or(stats.messages, |last| last.messages);
-                        } else {
-                            self.storage_stats_counted = true;
                         }
                         self.storage_stats = Some(stats);
                     }
@@ -3663,9 +3662,12 @@ impl App {
                 if page == Page::Settings && self.page != Page::Settings && self.is_connected() {
                     self.backend.send(Command::FetchAccountPrivacy);
                 }
-                // Each visit to Settings reads the message count again.
+                // Each visit to Settings reads the message count again, even
+                // when the last sizes were read less than a minute ago.
                 if page == Page::Settings && self.page != Page::Settings {
                     self.storage_stats_counted = false;
+                    self.storage_stats_at = None;
+                    self.storage_stats_asked = false;
                 }
                 // Typed passwords do not wait in a form nobody sees.
                 if page != Page::Settings && !self.app_lock.checking() {
@@ -5664,7 +5666,7 @@ impl App {
     /// open, at most once per [`STORAGE_STATS_TTL`]. The request lives here
     /// rather than in the view: `src/ui` draws and pushes actions, and only
     /// `App` talks to the worker.
-    fn refresh_storage_stats(&mut self) {
+    fn refresh_storage_stats(&mut self, ctx: &egui::Context) {
         if self.page != Page::Settings || self.storage_stats_asked {
             return;
         }
@@ -5676,6 +5678,11 @@ impl App {
                 messages: !self.storage_stats_counted,
             });
             self.storage_stats_asked = true;
+        } else if let Some(at) = self.storage_stats_at {
+            // Settings can sit idle. Ask for a frame when the minute ends,
+            // or the sizes stay frozen until the reader does something.
+            let left = STORAGE_STATS_TTL.saturating_sub(at.elapsed());
+            ctx.request_repaint_after(left);
         }
     }
 
@@ -5729,7 +5736,7 @@ impl App {
         }
         crate::ui::show(self, ui);
         self.apply_actions(ctx);
-        self.refresh_storage_stats();
+        self.refresh_storage_stats(ctx);
         // The old colours, if a change is being revealed, go over everything.
         self.theme_transition.paint(ctx);
         // Release the image caches of everything that scrolled away.
@@ -6894,6 +6901,71 @@ mod tests {
         events.send(Event::Link(LinkStatus::LoggedOut)).unwrap();
         app.background_frame(&ctx);
         assert!(app.interactive_sending.is_empty());
+    }
+
+    #[test]
+    fn a_sizes_only_storage_answer_keeps_the_message_count() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, events) = App::headless(AppDirs::under(root.path()), Settings::default());
+        app.storage_stats = Some(crate::model::StorageStats {
+            messages: 5,
+            ..crate::model::StorageStats::default()
+        });
+        app.storage_stats_counted = false;
+        events
+            .send(Event::StorageStats {
+                stats: Some(crate::model::StorageStats {
+                    messages: 0,
+                    images: 2,
+                    ..crate::model::StorageStats::default()
+                }),
+                counted: false,
+            })
+            .unwrap();
+        app.handle_events();
+        let stats = app.storage_stats.expect("stats");
+        assert_eq!(stats.messages, 5);
+        assert_eq!(stats.images, 2);
+        assert!(!app.storage_stats_counted);
+    }
+
+    #[test]
+    fn reopening_settings_counts_messages_again() {
+        let mut app = app();
+        let (backend, mut commands, _) = Backend::recording_with_events();
+        app.backend = backend;
+        let ctx = egui::Context::default();
+        app.page = Page::Settings;
+        app.storage_stats_counted = true;
+        app.storage_stats_at = Some(std::time::Instant::now());
+        app.apply(Action::Open(Page::Chats), &ctx);
+        app.apply(Action::Open(Page::Settings), &ctx);
+        app.refresh_storage_stats(&ctx);
+        let asked = std::iter::from_fn(|| commands.try_recv().ok())
+            .any(|command| matches!(command, Command::StorageStats { messages: true }));
+        assert!(asked, "a new visit asks for the message total");
+    }
+
+    #[test]
+    fn fresh_storage_stats_ask_for_a_frame_when_they_go_stale() {
+        let mut app = app();
+        app.page = Page::Settings;
+        app.storage_stats_at = Some(std::time::Instant::now());
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {
+            app.refresh_storage_stats(&ctx);
+        });
+        output.textures_delta.clear();
+        let delay = output
+            .viewport_output
+            .values()
+            .map(|viewport| viewport.repaint_delay)
+            .min()
+            .unwrap_or(std::time::Duration::MAX);
+        assert!(
+            delay.as_secs() < 120,
+            "the idle page wakes before the minute ends"
+        );
     }
 
     #[test]

@@ -4364,11 +4364,17 @@ impl Worker {
                 until,
             } => self.search_chat_messages(chat, query, from, until),
             Command::StorageStats { messages } => match self.archive.storage_stats(messages) {
-                Ok(stats) => self.emit(Event::StorageStats(Some(stats))),
+                Ok(stats) => self.emit(Event::StorageStats {
+                    stats: Some(stats),
+                    counted: messages,
+                }),
                 Err(error) => {
                     log::warn!("could not read the storage stats: {error}");
                     // Nothing to show: a blank row is honest, zeroes are not.
-                    self.emit(Event::StorageStats(None));
+                    self.emit(Event::StorageStats {
+                        stats: None,
+                        counted: messages,
+                    });
                 }
             },
             Command::EnsureChat { chat, name } => {

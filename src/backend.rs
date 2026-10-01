@@ -760,7 +760,12 @@ pub enum Event {
     },
     /// Counts and sizes of the downloaded attachments. `None` when the
     /// archive could not be read.
-    StorageStats(Option<StorageStats>),
+    /// `counted` is true when this answer includes the message total. A
+    /// sizes-only refresh must not be read as a new total of zero.
+    StorageStats {
+        stats: Option<StorageStats>,
+        counted: bool,
+    },
     ChatUpdated(Box<Chat>),
     /// Chat messages in ascending order. `older` prepends them; `complete`
     /// means the archive has no earlier rows.

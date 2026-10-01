@@ -176,7 +176,11 @@ const MIGRATIONS: &[(&str, &str, &str)] = &[
 const DOWNLOADED: &str = "CASE WHEN json_valid(content) THEN (
         json_extract(content, '$.media.path') IS NOT NULL
         OR json_extract(content, '$.card.image.path') IS NOT NULL
-        OR json_array_length(json_extract(content, '$.card.carousel')) > 0
+        OR CASE
+            WHEN json_type(content, '$.card.carousel') = 'array'
+            THEN json_array_length(json_extract(content, '$.card.carousel')) > 0
+            ELSE 0
+        END
     ) ELSE 0 END";
 
 const CHAT_JOIN: &str = "FROM chats c
@@ -396,7 +400,97 @@ impl Archive {
             .prepare("PRAGMA table_xinfo(messages)")?
             .query_map([], |row| row.get::<_, String>(1))?
             .any(|name| name.as_deref() == Ok("downloaded"));
-        if !exists {
+        // `json_array_length` raises when `card.carousel` is not an array.
+        // An archive that still has that expression cannot open once it holds
+        // such a row. Drop the column and add the guarded one.
+        let current = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .is_some_and(|sql| {
+                sql.contains("WHEN json_type(content, '$.card.carousel') = 'array'")
+            });
+        if exists && !current {
+            // `DROP COLUMN` rewrites the table and reads `downloaded`. That
+            // read raises on the bad row. Copy the stored columns, then add
+            // the guarded expression. `table_info` omits generated columns,
+            // so the copy never evaluates the old one.
+            let mut info = connection.prepare("PRAGMA table_info(messages)")?;
+            let columns: Vec<(String, String, i64, Option<String>, i64)> = info
+                .query_map([], |row| {
+                    Ok((
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>>>()?;
+            drop(info);
+            let mut defs = Vec::new();
+            let mut names = Vec::new();
+            let mut keys = Vec::new();
+            for (name, ty, notnull, default, pk) in &columns {
+                let quoted = format!("\"{}\"", name.replace('"', "\"\""));
+                let mut def = format!("{quoted} {ty}");
+                if *notnull != 0 {
+                    def.push_str(" NOT NULL");
+                }
+                if let Some(value) = default {
+                    def.push_str(" DEFAULT ");
+                    def.push_str(value);
+                }
+                defs.push(def);
+                if *pk > 0 {
+                    keys.push((*pk, quoted.clone()));
+                }
+                names.push(quoted);
+            }
+            keys.sort_by_key(|(pk, _)| *pk);
+            if !keys.is_empty() {
+                let listed = keys
+                    .iter()
+                    .map(|(_, name)| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                defs.push(format!("PRIMARY KEY ({listed})"));
+            }
+            let extras: Vec<String> = {
+                let mut stmt = connection.prepare(
+                    "SELECT sql FROM sqlite_master
+                     WHERE tbl_name = 'messages' AND sql IS NOT NULL AND type != 'table'",
+                )?;
+                stmt.query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .filter(|sql| !sql.contains("downloaded"))
+                    .collect()
+            };
+            let listed = names.join(", ");
+            connection.execute_batch(&format!(
+                "DROP TABLE IF EXISTS messages_migrated;
+                 CREATE TABLE messages_migrated ({});
+                 INSERT INTO messages_migrated ({listed})
+                     SELECT {listed} FROM messages;",
+                defs.join(", ")
+            ))?;
+            connection.execute_batch(
+                "DROP TABLE messages;
+                 ALTER TABLE messages_migrated RENAME TO messages;",
+            )?;
+            for sql in extras {
+                connection.execute_batch(&sql)?;
+            }
+            connection.execute_batch(&format!(
+                "ALTER TABLE messages ADD COLUMN downloaded INTEGER
+                     GENERATED ALWAYS AS ({DOWNLOADED}) VIRTUAL"
+            ))?;
+        } else if !exists {
             connection.execute_batch(&format!(
                 "ALTER TABLE messages ADD COLUMN downloaded INTEGER
                      GENERATED ALWAYS AS ({DOWNLOADED}) VIRTUAL"
@@ -886,7 +980,10 @@ impl Archive {
     pub fn carousel_media_paths(&self) -> Result<Vec<(String, String, usize, std::path::PathBuf)>> {
         let mut statement = self.connection.prepare(
             "SELECT m.chat, m.id, c.key, json_extract(c.value, '$.image.path') AS image_path
-             FROM messages m, json_each(m.content, '$.card.carousel') c WHERE image_path IS NOT NULL",
+             FROM messages m, json_each(
+                 CASE WHEN json_type(m.content, '$.card.carousel') = 'array'
+                     THEN m.content ELSE '{}' END,
+                 '$.card.carousel') c WHERE image_path IS NOT NULL",
         )?;
         let rows = statement.query_map([], |row| {
             Ok((
@@ -1164,7 +1261,10 @@ impl Archive {
                     CAST(COALESCE(json_extract(c.value, '$.image.size'), 0) AS INTEGER),
                     json_extract(c.value, '$.image.path') IS NOT NULL
                         AND json_extract(c.value, '$.image.path') != ''
-                FROM messages m, json_each(m.content, '$.card.carousel') c
+                FROM messages m, json_each(
+                    CASE WHEN json_type(m.content, '$.card.carousel') = 'array'
+                        THEN m.content ELSE '{{}}' END,
+                    '$.card.carousel') c
                 WHERE m.downloaded AND json_valid(m.content)
              )
              SELECT
@@ -1531,7 +1631,10 @@ impl Archive {
                  SELECT json_extract(m.content, '$.card.image.path') FROM messages m WHERE {filter}
                  UNION ALL
                  SELECT json_extract(c.value, '$.image.path')
-                 FROM messages m, json_each(m.content, '$.card.carousel') c WHERE {filter}
+                 FROM messages m, json_each(
+                     CASE WHEN json_type(m.content, '$.card.carousel') = 'array'
+                         THEN m.content ELSE '{{}}' END,
+                     '$.card.carousel') c WHERE {filter}
              ) WHERE file IS NOT NULL"
         ))?;
         let rows =
@@ -2298,6 +2401,37 @@ pub(crate) mod tests {
             sql.as_deref().is_some_and(|sql| sql.contains("json_valid")),
             "the index was rebuilt with the guard: {sql:?}"
         );
+    }
+
+    /// `json_array_length` raises when `card.carousel` is a string. The old
+    /// generated column did that while the archive opened.
+    #[test]
+    fn a_string_carousel_does_not_stop_the_archive_opening() {
+        let connection = Connection::open_in_memory().expect("opens");
+        connection.execute_batch(SCHEMA).expect("schema");
+        // The row lands before the column. A virtual column is not computed
+        // on insert, and an update while the old column exists raises.
+        connection
+            .execute(
+                "INSERT INTO messages (chat, id, sender, from_me, timestamp, content)
+                 VALUES ('1@s.whatsapp.net', 'm1', '1@s.whatsapp.net', 0, 1, ?1)",
+                [r#"{"card":{"carousel":"not-an-array"}}"#],
+            )
+            .expect("the damaged row");
+        connection
+            .execute_batch(
+                "ALTER TABLE messages ADD COLUMN downloaded INTEGER
+                     GENERATED ALWAYS AS (
+                         CASE WHEN json_valid(content) THEN (
+                             json_array_length(json_extract(content, '$.card.carousel')) > 0
+                         ) ELSE 0 END
+                     ) VIRTUAL;",
+            )
+            .expect("the old column");
+        let archive = Archive::prepare(connection).expect("the archive opens");
+        let stats = archive.storage_stats(true).expect("stats");
+        assert_eq!(stats.messages, 1);
+        assert_eq!(stats.images, 0);
     }
 
     #[test]
