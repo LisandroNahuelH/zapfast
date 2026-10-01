@@ -3939,6 +3939,7 @@ impl App {
                     // The album is asked for as the viewer opens, so stepping
                     // through it works from the first frame.
                     self.viewer_media.clear();
+                    self.viewer_media_state.clear();
                     self.viewer_media_chat = Some(chat.clone());
                     self.backend.send(Command::LoadChatMedia {
                         chat: chat.clone(),
