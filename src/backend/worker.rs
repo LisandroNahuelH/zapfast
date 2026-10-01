@@ -4299,6 +4299,11 @@ impl Worker {
         };
         if self.fetch_older(chat.clone(), true) {
             self.prefetch.start_history(chat);
+        } else if self.prefetch_older.contains(&chat) {
+            // The mark outlives a timeout so a late answer stays quiet, and
+            // `fetch_older` then refuses this chat. Step past it, or it holds
+            // the front of the queue and nothing behind it is asked.
+            self.prefetch.defer(&chat);
         }
     }
 

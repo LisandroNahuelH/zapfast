@@ -52,11 +52,15 @@ impl State {
     }
 
     /// After reconnect, phone history may be available again.
+    ///
+    /// An in-flight request keeps `history_chat`. The worker still holds that
+    /// request in `pending_older` and its `prefetch_older` mark. Clearing the
+    /// chat here makes the later timeout miss `fail_history`, so the mark
+    /// stays and `fetch_older` refuses the queue head from then on.
     pub fn on_connected(&mut self) {
         self.exhausted.clear();
         self.history_failures = 0;
         self.history_due = None;
-        self.history_chat = None;
         self.rebuild = true;
     }
 
@@ -180,6 +184,12 @@ impl State {
     fn count_page(&mut self, chat: &str) {
         let pages = self.pages.entry(chat.to_owned()).or_insert(0);
         *pages = pages.saturating_add(1);
+    }
+
+    /// The front chat still has an outstanding background request, so it
+    /// cannot be asked again yet. Move it behind the others.
+    pub fn defer(&mut self, chat: &str) {
+        self.rotate(chat);
     }
 
     /// Moves a chat to the back of the queue, or drops it once it has had the
@@ -557,5 +567,46 @@ mod tests {
             Some("a"),
             "the new session may ask again"
         );
+    }
+
+    /// Reconnect must not drop the in-flight chat. The timeout still has to
+    /// match it, or the chat stays at the front and the ones behind wait.
+    #[test]
+    fn reconnect_keeps_the_inflight_chat_so_the_timeout_rotates_it() {
+        let mut state = State::default();
+        state.configure(true, None);
+        state.set_chats(&[
+            chat("a", 30, false, 0, false),
+            chat("b", 20, false, 0, false),
+        ]);
+        let now = Instant::now();
+        let first = state.next_history(now, false).unwrap();
+        assert_eq!(first, "a");
+        state.start_history(first.clone());
+        state.on_connected();
+        assert_eq!(state.history_chat.as_deref(), Some("a"));
+        assert!(state.fail_history("a", now));
+        assert_eq!(
+            state
+                .next_history(now + Duration::from_secs(31), false)
+                .as_deref(),
+            Some("b")
+        );
+    }
+
+    /// A chat whose background request may still answer cannot be asked
+    /// again. It has to leave the front so the queue keeps moving.
+    #[test]
+    fn defer_moves_a_marked_head_behind_the_others() {
+        let mut state = State::default();
+        state.configure(true, None);
+        state.set_chats(&[
+            chat("a", 30, false, 0, false),
+            chat("b", 20, false, 0, false),
+        ]);
+        let now = Instant::now();
+        assert_eq!(state.next_history(now, false).as_deref(), Some("a"));
+        state.defer("a");
+        assert_eq!(state.next_history(now, false).as_deref(), Some("b"));
     }
 }
