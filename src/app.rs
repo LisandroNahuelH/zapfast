@@ -1450,9 +1450,11 @@ impl App {
     fn leave_chat(&mut self, id: &str) {
         self.notifications.clear(id);
         self.search_hits.retain(|message| message.chat != id);
-        // A locked or deleted chat keeps none of its pinned words on screen.
+        // A locked or deleted chat keeps none of its pinned words on screen,
+        // and none of its starred message text in the open list.
         self.pins.remove(id);
         self.chat_pins.remove(id);
+        self.starred.retain(|entry| entry.message.chat != id);
         if matches!(
             &self.dialog,
             Some(
@@ -2323,6 +2325,19 @@ impl App {
                 }
                 Event::MessageUpdated(message) => {
                     let message = *message;
+                    for entry in &mut self.starred {
+                        if entry.message.chat == message.chat && entry.message.id == message.id {
+                            entry.message = message.clone();
+                        }
+                    }
+                    if matches!(message.content, Content::Revoked) {
+                        if let Some(ids) = self.pins.get_mut(&message.chat) {
+                            ids.remove(&message.id);
+                        }
+                        if let Some(rows) = self.chat_pins.get_mut(&message.chat) {
+                            rows.retain(|row| row.id != message.id);
+                        }
+                    }
                     if let Some(conversation) = self.conversations.get_mut(&message.chat)
                         && let Some(existing) = conversation.message_mut(&message.id)
                     {
@@ -2685,7 +2700,18 @@ impl App {
                 Event::Error(message) => {
                     self.sticker_import_pending = false;
                     self.new_contact_pending = false;
-                    self.toast_error(message);
+                    // The worker sends the English catalog key. `gettext`
+                    // only accepts a static key, so unknown errors stay as
+                    // the worker wrote them.
+                    let shown = match message.as_str() {
+                        "This chat already has three pinned messages" => crate::i18n::gettext(
+                            self.locale,
+                            "This chat already has three pinned messages",
+                        )
+                        .into_owned(),
+                        _ => message,
+                    };
+                    self.toast_error(shown);
                 }
             }
         }
@@ -4713,12 +4739,13 @@ impl App {
                 // WhatsApp keeps three active pins per chat, and the phone
                 // replaces an existing one when a fourth arrives. Refuse the
                 // fourth here, where the count is already known.
-                if pinned
-                    && self
-                        .pins
-                        .get(&chat)
-                        .is_some_and(|ids| ids.len() >= 3 && !ids.contains(&message))
-                {
+                let now = crate::util::now();
+                let active = self.chat_pins.get(&chat).map_or(0, |rows| {
+                    rows.iter()
+                        .filter(|row| row.expires_at > now && row.id != message)
+                        .count()
+                });
+                if pinned && active >= 3 {
                     self.toast(crate::i18n::gettext(
                         self.locale,
                         "This chat already has three pinned messages",
@@ -8244,6 +8271,14 @@ mod tests {
                 .into_iter()
                 .collect(),
         );
+        app.chat_pins.insert(
+            chat.clone(),
+            vec![
+                pinned_row(&chat, "a"),
+                pinned_row(&chat, "b"),
+                pinned_row(&chat, "c"),
+            ],
+        );
         app.apply(
             Action::SetMessagePinned {
                 chat: chat.clone(),
@@ -8345,6 +8380,122 @@ mod tests {
 
         assert!(!app.chat_pins.contains_key(chat));
         assert!(!app.pins.contains_key(chat));
+    }
+
+    #[test]
+    fn an_expired_pin_does_not_count_toward_the_cap() {
+        let mut app = app();
+        let (backend, mut commands) = Backend::recording();
+        app.backend = backend;
+        let chat = "1@s.whatsapp.net".to_owned();
+        let mut rows = vec![
+            pinned_row(&chat, "a"),
+            pinned_row(&chat, "b"),
+            pinned_row(&chat, "c"),
+        ];
+        for row in &mut rows {
+            row.expires_at = 1;
+        }
+        app.pins.insert(
+            chat.clone(),
+            ["a".to_owned(), "b".to_owned(), "c".to_owned()]
+                .into_iter()
+                .collect(),
+        );
+        app.chat_pins.insert(chat.clone(), rows);
+        app.apply(
+            Action::SetMessagePinned {
+                chat,
+                message: "d".into(),
+                pinned: true,
+            },
+            &egui::Context::default(),
+        );
+        assert!(
+            matches!(
+                commands.try_recv(),
+                Ok(Command::SetMessagePinned { pinned: true, .. })
+            ),
+            "expired rows leave a free slot"
+        );
+    }
+
+    #[test]
+    fn a_revoked_message_leaves_the_pin_banner() {
+        let mut app = app();
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        let chat = "1@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Fixture".into()));
+        app.chat_pins
+            .insert(chat.into(), vec![pinned_row(chat, "m1")]);
+        app.pins
+            .insert(chat.into(), ["m1".to_owned()].into_iter().collect());
+        let mut message = message(chat, "m1", 1);
+        message.content = Content::Revoked;
+        events
+            .send(Event::MessageUpdated(Box::new(message)))
+            .unwrap();
+        app.handle_events();
+        assert!(app.chat_pins.get(chat).is_some_and(Vec::is_empty));
+        assert!(app.pins.get(chat).is_some_and(HashSet::is_empty));
+    }
+
+    #[test]
+    fn locking_a_chat_drops_its_starred_rows() {
+        let mut app = app();
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        let chat = "1@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Fixture".into()));
+        app.starred.push(crate::archive::Starred {
+            message: message(chat, "m1", 1),
+            starred_at: 1,
+        });
+        let mut locked = Chat::new(chat.into(), "Fixture".into());
+        locked.locked = true;
+        events.send(Event::ChatUpdated(Box::new(locked))).unwrap();
+        app.handle_events();
+        assert!(app.starred.is_empty());
+    }
+
+    #[test]
+    fn an_edit_replaces_the_open_starred_row() {
+        let mut app = app();
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        let chat = "1@s.whatsapp.net";
+        app.starred.push(crate::archive::Starred {
+            message: message(chat, "m1", 1),
+            starred_at: 1,
+        });
+        let mut edited = message(chat, "m1", 1);
+        edited.content = Content::text("edited");
+        events
+            .send(Event::MessageUpdated(Box::new(edited)))
+            .unwrap();
+        app.handle_events();
+        assert_eq!(app.starred[0].message.content, Content::text("edited"));
+    }
+
+    #[test]
+    fn a_worker_pin_refusal_uses_the_reader_language() {
+        let mut app = app();
+        let (backend, events) = Backend::detached();
+        app.backend = backend;
+        app.locale = crate::i18n::Locale::Spanish;
+        events
+            .send(Event::Error(
+                "This chat already has three pinned messages".into(),
+            ))
+            .unwrap();
+        app.handle_events();
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("fijados")),
+            "the toast is translated"
+        );
     }
 
     /// A pin that expires while the chat is closed leaves the line when it is

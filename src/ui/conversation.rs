@@ -88,9 +88,20 @@ fn pin_banner_target(rows: usize, index: usize, on_pin: bool) -> usize {
 /// next pin and wraps around, so clicking it walks the chat's pins one after
 /// another.
 fn pin_banner(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
+    let now = crate::util::now();
+    if let Some(wait) = app.chat_pins.get(&chat.id).and_then(|rows| {
+        rows.iter()
+            .filter(|row| row.expires_at > now)
+            .map(|row| row.expires_at)
+            .min()
+    }) {
+        let left = wait.saturating_sub(now).clamp(0, 86_400) as u64;
+        ui.ctx()
+            .request_repaint_after(Duration::from_secs(left.saturating_add(1)));
+    }
     let rows = live_pins(
         app.chat_pins.get(&chat.id).map_or(&[][..], Vec::as_slice),
-        crate::util::now(),
+        now,
     );
     if rows.is_empty() {
         return;
@@ -7716,6 +7727,34 @@ mod tests {
         assert!(
             live_pins(&[live], 2_000).is_empty(),
             "the moment it runs out, it leaves"
+        );
+    }
+
+    #[test]
+    fn an_open_pin_asks_for_a_frame_when_it_expires() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            crate::settings::Settings::default(),
+        );
+        let chat = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
+        let mut row = pinned(&chat.id, "m1");
+        row.expires_at = crate::util::now() + 30;
+        app.chat_pins.insert(chat.id.clone(), vec![row]);
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            pin_banner(&mut app, ui, &chat);
+        });
+        output.textures_delta.clear();
+        let delay = output
+            .viewport_output
+            .values()
+            .map(|viewport| viewport.repaint_delay)
+            .min()
+            .unwrap_or(std::time::Duration::MAX);
+        assert!(
+            delay.as_secs() <= 31,
+            "the banner wakes when the pin runs out"
         );
     }
 
