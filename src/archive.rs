@@ -1495,6 +1495,15 @@ impl Archive {
                 .media()
                 .and_then(|media| media.path.clone())
                 .filter(|path| path.is_file());
+            // A file the viewer cannot decode (bmp, tif, and the same list
+            // `can_view` uses) is not a tile. A click would open the viewer
+            // and fail. The bubble still sends that file to the system viewer.
+            if path
+                .as_ref()
+                .is_some_and(|path| crate::model::gallery_kind_for_path(path).is_none())
+            {
+                continue;
+            }
             list.push(ChatMedia {
                 id,
                 timestamp,
@@ -3587,6 +3596,43 @@ mod media_path_tests {
         let page = archive.gallery_media("a@s.whatsapp.net", 1).expect("album");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].id, "p2");
+    }
+
+    /// A downloaded file the viewer cannot decode is not a tile. A bmp opens
+    /// in the system viewer from the bubble; the album must not hand it to
+    /// the in-app decoder. A photo that is not downloaded yet stays, so the
+    /// tile can still offer Download.
+    #[test]
+    fn the_album_skips_a_downloaded_file_the_viewer_cannot_decode() {
+        let root = tempfile::tempdir().unwrap();
+        let jpeg = root.path().join("photo.jpg");
+        let bmp = root.path().join("scan.bmp");
+        std::fs::write(&jpeg, b"jpeg").unwrap();
+        std::fs::write(&bmp, b"bmp").unwrap();
+
+        let archive = Archive::in_memory().expect("opens");
+        archive.ensure_chat("a@s.whatsapp.net", "A").expect("chat");
+        archive
+            .insert_message(&picture("p1"), None)
+            .expect("inserted");
+        let mut later = picture("p2");
+        later.timestamp = 2;
+        archive.insert_message(&later, None).expect("inserted");
+        let mut waiting = picture("p3");
+        waiting.timestamp = 3;
+        archive.insert_message(&waiting, None).expect("inserted");
+        archive
+            .set_media_path("a@s.whatsapp.net", "p1", &jpeg)
+            .expect("filed");
+        archive
+            .set_media_path("a@s.whatsapp.net", "p2", &bmp)
+            .expect("filed");
+
+        let album = archive
+            .gallery_media("a@s.whatsapp.net", GALLERY_PAGE)
+            .expect("album");
+        let ids: Vec<_> = album.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(ids, vec!["p1", "p3"]);
     }
 
     /// The album around one message holds it with its neighbours on both sides,

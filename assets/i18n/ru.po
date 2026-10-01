@@ -1671,6 +1671,10 @@ msgstr "ZapFast не смог показать это изображение."
 msgid "Open externally"
 msgstr "Открыть в другой программе"
 
+#: src/ui/conversation.rs:4061
+msgid "Open in the viewer"
+msgstr "Открыть в просмотре"
+
 #: src/ui/image_preview.rs:713
 msgid "Play or pause the video"
 msgstr "Воспроизвести или приостановить видео"

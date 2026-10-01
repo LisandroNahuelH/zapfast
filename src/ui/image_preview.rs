@@ -793,8 +793,11 @@ fn video(
         // in either theme, exactly as the bubble paints the same button.
         theme::paint_icon(ui, Icon::Play, disc, 28.0, palette.text);
         if let Some(error) = failed {
+            // Inside the frame. A wide window makes the 16:9 rectangle as
+            // tall as the stage, and the body is clipped to the stage, so a
+            // line below the frame is never seen.
             ui.painter().text(
-                pos2(media.center().x, media.bottom() + 18.0),
+                pos2(media.center().x, media.bottom() - 18.0),
                 egui::Align2::CENTER_CENTER,
                 error,
                 theme::regular(12.5),

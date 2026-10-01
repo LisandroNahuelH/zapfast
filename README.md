@@ -257,7 +257,7 @@ See **[zapfast.rocks](https://zapfast.rocks)** for downloads and guides.
 - **View attachments.** ZapFast downloads files up to 64 MiB automatically or
   on click. Photos, stickers, GIFs, voice messages, audio, locations, contacts,
   polls, and link previews appear in the chat. Click a downloaded JPEG, PNG,
-  WebP, or GIF photo to preview it in ZapFast with fit and zoom controls, or
+  or WebP photo to preview it in ZapFast with fit and zoom controls, or
   choose **Open externally**. In the viewer, the mouse wheel and Ctrl+wheel
   (Cmd+wheel on macOS) zoom around the pointer, as does a trackpad pinch on
   macOS and Windows. Drag a zoomed picture to move it; where a trackpad scrolls

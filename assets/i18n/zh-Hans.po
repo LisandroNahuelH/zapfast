@@ -1612,6 +1612,10 @@ msgstr "ZapFast 无法显示此图片。"
 msgid "Open externally"
 msgstr "用外部程序打开"
 
+#: src/ui/conversation.rs:4061
+msgid "Open in the viewer"
+msgstr "在预览中打开"
+
 #: src/ui/image_preview.rs:713
 msgid "Play or pause the video"
 msgstr "播放或暂停视频"
@@ -1630,7 +1634,7 @@ msgstr "上一个 (,)"
 
 #: src/ui/image_preview.rs:932
 msgid "Next (.)"
-msgstr "下一个 (,)"
+msgstr "下一个 (.)"
 
 #: src/ui/lock.rs:17
 msgid "ZapFast is locked"

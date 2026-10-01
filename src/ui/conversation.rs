@@ -4054,7 +4054,12 @@ fn context_menu(ui: &mut egui::Ui, view: &View<'_>, message: &Message, actions: 
     // there, so this is how the album is reached from a chat that holds no
     // pictures.
     if let Some(path) = viewer_file(message)
-        && widgets::menu_item(ui, &palette, Some(Icon::Maximize), "Open in the viewer")
+        && widgets::menu_item(
+            ui,
+            &palette,
+            Some(Icon::Maximize),
+            &crate::i18n::gettext(view.locale, "Open in the viewer"),
+        )
     {
         actions.push(Action::PreviewImage {
             path: path.to_owned(),

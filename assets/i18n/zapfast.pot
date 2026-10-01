@@ -1615,6 +1615,10 @@ msgstr ""
 msgid "Open externally"
 msgstr ""
 
+#: src/ui/conversation.rs:4061
+msgid "Open in the viewer"
+msgstr ""
+
 #: src/ui/image_preview.rs:713
 msgid "Play or pause the video"
 msgstr ""

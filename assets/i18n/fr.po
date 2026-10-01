@@ -1670,6 +1670,10 @@ msgstr "ZapFast n'a pas pu afficher cette image."
 msgid "Open externally"
 msgstr "Ouvrir à l'extérieur"
 
+#: src/ui/conversation.rs:4061
+msgid "Open in the viewer"
+msgstr "Ouvrir dans l'aperçu"
+
 #: src/ui/image_preview.rs:713
 msgid "Play or pause the video"
 msgstr "Lire ou mettre en pause la vidéo"
