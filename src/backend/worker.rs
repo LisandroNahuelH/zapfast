@@ -1082,16 +1082,20 @@ impl Worker {
     fn star_update(&mut self, update: &wa_events::StarUpdate) {
         let chat = self.canonical(&update.chat_jid);
         let id = update.message_id.clone();
-        // This event is newer than any request still in flight.
-        self.next_star_generation(&chat, &id);
         let starred = update.action.starred.unwrap_or(false);
         let at = update.timestamp.timestamp();
+        // An older event loses to the stored time and must not cancel a
+        // request that is still in flight. Only a row that actually changed
+        // retires that request.
         match self.archive.set_star(&chat, &id, starred, at) {
-            Ok(true) => self.emit(Event::StarChanged {
-                chat,
-                message: id,
-                starred,
-            }),
+            Ok(true) => {
+                self.next_star_generation(&chat, &id);
+                self.emit(Event::StarChanged {
+                    chat,
+                    message: id,
+                    starred,
+                });
+            }
             Ok(false) => {}
             Err(error) => log::warn!("could not store a star from the phone: {error}"),
         }
@@ -2723,6 +2727,9 @@ impl Worker {
         self.forward_queue = None;
         self.pending_older.clear();
         self.pending_avatars.clear();
+        // A star request belongs to the account that just left. A task that
+        // finishes after logout must not write the next account.
+        self.star_generation.clear();
         self.me_pn = None;
         self.me_lid = None;
         self.me_name = None;
@@ -13874,5 +13881,56 @@ mod chat_removal_tests {
             clear_boundary(Ok(empty)).is_some(),
             "an empty archive clears through now"
         );
+    }
+
+    #[tokio::test]
+    async fn a_late_star_event_does_not_cancel_the_inflight_request() {
+        let (mut worker, _events, _, _) = receipt_tests::worker();
+        const CHAT: &str = "1@s.whatsapp.net";
+        worker.archive.ensure_chat(CHAT, "Ada").unwrap();
+        let now = whatsapp_rust::wacore::time::now_utc();
+        worker
+            .archive
+            .star(CHAT, "m1", now.timestamp() + 10_000)
+            .unwrap();
+        worker.star_generation.insert((CHAT.into(), "m1".into()), 3);
+        let stale = wa_events::StarUpdate::builder()
+            .chat_jid(CHAT.parse().unwrap())
+            .message_id("m1".into())
+            .from_me(false)
+            .timestamp(now)
+            .from_full_sync(false)
+            .action(Box::new(wa::sync_action_value::StarAction {
+                starred: Some(false),
+            }))
+            .build();
+        worker.star_update(&stale);
+        assert_eq!(
+            worker
+                .star_generation
+                .get(&(CHAT.into(), "m1".into()))
+                .copied(),
+            Some(3)
+        );
+        assert!(worker.archive.starred_ids(CHAT).unwrap().contains("m1"));
+    }
+
+    #[tokio::test]
+    async fn a_star_answer_after_logout_does_not_write() {
+        let (mut worker, _events, _, _) = receipt_tests::worker();
+        const CHAT: &str = "1@s.whatsapp.net";
+        worker.archive.ensure_chat(CHAT, "Ada").unwrap();
+        worker.star_generation.insert((CHAT.into(), "m1".into()), 4);
+        worker.star_generation.clear();
+        worker
+            .handle_command(Command::Starred {
+                chat: CHAT.into(),
+                message: "m1".into(),
+                starred: true,
+                generation: 4,
+                result: Ok(()),
+            })
+            .await;
+        assert!(worker.archive.starred_ids(CHAT).unwrap().is_empty());
     }
 }

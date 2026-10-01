@@ -3979,18 +3979,23 @@ pub(crate) fn menu_width(
     message: &Message,
 ) -> f32 {
     let quick = quick_reactions(message, reaction_emoji).len() as f32 + 1.0;
-    widgets::menu_width(
-        ui,
-        &[
-            "Delete for everyone",
-            "Show in folder",
-            "Copy message ID",
-            &crate::i18n::gettext(locale, "Open in system player"),
-            &crate::i18n::gettext(locale, "Message info"),
-        ],
-        true,
-    )
-    .max(quick * 36.0 + 12.0)
+    let labels = message_menu_labels(locale);
+    let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    widgets::menu_width(ui, &refs, true).max(quick * 36.0 + 12.0)
+}
+
+/// Every label the message menu can show. The menu is as wide as the longest
+/// one, so Star and Unstar belong here: a long translation is otherwise cut.
+fn message_menu_labels(locale: crate::i18n::Locale) -> Vec<String> {
+    vec![
+        "Delete for everyone".into(),
+        "Show in folder".into(),
+        "Copy message ID".into(),
+        crate::i18n::gettext(locale, "Open in system player").into_owned(),
+        crate::i18n::gettext(locale, "Message info").into_owned(),
+        crate::i18n::gettext(locale, "Unstar").into_owned(),
+        crate::i18n::gettext(locale, "Star").into_owned(),
+    ]
 }
 
 /// Where a message menu was opened from. A starred row has no composer, no
@@ -7675,6 +7680,13 @@ mod reaction_tests {
         assert_eq!(message.reactions[0].emoji, "🏆");
         assert!(!message.reactions[0].from_me);
         assert_eq!(quick_reactions(&message, &[]), QUICK_REACTIONS.to_vec());
+    }
+
+    #[test]
+    fn the_message_menu_measures_star_and_unstar() {
+        let labels = message_menu_labels(crate::i18n::Locale::German);
+        assert!(labels.iter().any(|label| label == "Markierung entfernen"));
+        assert!(labels.iter().any(|label| label == "Markieren"));
     }
 }
 

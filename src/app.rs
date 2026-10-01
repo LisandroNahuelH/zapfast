@@ -2281,6 +2281,20 @@ impl App {
                 }
                 Event::MessageUpdated(message) => {
                     let message = *message;
+                    // The starred panel holds its own copy. An edit has to
+                    // replace that row, or the open list keeps the old text.
+                    let in_starred = self.starred.iter().any(|entry| {
+                        entry.message.chat == message.chat && entry.message.id == message.id
+                    });
+                    if in_starred {
+                        for entry in &mut self.starred {
+                            if entry.message.chat == message.chat && entry.message.id == message.id
+                            {
+                                entry.message = message.clone();
+                            }
+                        }
+                        self.reload_lists();
+                    }
                     if let Some(conversation) = self.conversations.get_mut(&message.chat)
                         && let Some(existing) = conversation.message_mut(&message.id)
                     {
@@ -2720,12 +2734,20 @@ impl App {
         if is_open && chat.archived && self.chat(&chat.id).is_none_or(|known| !known.archived) {
             self.actions.push(Action::CloseChat);
         }
+        let newly_locked = chat.locked && self.chat(&chat.id).is_none_or(|known| !known.locked);
+        let locked_id = chat.id.clone();
         match self.chats.iter_mut().find(|known| known.id == chat.id) {
             Some(existing) => *existing = chat,
             None => self.chats.push(chat),
         }
         self.chats
             .sort_by_key(|chat| std::cmp::Reverse(chat.last_activity));
+        // The starred query hides locked chats. Drop the row now, before the
+        // reload comes back, so the open panel does not keep painting it.
+        if newly_locked {
+            self.starred.retain(|entry| entry.message.chat != locked_id);
+            self.reload_lists();
+        }
     }
 
     fn close_locked_folder(&mut self) {
@@ -4015,9 +4037,14 @@ impl App {
                     // A starred row can reply before its chat has paged to
                     // the message. The quote starts again once that page arrives.
                     self.reply_when_loaded = Some((chat, id));
+                } else {
+                    self.reply_when_loaded = None;
                 }
             }
-            Action::CancelReply => self.reply_to = None,
+            Action::CancelReply => {
+                self.reply_to = None;
+                self.reply_when_loaded = None;
+            }
             Action::SetStar {
                 chat,
                 message,
@@ -4778,6 +4805,9 @@ impl App {
                 self.unread_kept.clear();
             }
             Action::ToggleStarred => {
+                // The header button and the shortcut both land here. The
+                // sidebar has to be open for the list to be visible.
+                self.sidebar_visible = true;
                 self.show_starred = !self.show_starred;
                 if self.show_starred {
                     self.show_archived = false;
@@ -9369,6 +9399,76 @@ mod tests {
         );
         assert_eq!(app.reply_to.as_deref(), Some("original"));
         assert!(app.focus_composer);
+    }
+
+    #[test]
+    fn a_loaded_reply_drops_a_pending_one_and_cancel_drops_both() {
+        let mut app = app();
+        let chat = "fixture@s.whatsapp.net";
+        app.open_chat = Some(chat.into());
+        app.conversations.insert(
+            chat.into(),
+            Conversation {
+                messages: vec![message(chat, "here", 10)],
+                ..Default::default()
+            },
+        );
+        app.reply_when_loaded = Some((chat.into(), "gone".into()));
+        app.apply(Action::Reply("here".into()), &egui::Context::default());
+        assert_eq!(app.reply_to.as_deref(), Some("here"));
+        assert!(app.reply_when_loaded.is_none());
+        app.apply(Action::CancelReply, &egui::Context::default());
+        assert!(app.reply_to.is_none());
+        assert!(app.reply_when_loaded.is_none());
+    }
+
+    #[test]
+    fn locking_a_chat_drops_it_from_the_open_starred_list() {
+        let mut app = app();
+        let chat = "fixture@s.whatsapp.net";
+        app.chats.push(Chat::new(chat.into(), "Ada".into()));
+        app.show_starred = true;
+        app.starred.push(crate::archive::Starred {
+            message: message(chat, "m1", 10),
+            starred_at: 10,
+        });
+        let mut locked = Chat::new(chat.into(), "Ada".into());
+        locked.locked = true;
+        app.handle_chat_updated(locked);
+        assert!(app.starred.is_empty());
+    }
+
+    #[test]
+    fn an_edited_message_replaces_the_open_starred_row() {
+        let mut app = app();
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        app.show_starred = true;
+        let chat = "fixture@s.whatsapp.net";
+        app.starred.push(crate::archive::Starred {
+            message: message(chat, "m1", 10),
+            starred_at: 1,
+        });
+        let mut edited = message(chat, "m1", 11);
+        edited.content = Content::text("edited");
+        events
+            .send(Event::MessageUpdated(Box::new(edited.clone())))
+            .unwrap();
+        app.handle_events();
+        assert_eq!(app.starred[0].message.content, edited.content);
+        assert!(
+            std::iter::from_fn(|| commands.try_recv().ok())
+                .any(|command| { matches!(command, Command::LoadStarred) })
+        );
+    }
+
+    #[test]
+    fn toggling_starred_opens_the_sidebar() {
+        let mut app = app();
+        app.sidebar_visible = false;
+        app.apply(Action::ToggleStarred, &egui::Context::default());
+        assert!(app.show_starred);
+        assert!(app.sidebar_visible);
     }
 
     #[test]
