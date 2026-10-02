@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-02 02:51\n"
+"POT-Creation-Date: 2026-10-02 05:47\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Brazilian Portuguese\n"
@@ -159,7 +159,7 @@ msgstr "Novembro"
 msgid "December"
 msgstr "Dezembro"
 
-#: src/ui/chats.rs:139 src/ui/chats.rs:339 src/app.rs:2132
+#: src/ui/chats.rs:134 src/ui/chats.rs:333 src/app.rs:2141
 msgid "Starred"
 msgstr "Com estrela"
 
@@ -167,7 +167,7 @@ msgstr "Com estrela"
 msgid "Chats"
 msgstr "Conversas"
 
-#: src/ui/chats.rs:241 src/ui/chats.rs:389 src/ui/chats.rs:1617
+#: src/ui/chats.rs:236 src/ui/chats.rs:383 src/ui/chats.rs:1610
 msgid "Starred messages"
 msgstr "Mensagens com estrela"
 
@@ -183,15 +183,14 @@ msgstr "Arquivadas"
 msgid "Locked"
 msgstr "Trancadas"
 
-#: src/ui/chats.rs:599
+#: src/ui/chats.rs:592
 msgid "No starred messages"
 msgstr "Nenhuma mensagem com estrela"
 
-#: src/ui/chats.rs:602
+#: src/ui/chats.rs:595
 msgid "Right-click a message and choose Star to keep it here."
-msgstr ""
-"Clique com o botão direito em uma mensagem e escolha Marcar com estrela para"
-" guardá-la aqui."
+msgstr "Clique com o botão direito em uma mensagem e escolha Marcar com estrela "
+"para guardá-la aqui."
 
 #: src/ui/chats.rs:528
 msgid "No favorites yet"
@@ -315,11 +314,11 @@ msgstr "Abrir no player do sistema"
 msgid "Message info"
 msgstr "Dados da mensagem"
 
-#: src/ui/conversation.rs:4168
+#: src/ui/conversation.rs:3996 src/ui/conversation.rs:4183
 msgid "Unstar"
 msgstr "Desmarcar estrela"
 
-#: src/ui/conversation.rs:4170
+#: src/ui/conversation.rs:3997 src/ui/conversation.rs:4185
 msgid "Star"
 msgstr "Marcar com estrela"
 
@@ -1097,7 +1096,7 @@ msgstr "{name} (Você)"
 msgid "You"
 msgstr "Você"
 
-#: src/app.rs:2134
+#: src/app.rs:2143
 msgid "Star removed"
 msgstr "Estrela removida"
 

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-02 02:51\n"
+"POT-Creation-Date: 2026-10-02 05:47\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: German\n"
@@ -159,7 +159,7 @@ msgstr "November"
 msgid "December"
 msgstr "Dezember"
 
-#: src/ui/chats.rs:139 src/ui/chats.rs:339 src/app.rs:2132
+#: src/ui/chats.rs:134 src/ui/chats.rs:333 src/app.rs:2141
 msgid "Starred"
 msgstr "Markiert"
 
@@ -167,7 +167,7 @@ msgstr "Markiert"
 msgid "Chats"
 msgstr "Chats"
 
-#: src/ui/chats.rs:241 src/ui/chats.rs:389 src/ui/chats.rs:1617
+#: src/ui/chats.rs:236 src/ui/chats.rs:383 src/ui/chats.rs:1610
 msgid "Starred messages"
 msgstr "Markierte Nachrichten"
 
@@ -183,11 +183,11 @@ msgstr "Archiviert"
 msgid "Locked"
 msgstr "Gesperrt"
 
-#: src/ui/chats.rs:599
+#: src/ui/chats.rs:592
 msgid "No starred messages"
 msgstr "Keine markierten Nachrichten"
 
-#: src/ui/chats.rs:602
+#: src/ui/chats.rs:595
 msgid "Right-click a message and choose Star to keep it here."
 msgstr "Mit Rechtsklick eine Nachricht markieren, um sie hier zu behalten."
 
@@ -315,11 +315,11 @@ msgstr "Im Systemplayer öffnen"
 msgid "Message info"
 msgstr "Nachrichteninfo"
 
-#: src/ui/conversation.rs:4168
+#: src/ui/conversation.rs:3996 src/ui/conversation.rs:4183
 msgid "Unstar"
 msgstr "Markierung entfernen"
 
-#: src/ui/conversation.rs:4170
+#: src/ui/conversation.rs:3997 src/ui/conversation.rs:4185
 msgid "Star"
 msgstr "Markieren"
 
@@ -1106,7 +1106,7 @@ msgstr "{name} (Du)"
 msgid "You"
 msgstr "Du"
 
-#: src/app.rs:2134
+#: src/app.rs:2143
 msgid "Star removed"
 msgstr "Markierung entfernt"
 
