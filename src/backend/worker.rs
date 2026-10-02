@@ -528,6 +528,7 @@ pub async fn run(
         poll_sending: HashSet::new(),
         prefetch: prefetch::State::default(),
         prefetch_older: HashSet::new(),
+        abandoned_older: HashMap::new(),
         interactive_sending: HashMap::new(),
         receipts_watch: None,
         receipts_pruned: Instant::now(),
@@ -740,6 +741,12 @@ struct Worker {
     /// request takes the mark's place), when the chat is gone, or when the link
     /// reconnects, which is when nothing is outstanding any more.
     prefetch_older: HashSet<ChatId>,
+    /// Background requests the phone stopped answering in time, with the
+    /// cursor they were asked from. Their answers may still land, so the
+    /// reader's next request for the same chat takes one over instead of
+    /// sending a second: a second one would put the late answer behind it and
+    /// let it be reported as the newer request's.
+    abandoned_older: HashMap<ChatId, (i64, String)>,
     dirs: AppDirs,
     events: std::sync::mpsc::Sender<Event>,
     commands: mpsc::UnboundedSender<Command>,
@@ -1059,6 +1066,7 @@ impl Worker {
             Ok(removed) => {
                 self.pending_older.remove(chat);
                 self.prefetch_older.remove(chat);
+                self.abandoned_older.remove(chat);
                 self.prefetch.forget_chat(chat);
                 if delete_media {
                     self.drop_cached_media(&removed.media);
@@ -1092,6 +1100,7 @@ impl Worker {
             Ok(removed) => {
                 self.pending_older.remove(chat);
                 self.prefetch_older.remove(chat);
+                self.abandoned_older.remove(chat);
                 self.prefetch.forget_chat(chat);
                 if delete_media {
                     self.drop_cached_media(&removed.media);
@@ -2649,6 +2658,7 @@ impl Worker {
         self.poll_history = Default::default();
         self.prefetch.reset_session();
         self.prefetch_older.clear();
+        self.abandoned_older.clear();
         self.forward_queue = None;
         self.pending_older.clear();
         self.pending_avatars.clear();
@@ -3666,6 +3676,12 @@ impl Worker {
             older: false,
             complete: false,
         });
+        // The queue is a snapshot of the chat list. A chat outside it that has
+        // just become active has to be able to join, or the ten most recently
+        // active chats stay the ones that were active when it was read.
+        if !self.prefetch.holds(&chat) {
+            self.prefetch.touch();
+        }
         self.emit_chat(&chat);
         if let Some(message) = incoming {
             self.emit(Event::Incoming {
@@ -4154,11 +4170,13 @@ impl Worker {
                 // the reader made has to show, or the scroll-up that asked for
                 // it shows nothing at all.
                 let silent = self.prefetch_older.remove(&chat);
+                self.abandoned_older.remove(&chat);
                 self.emit(Event::OlderFetched { chat, more, silent });
                 continue;
             };
             // A background request fills the archive without moving the view.
             let silent = self.prefetch_older.remove(&chat);
+            self.abandoned_older.remove(&chat);
             self.prefetch.finish_history(&chat, more, Instant::now());
             if !silent {
                 match self
@@ -4185,19 +4203,25 @@ impl Worker {
 
     /// Times out unanswered phone-history requests.
     fn expire_older_requests(&mut self) {
-        let expired: Vec<ChatId> = self
+        let expired: Vec<(ChatId, (i64, String))> = self
             .pending_older
             .iter()
             .filter(|(_, (asked, _))| asked.elapsed() > PHONE_PATIENCE)
-            .map(|(chat, _)| chat.clone())
+            .map(|(chat, (_, cursor))| (chat.clone(), cursor.clone()))
             .collect();
-        for chat in expired {
+        for (chat, cursor) in expired {
             self.pending_older.remove(&chat);
             // The mark stays: the answer may still arrive and is still the
             // background's, which is what keeps a late background page from
             // being taken for the one the reader is waiting for. A request the
             // reader makes takes the mark's place and shows its own answer.
             let silent = self.prefetch_older.contains(&chat);
+            if silent {
+                // The answer may still land. Remember the request, so a
+                // reader who asks for this chat next takes it over instead of
+                // putting a second one behind an answer already on its way.
+                self.abandoned_older.insert(chat.clone(), cursor);
+            }
             self.prefetch.fail_history(&chat, Instant::now());
             self.emit(Event::OlderFetched {
                 chat: chat.clone(),
@@ -4224,6 +4248,9 @@ impl Worker {
             // prefetch's silence is dropped and the completion reaches the app
             // instead of leaving it in the fetching state for good.
             if !background {
+                // The reader's request takes over the one in flight, so the
+                // prefetch stops treating its answer as a background page.
+                self.prefetch.promote(&chat);
                 self.prefetch_older.remove(&chat);
             }
             return false;
@@ -4466,7 +4493,16 @@ impl Worker {
             Command::LoadChat { chat, before } => self.load_chat(chat, before),
             Command::FetchOlder(chat) => {
                 self.prefetch_older.remove(&chat);
-                let _ = self.fetch_older(chat, false);
+                // A background request for this chat timed out and may still
+                // answer. The reader's request takes it over rather than
+                // putting a second one behind it: the answer that lands is
+                // then theirs, and nothing is left over to be taken for a
+                // later request.
+                if let Some(cursor) = self.abandoned_older.remove(&chat) {
+                    self.pending_older.insert(chat, (Instant::now(), cursor));
+                } else {
+                    let _ = self.fetch_older(chat, false);
+                }
             }
             Command::SetHistoryPrefetch { on, focused } => {
                 self.prefetch.configure(on, focused);
@@ -11603,6 +11639,7 @@ mod receipt_tests {
             poll_sending: HashSet::new(),
             prefetch: prefetch::State::default(),
             prefetch_older: HashSet::new(),
+            abandoned_older: HashMap::new(),
             interactive_sending: HashMap::new(),
             receipts_watch: None,
             receipts_pruned: Instant::now(),

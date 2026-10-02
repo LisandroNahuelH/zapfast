@@ -19,7 +19,8 @@ pub(super) struct State {
     /// the chat list when that changes and kept in memory in between: the tick
     /// reads no archive and scans no chat.
     queue: VecDeque<ChatId>,
-    /// Pages asked per chat in this session, which is what the cap counts.
+    /// Pages the phone answered per chat in this session, which is what the
+    /// cap counts. A request that timed out is not one.
     pages: HashMap<ChatId, u32>,
     /// Chats the phone said it has no more of, until the link reconnects.
     exhausted: HashSet<ChatId>,
@@ -48,7 +49,6 @@ impl State {
             // being forgotten here.
             self.queue.clear();
         }
-        self.promote_focused();
     }
 
     /// After reconnect, phone history may be available again.
@@ -65,13 +65,14 @@ impl State {
     }
 
     /// A new link is a new session: the pages a chat was asked for are not
-    /// carried over, so every target starts again from the top.
+    /// carried over, so every target starts again from the top. Nothing is
+    /// open on the other side either: the app clears its open chat when it
+    /// handles the logout, and a focus kept here would have the pump asking a
+    /// chat nobody is looking at.
     pub fn reset_session(&mut self) {
         let on = self.on;
-        let focused = self.focused.clone();
         *self = Self::default();
         self.on = on;
-        self.focused = focused;
         self.rebuild = on;
     }
 
@@ -101,6 +102,11 @@ impl State {
             }
         }
         self.rebuild = false;
+        // The open chat is asked first, wherever the rebuild left it: a chat
+        // that is new to the queue joins at the back, and the one the reader
+        // is looking at must not wait behind the ones the snapshot already
+        // held.
+        self.promote_focused();
     }
 
     /// Whether this chat still has a turn in this session.
@@ -134,6 +140,28 @@ impl State {
         self.history_chat = Some(chat);
     }
 
+    /// The reader's request takes over the one that was in flight. Its answer
+    /// is the page the reader is waiting for, not a background page: it must
+    /// not spend the background budget, rotate the queue or start the
+    /// background cooldown.
+    pub fn promote(&mut self, chat: &str) {
+        if self.history_chat.as_deref() == Some(chat) {
+            self.history_chat = None;
+        }
+    }
+
+    /// Whether the queue still holds this chat.
+    pub fn holds(&self, chat: &str) -> bool {
+        self.queue.iter().any(|queued| queued == chat)
+    }
+
+    /// Marks the queue for a rebuild. The target set is otherwise only read
+    /// when the chat list changes, so a chat that becomes active afterwards
+    /// has to be able to ask for one.
+    pub fn touch(&mut self) {
+        self.rebuild = true;
+    }
+
     /// True when this completion belongs to the prefetch request.
     pub fn finish_history(&mut self, chat: &str, more: bool, now: Instant) -> bool {
         if self.history_chat.as_deref() != Some(chat) {
@@ -162,9 +190,11 @@ impl State {
         let shift = (self.history_failures - 1).min(5);
         let delay = (30 * (1_u64 << shift)).min(900);
         self.history_due = Some(now + Duration::from_secs(delay));
-        // A chat the phone does not answer is a turn spent like any other: it
-        // goes to the back, so it stops holding up the chats behind it.
-        self.count_page(chat);
+        // A turn spent, not a page read: the cap counts what the phone
+        // actually answered, so a run of timeouts cannot put a chat out for
+        // the session without one page ever arriving. The chat still goes to
+        // the back, so it stops holding up the ones behind it, and the
+        // backoff above is what keeps it from being asked again at once.
         self.rotate(chat);
         true
     }
@@ -559,7 +589,10 @@ mod tests {
         assert!(state.next_history(now + HISTORY_GAP, false).is_none());
         state.reset_session();
         assert!(state.on, "the switch survived the relink");
-        assert_eq!(state.focused.as_deref(), Some("a"));
+        assert_eq!(
+            state.focused, None,
+            "the app has no chat open after a relink either"
+        );
         assert!(state.needs_chats(), "the queue is built again");
         state.set_chats(&[chat("a", 1, false, 0, false)]);
         assert_eq!(
@@ -594,6 +627,62 @@ mod tests {
         );
     }
 
+    /// The reader's request takes over the one in flight: its answer is not a
+    /// background page, so the background state stops holding the turn for it.
+    #[test]
+    fn a_promoted_request_stops_being_the_backgrounds() {
+        let mut state = State::default();
+        state.configure(true, None);
+        state.set_chats(&[chat("a", 1, false, 0, false), chat("b", 2, false, 0, false)]);
+        let now = Instant::now();
+        state.start_history("a".into());
+        state.promote("a");
+        assert!(
+            !state.finish_history("a", true, now),
+            "the page the reader waits for is not the background's"
+        );
+        assert!(
+            state.next_history(now, false).is_some(),
+            "the pump is free to ask the next chat"
+        );
+    }
+
+    /// A request the phone never answers does not spend the page budget: the
+    /// cap counts answered pages, so a run of timeouts cannot put a chat out
+    /// for the session before one page has arrived.
+    #[test]
+    fn a_failed_request_does_not_spend_the_page_budget() {
+        let mut state = State::default();
+        state.configure(true, None);
+        state.set_chats(&[chat("a", 1, false, 0, false), chat("b", 2, false, 0, false)]);
+        let mut now = Instant::now();
+        for _ in 0..(HISTORY_MAX_PAGES * 3) {
+            state.start_history("a".into());
+            assert!(state.fail_history("a", now));
+            now += Duration::from_secs(900);
+        }
+        assert!(state.may_ask(&"a".to_owned()), "the budget is untouched");
+    }
+
+    /// The chat that is open is asked first even when it joins the queue after
+    /// the ones the snapshot already held.
+    #[test]
+    fn the_open_chat_is_promoted_after_the_rebuild() {
+        let mut state = State::default();
+        state.configure(true, None);
+        state.set_chats(&[chat("a", 1, false, 0, false), chat("b", 2, false, 0, false)]);
+        state.configure(true, Some("c".into()));
+        state.set_chats(&[
+            chat("a", 1, false, 0, false),
+            chat("b", 2, false, 0, false),
+            chat("c", 3, false, 0, false),
+        ]);
+        assert_eq!(
+            state.next_history(Instant::now(), false).as_deref(),
+            Some("c"),
+            "the chat that is open is asked first"
+        );
+    }
     /// A chat whose background request may still answer cannot be asked
     /// again. It has to leave the front so the queue keeps moving.
     #[test]

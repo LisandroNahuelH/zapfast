@@ -847,6 +847,9 @@ pub(crate) const ATTACHMENT_DOWNLOAD_LIMIT: u64 = 64 * 1024 * 1024;
 
 /// Attachment metadata, download state, and optional local file. Download keys
 /// remain in the archive's raw message.
+///
+/// `Default` is here for this branch's own tests, which build a message's
+/// attachment from a couple of fields (`worker.rs`, `app.rs`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Media {
     pub mime: String,
@@ -1893,8 +1896,10 @@ mod tests {
         let image = |path: Option<&str>| Media {
             mime: "image/jpeg".into(),
             size: 1,
+            width: None,
+            height: None,
             path: path.map(PathBuf::from),
-            ..Default::default()
+            state: MediaState::Idle,
         };
         let content = |main: Option<&str>, cards: [Option<&str>; 2]| Content::Interactive {
             text: String::new(),
@@ -1943,7 +1948,10 @@ mod tests {
         Media {
             mime: "image/jpeg".into(),
             size: 1,
-            ..Default::default()
+            width: None,
+            height: None,
+            path: None,
+            state: MediaState::Idle,
         }
     }
 
