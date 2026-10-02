@@ -6,11 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-<<<<<<< HEAD
-"POT-Creation-Date: 2026-10-01 19:28-0300\n"
-=======
-"POT-Creation-Date: 2026-09-29 22:26-0300\n"
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
+"POT-Creation-Date: 2026-10-02 04:06\n"
 "PO-Revision-Date: 2026-09-25 23:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -36,7 +32,7 @@ msgstr "私聊"
 msgid "Favorites"
 msgstr "收藏"
 
-#: src/model.rs:77 src/privacy.rs:46
+#: src/model.rs:77
 msgid "Groups"
 msgstr "群组"
 
@@ -183,11 +179,7 @@ msgstr "已锁定"
 msgid "No favorites yet"
 msgstr "还没有收藏"
 
-<<<<<<< HEAD
 #: src/ui/chats.rs:878 src/app.rs:1617
-=======
-#: src/ui/chats.rs:881 src/app.rs:1404 src/app.rs:1582
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Message yourself"
 msgstr "给自己发消息"
 
@@ -199,13 +191,8 @@ msgstr "草稿："
 msgid "Remove from favorites"
 msgstr "取消收藏"
 
-<<<<<<< HEAD
 #: src/ui/chats.rs:1140 src/ui/chats.rs:1502 src/ui/conversation.rs:4093
 #: src/ui/dialogs.rs:1055 src/ui/picker.rs:1616
-=======
-#: src/ui/chats.rs:1143 src/ui/chats.rs:1510 src/ui/conversation.rs:3821
-#: src/ui/conversation.rs:4083 src/ui/dialogs.rs:1003 src/ui/picker.rs:1572
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Add to favorites"
 msgstr "添加到收藏"
 
@@ -297,7 +284,6 @@ msgid "{} unread message"
 msgid_plural "{} unread messages"
 msgstr[0] "{} 条未读消息"
 
-<<<<<<< HEAD
 #: src/ui/conversation.rs:3310 src/ui/conversation.rs:4102
 msgid "Open in system player"
 msgstr "用系统播放器打开"
@@ -306,6 +292,10 @@ msgstr "用系统播放器打开"
 #: src/ui/message_info.rs:17
 msgid "Message info"
 msgstr "消息信息"
+
+#: src/ui/conversation.rs:4061
+msgid "Open in the viewer"
+msgstr "在预览中打开"
 
 #: src/ui/conversation.rs:4114 src/ui/image_preview.rs:62
 #: src/ui/image_preview.rs:173
@@ -325,43 +315,10 @@ msgid "Live location"
 msgstr "实时位置"
 
 #: src/ui/conversation.rs:4551
-=======
-#: src/ui/conversation.rs:3300 src/ui/conversation.rs:3830
-#: src/ui/conversation.rs:4092
-msgid "Open in system player"
-msgstr "用系统播放器打开"
-
-#: src/ui/conversation.rs:3301 src/ui/conversation.rs:3889
-#: src/ui/conversation.rs:4161 src/ui/message_info.rs:17
-msgid "Message info"
-msgstr "消息信息"
-
-#: src/ui/conversation.rs:4104 src/ui/image_preview.rs:62
-#: src/ui/image_preview.rs:173 src/ui/image_preview.rs:221
-#: src/ui/image_preview.rs:475
-msgid "Copy image"
-msgstr "复制图片"
-
-#: src/ui/conversation.rs:4223 src/ui/conversation.rs:4503
-msgid "Location"
-msgstr "位置"
-
-#: src/ui/conversation.rs:4249 src/ui/conversation.rs:4529
-msgid "Live location ended"
-msgstr "实时位置已结束"
-
-#: src/ui/conversation.rs:4251 src/ui/conversation.rs:4441
-#: src/ui/conversation.rs:4531 src/ui/conversation.rs:4721
-msgid "Live location"
-msgstr "实时位置"
-
-#: src/ui/conversation.rs:4261 src/ui/conversation.rs:4541
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "Updated {time}"
 msgstr "更新于 {time}"
 
-<<<<<<< HEAD
 #: src/ui/conversation.rs:4601
 msgid "Chat"
 msgstr "聊天"
@@ -371,35 +328,16 @@ msgid "Add"
 msgstr "添加"
 
 #: src/ui/conversation.rs:4660
-=======
-#: src/ui/conversation.rs:4311 src/ui/conversation.rs:4591
-msgid "Chat"
-msgstr "聊天"
-
-#: src/ui/conversation.rs:4325 src/ui/conversation.rs:4605
-msgid "Add"
-msgstr "添加"
-
-#: src/ui/conversation.rs:4370 src/ui/conversation.rs:4650
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "{} sticker"
 msgid_plural "{} stickers"
 msgstr[0] "{} 个贴图"
 
-<<<<<<< HEAD
 #: src/ui/conversation.rs:4673
 msgid "View stickers"
 msgstr "查看贴图"
 
 #: src/ui/conversation.rs:4739
-=======
-#: src/ui/conversation.rs:4383 src/ui/conversation.rs:4663
-msgid "View stickers"
-msgstr "查看贴图"
-
-#: src/ui/conversation.rs:4449 src/ui/conversation.rs:4729
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Open WhatsApp on your phone to follow it."
 msgstr "在手机上打开 WhatsApp 即可查看。"
 
@@ -427,7 +365,6 @@ msgstr "一次性消息。为保护你的隐私，它只能在手机上打开。
 msgid "This message can only be seen on your phone."
 msgstr "此消息只能在手机上查看。"
 
-<<<<<<< HEAD
 #: src/ui/conversation.rs:5616
 msgid "Open in a map"
 msgstr "在地图中打开"
@@ -453,26 +390,6 @@ msgid "Unmute"
 msgstr "取消静音"
 
 #: src/ui/conversation.rs:6298
-=======
-#: src/ui/conversation.rs:5295 src/ui/conversation.rs:5606
-msgid "Open in a map"
-msgstr "在地图中打开"
-
-#: src/ui/conversation.rs:5858 src/ui/conversation.rs:6166
-msgid "Pause"
-msgstr "暂停"
-
-#: src/ui/conversation.rs:5860 src/ui/conversation.rs:6168
-#: src/ui/settings.rs:1613
-msgid "Play"
-msgstr "播放"
-
-#: src/ui/conversation.rs:5883 src/ui/conversation.rs:6191
-msgid "Unmute"
-msgstr "取消静音"
-
-#: src/ui/conversation.rs:5885 src/ui/conversation.rs:6193
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Mute"
 msgstr "静音"
 
@@ -617,7 +534,7 @@ msgstr "外观"
 msgid "Follow system uses your Omarchy colours."
 msgstr "跟随系统时会使用你的 Omarchy 配色。"
 
-#: src/ui/settings.rs:315 src/ui/settings.rs:1036
+#: src/ui/settings.rs:315
 msgid "Theme"
 msgstr "主题"
 
@@ -635,11 +552,7 @@ msgstr "“系统”使用桌面的界面字体。Inter 在每台电脑上都一
 msgid "Wallpaper"
 msgstr "壁纸"
 
-<<<<<<< HEAD
 #: src/ui/settings.rs:329
-=======
-#: src/ui/settings.rs:321 src/ui/image_preview.rs:179
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Image"
 msgstr "图片"
 
@@ -833,13 +746,8 @@ msgstr "账号"
 msgid "Your name"
 msgstr "你的名字"
 
-<<<<<<< HEAD
 #: src/ui/settings.rs:652 src/ui/settings.rs:732 src/ui/settings.rs:1380
 #: src/ui/settings.rs:1535
-=======
-#: src/ui/settings.rs:644 src/ui/settings.rs:724 src/ui/settings.rs:1350
-#: src/ui/settings.rs:1512 src/privacy.rs:45
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "About"
 msgstr "关于"
 
@@ -1001,11 +909,7 @@ msgstr "选择图片…"
 msgid "Remove image"
 msgstr "移除图片"
 
-<<<<<<< HEAD
 #: src/ui/settings.rs:1259
-=======
-#: src/ui/settings.rs:1036 src/ui/settings.rs:1229
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgctxt "wallpaper colour"
 msgid "Theme"
 msgstr "主题"
@@ -1125,25 +1029,16 @@ msgstr[0] "剩余 {}"
 msgid "No one yet"
 msgstr "还没有人"
 
-<<<<<<< HEAD
 #: src/app.rs:1538
-=======
-#: src/app.rs:1325 src/app.rs:1503
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "A label named “{name}” already exists."
 msgstr "已存在名为“{name}”的标签。"
 
-<<<<<<< HEAD
 #: src/app.rs:1598
-=======
-#: src/app.rs:1385 src/app.rs:1563
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "{name} (You)"
 msgstr "{name}（你）"
 
-<<<<<<< HEAD
 #: src/app.rs:1599 src/app.rs:1618
 msgid "You"
 msgstr "你"
@@ -1153,17 +1048,6 @@ msgid "Could not use this image"
 msgstr "无法使用此图片"
 
 #: src/app.rs:2903
-=======
-#: src/app.rs:1386 src/app.rs:1405 src/app.rs:1564 src/app.rs:1583
-msgid "You"
-msgstr "你"
-
-#: src/app.rs:2197 src/app.rs:2395
-msgid "Could not use this image"
-msgstr "无法使用此图片"
-
-#: src/app.rs:2660 src/app.rs:2861
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Not sent: ZapFast is not connected to WhatsApp."
 msgstr "未发送：ZapFast 未连接到 WhatsApp。"
 
@@ -1173,7 +1057,6 @@ msgid ""
 "Cancel the reply to send without a quote."
 msgstr "未发送：你要回复的消息不在这台电脑上。取消回复即可不带引用发送。"
 
-<<<<<<< HEAD
 #: src/app.rs:4324
 msgid "Added to favorites"
 msgstr "已添加到收藏"
@@ -1183,17 +1066,6 @@ msgid "Sending the sticker pack…"
 msgstr "正在发送贴图包…"
 
 #: src/app.rs:4687 src/ui/labels.rs:237
-=======
-#: src/app.rs:4114 src/app.rs:4254
-msgid "Added to favorites"
-msgstr "已添加到收藏"
-
-#: src/app.rs:4189 src/app.rs:4329
-msgid "Sending the sticker pack…"
-msgstr "正在发送贴图包…"
-
-#: src/app.rs:4479 src/app.rs:4617 src/ui/labels.rs:237
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 #, rust-format
 msgid "You have {limit} labels, the most ZapFast keeps."
 msgstr "你已有 {limit} 个标签，这是 ZapFast 的上限。"
@@ -1206,7 +1078,6 @@ msgstr ""
 msgid "App lock turned off"
 msgstr ""
 
-<<<<<<< HEAD
 #: src/app.rs:5444
 msgid "This video opens in your system player"
 msgstr "此视频将用系统播放器打开"
@@ -1216,17 +1087,6 @@ msgid "Copied image"
 msgstr "已复制图片"
 
 #: src/app.rs:5982 src/app.rs:5987
-=======
-#: src/app.rs:5044 src/app.rs:5364
-msgid "This video opens in your system player"
-msgstr "此视频将用系统播放器打开"
-
-#: src/app.rs:5535 src/app.rs:5900
-msgid "Copied image"
-msgstr "已复制图片"
-
-#: src/app.rs:5538 src/app.rs:5543 src/app.rs:5903 src/app.rs:5908
->>>>>>> 473e569 (feat(viewer): open a photo or a clip across the window with the chat's album)
 msgid "Failed to copy image"
 msgstr "复制图片失败"
 
@@ -1549,19 +1409,54 @@ msgctxt "privacy"
 msgid "Silence unknown callers"
 msgstr "静音未知来电"
 
-#: src/ui/image_preview.rs:174 src/ui/image_preview.rs:355
-#: src/ui/image_preview.rs:476
-msgid "Save as…"
-msgstr "另存为…"
-
-#: src/ui/image_preview.rs:176 src/ui/image_preview.rs:213
-#: src/ui/image_preview.rs:478
-msgid "Open in another app"
-msgstr "在其他应用中打开"
-
 #: src/ui/image_preview.rs:200
 msgid "Close preview (Esc)"
 msgstr "关闭预览 (Esc)"
+
+#: src/ui/image_preview.rs:174
+msgid "Save as…"
+msgstr "另存为…"
+
+#: src/ui/image_preview.rs:371 src/ui/image_preview.rs:636
+#: src/ui/image_preview.rs:644 src/ui/image_preview.rs:715
+msgid "Download"
+msgstr "下载"
+
+#: src/ui/image_preview.rs:390
+msgid "Show in the chat"
+msgstr "在聊天中显示"
+
+#: src/ui/image_preview.rs:577
+msgid "This image could not be displayed in ZapFast."
+msgstr "ZapFast 无法显示此图片。"
+
+#: src/ui/image_preview.rs:580
+msgid "Open externally"
+msgstr "用外部程序打开"
+
+#: src/ui/image_preview.rs:713
+msgid "Play or pause the video"
+msgstr "播放或暂停视频"
+
+#: src/ui/image_preview.rs:833
+msgid "Video"
+msgstr "视频"
+
+#: src/ui/image_preview.rs:835
+msgid "Photo"
+msgstr "照片"
+
+#: src/ui/image_preview.rs:926
+msgid "Previous (,)"
+msgstr "上一个 (,)"
+
+#: src/ui/image_preview.rs:932
+msgid "Next (.)"
+msgstr "下一个 (.)"
+
+#: src/ui/image_preview.rs:176
+msgid "Open in another app"
+msgstr "在其他应用中打开"
 
 #: src/ui/image_preview.rs:249
 msgid "Zoom in"
@@ -1594,47 +1489,6 @@ msgstr "回应"
 #: src/ui/image_preview.rs:330
 msgid "Forward"
 msgstr "转发"
-
-#: src/ui/image_preview.rs:371 src/ui/image_preview.rs:636
-#: src/ui/image_preview.rs:644 src/ui/image_preview.rs:715
-msgid "Download"
-msgstr "下载"
-
-#: src/ui/image_preview.rs:390
-msgid "Show in the chat"
-msgstr "在聊天中显示"
-
-#: src/ui/image_preview.rs:577
-msgid "This image could not be displayed in ZapFast."
-msgstr "ZapFast 无法显示此图片。"
-
-#: src/ui/image_preview.rs:580
-msgid "Open externally"
-msgstr "用外部程序打开"
-
-#: src/ui/conversation.rs:4061
-msgid "Open in the viewer"
-msgstr "在预览中打开"
-
-#: src/ui/image_preview.rs:713
-msgid "Play or pause the video"
-msgstr "播放或暂停视频"
-
-#: src/ui/image_preview.rs:833
-msgid "Video"
-msgstr "视频"
-
-#: src/ui/image_preview.rs:835
-msgid "Photo"
-msgstr "照片"
-
-#: src/ui/image_preview.rs:926
-msgid "Previous (,)"
-msgstr "上一个 (,)"
-
-#: src/ui/image_preview.rs:932
-msgid "Next (.)"
-msgstr "下一个 (.)"
 
 #: src/ui/lock.rs:17
 msgid "ZapFast is locked"
@@ -1700,3 +1554,4 @@ msgstr ""
 #: src/settings.rs:341
 msgid "After 1 hour"
 msgstr ""
+
