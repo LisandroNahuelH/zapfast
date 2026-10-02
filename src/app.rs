@@ -2337,6 +2337,15 @@ impl App {
                         if let Some(rows) = self.chat_pins.get_mut(&message.chat) {
                             rows.retain(|row| row.id != message.id);
                         }
+                        // The clone in the open list, and the star it holds,
+                        // go with the message: the panel would otherwise keep
+                        // a row whose menu has nothing left to offer.
+                        if let Some(ids) = self.stars.get_mut(&message.chat) {
+                            ids.remove(&message.id);
+                        }
+                        self.starred.retain(|entry| {
+                            !(entry.message.chat == message.chat && entry.message.id == message.id)
+                        });
                     }
                     if let Some(conversation) = self.conversations.get_mut(&message.chat)
                         && let Some(existing) = conversation.message_mut(&message.id)
@@ -3593,6 +3602,20 @@ impl App {
         }
         if !self.typing.is_empty() || self.composing {
             ctx.request_repaint_after(Duration::from_secs(1));
+        }
+        // A pin that has run out its seven days is no longer on the message,
+        // and the worker only speaks when a pin changes. Drop it from the
+        // cache the footer and the message menu read, so an expired pin stops
+        // painting its mark and stops offering Unpin.
+        let stamp = crate::util::now();
+        for (chat, rows) in &self.chat_pins {
+            let Some(ids) = self.pins.get_mut(chat) else {
+                continue;
+            };
+            ids.retain(|id| {
+                rows.iter()
+                    .any(|row| row.id == *id && row.expires_at > stamp)
+            });
         }
     }
 

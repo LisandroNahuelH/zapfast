@@ -6,8 +6,8 @@
 //!
 //! ponytail: one table, no message column. The message is read from its own row,
 //! whole, so its right-click menu has every field an in-chat menu has; an edited
-//! message shows its current words and a message deleted here leaves the list on
-//! its own. The row draws those words inside a bubble of the message's own side
+//! message shows its current words and a message deleted here, or revoked for
+//! everyone, leaves the list on its own. The row draws those words inside a
 //! and fill, not the conversation's full renderer.
 
 use std::collections::HashSet;
@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use rusqlite::params;
 
 use super::{Archive, Result};
+use crate::model::Content;
 
 pub const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS stars (
@@ -109,6 +110,12 @@ impl Archive {
         let mut list = Vec::new();
         for (starred_at, chat, id) in rows {
             if let Some(message) = self.message(&chat, &id)? {
+                // A message revoked for everyone keeps its row, with the
+                // revoked content in it. It has no words and no Unstar left,
+                // so it is not a row the list can offer.
+                if matches!(message.content, Content::Revoked) {
+                    continue;
+                }
                 list.push(Starred {
                     message,
                     starred_at,
