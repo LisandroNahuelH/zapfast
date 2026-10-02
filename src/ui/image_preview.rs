@@ -30,7 +30,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(mut preview) = app.image_preview.take() else {
         // Nothing on screen: the strip centres on the current item again the
         // next time the viewer opens, whatever it was left on.
-        ctx.data_mut(|data| data.remove::<String>(egui::Id::new("viewer-strip-centred")));
+        ctx.data_mut(|data| data.remove::<(String, String)>(egui::Id::new("viewer-strip-centred")));
         return;
     };
     let album = std::mem::take(&mut app.viewer_media);
@@ -830,12 +830,15 @@ fn strip_bar(
     // another one. Asking for it every frame fights the wheel and the bar: egui
     // pulls the strip back to the current thumbnail as soon as the user scrolls
     // it by hand, so the album could never be browsed with the mouse.
+    // The key carries the chat as well as the message: ids are scoped to a
+    // chat, so the same id in another chat is another item and has to be
+    // centred on its own.
     let centred = egui::Id::new("viewer-strip-centred");
-    let last: Option<String> = ui.ctx().data(|data| data.get_temp(centred));
-    let moved = last.as_deref() != Some(current);
+    let last: Option<(String, String)> = ui.ctx().data(|data| data.get_temp(centred));
+    let key = (chat.to_owned(), current.to_owned());
+    let moved = last.as_ref() != Some(&key);
     if moved {
-        ui.ctx()
-            .data_mut(|data| data.insert_temp(centred, current.to_owned()));
+        ui.ctx().data_mut(|data| data.insert_temp(centred, key));
     }
     let mut child = ui.new_child(UiBuilder::new().max_rect(inner));
     // The app style floats scrollbars over content. This strip needs the bar

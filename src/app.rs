@@ -2656,6 +2656,13 @@ impl App {
                 self.draft_mentions.clear();
                 self.composer.clear();
                 self.composer_mentions.clear();
+                // The viewer, its album and the thumbnails it cached belong
+                // to the account that left: close it and release the clip.
+                self.video.stop();
+                self.image_preview = None;
+                self.viewer_media.clear();
+                self.viewer_media_chat = None;
+                self.viewer_media_state.clear();
                 // The password guarded chats that are gone now; a forgotten
                 // one is recovered exactly this way.
                 self.forget_app_lock();
@@ -2786,6 +2793,9 @@ impl App {
                 self.picker = None;
             }
         }
+        // The album the viewer is browsing was built from the rows that just
+        // went: ask for it again, so it offers what the chat still has.
+        self.refresh_viewer_album(id);
     }
 
     /// The pack the sticker tab shows, when it still exists.

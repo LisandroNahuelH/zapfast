@@ -987,6 +987,7 @@ impl Worker {
                     | Event::SearchHits { .. }
                     | Event::Labels(_)
                     | Event::Typing { .. }
+                    | Event::ChatMedia { .. }
             )
         {
             return;
@@ -9998,6 +9999,35 @@ mod tests {
         assert!(chats[0].locked);
     }
 
+    /// An album carries private thumbnails and paths, so it waits for the
+    /// same authorized replay the rest of the archive content waits for.
+    #[test]
+    fn an_album_is_withheld_until_lock_state_is_confirmed() {
+        let (mut worker, events, _, _) = receipt_tests::worker();
+        const PEER: &str = "fixture@s.whatsapp.net";
+        worker.archive.ensure_chat(PEER, "Fixture").unwrap();
+        let row = Message {
+            chat: PEER.into(),
+            ..receipt_tests::own_message("photo", 100)
+        };
+        worker.archive.insert_message(&row, None).unwrap();
+        unconfirmed(&mut worker);
+        worker.emit_chat_media(PEER.into(), None);
+        assert!(
+            !events
+                .try_iter()
+                .any(|event| matches!(event, Event::ChatMedia { .. })),
+            "no album is sent while lock state is unknown"
+        );
+        worker.preferences_recovered(0, false, false);
+        worker.emit_chat_media(PEER.into(), None);
+        assert!(
+            events
+                .try_iter()
+                .any(|event| matches!(event, Event::ChatMedia { .. })),
+            "the album arrives once lock state is confirmed"
+        );
+    }
     /// A chat opened while lock state was still being recovered asked for its
     /// messages once; the answer was withheld, and the interface never asked
     /// again, so the chat stayed empty until a new message came in (#180).

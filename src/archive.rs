@@ -1404,9 +1404,9 @@ impl Archive {
             "SELECT id, timestamp, content, thumbnail FROM messages
              WHERE chat = ?1 AND json_valid(content)
              AND json_extract(content, '$.kind') IN ('image', 'video')
-             ORDER BY timestamp DESC, rowid DESC
-             LIMIT ?2",
-            params![chat, limit as i64],
+             ORDER BY timestamp DESC, rowid DESC",
+            params![chat],
+            limit,
         )?;
         list.reverse();
         Ok(list)
@@ -1445,9 +1445,9 @@ impl Archive {
              WHERE chat = ?1 AND json_valid(content)
              AND json_extract(content, '$.kind') IN ('image', 'video')
              AND (timestamp < ?2 OR (timestamp = ?2 AND rowid <= ?3))
-             ORDER BY timestamp DESC, rowid DESC
-             LIMIT ?4",
-            params![chat, timestamp, rowid, behind as i64],
+             ORDER BY timestamp DESC, rowid DESC",
+            params![chat, timestamp, rowid],
+            behind,
         )?;
         list.reverse();
         let mut newer = self.gallery_query(
@@ -1455,9 +1455,9 @@ impl Archive {
              WHERE chat = ?1 AND json_valid(content)
              AND json_extract(content, '$.kind') IN ('image', 'video')
              AND (timestamp > ?2 OR (timestamp = ?2 AND rowid > ?3))
-             ORDER BY timestamp ASC, rowid ASC
-             LIMIT ?4",
-            params![chat, timestamp, rowid, ahead as i64],
+             ORDER BY timestamp ASC, rowid ASC",
+            params![chat, timestamp, rowid],
+            ahead,
         )?;
         list.append(&mut newer);
         Ok(list)
@@ -1469,10 +1469,15 @@ impl Archive {
     /// deleted or moved is reported as missing, so the item offers Download
     /// again instead of drawing a dead frame, and the strip never has to ask
     /// the filesystem again for a thumbnail it is drawing.
+    ///
+    /// The SQL carries no `LIMIT`: a row the filtering drops (a GIF, which is
+    /// an inline animation, or a file the viewer cannot draw) would otherwise
+    /// take a place in the page and push older items out of it.
     fn gallery_query(
         &self,
         sql: &str,
         parameters: impl rusqlite::Params,
+        limit: usize,
     ) -> Result<Vec<ChatMedia>> {
         let mut statement = self.connection.prepare(sql)?;
         let rows = statement.query_map(parameters, |row| {
@@ -1484,6 +1489,9 @@ impl Archive {
         })?;
         let mut list = Vec::new();
         for row in rows {
+            if list.len() >= limit {
+                break;
+            }
             let (id, timestamp, raw, thumbnail) = row?;
             let content: Content = serde_json::from_str(&raw).unwrap_or(Content::Unsupported {
                 what: "unreadable".into(),
