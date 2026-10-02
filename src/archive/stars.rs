@@ -2,13 +2,17 @@
 //!
 //! A star is written here only after WhatsApp confirms it, or when a
 //! `StarUpdate` arrives from the phone. The row keeps the latest event time,
-//! so a late or replayed star cannot undo a newer unstar.
+//! so a late or replayed star cannot undo a newer unstar. Two events that
+//! carry the same second are ordered by where they came from: a live event
+//! wins over a replayed one, and only a live event may replace a row it did
+//! not move forward in time.
 //!
-//! ponytail: one table, no message column. The message is read from its own row,
-//! whole, so its right-click menu has every field an in-chat menu has; an edited
-//! message shows its current words and a message deleted here, or revoked for
-//! everyone, leaves the list on its own. The row draws those words inside a
-//! and fill, not the conversation's full renderer.
+//! The table holds one row per starred message and no copy of it: the message
+//! is read from its own row, whole, so the right-click menu of a row in the
+//! Starred panel offers every field an in-chat menu does. An edited message
+//! shows its current words, and one deleted here, or revoked for everyone,
+//! leaves the list on its own. The row draws those words inside a bubble of
+//! the message's own side and fill, not the conversation's full renderer.
 
 use std::collections::HashSet;
 
@@ -40,28 +44,41 @@ pub struct Starred {
 impl Archive {
     /// Records a star or an unstar at `at` (Unix seconds).
     ///
-    /// An older event loses to the time already stored, so a replay or a
-    /// response that finished late cannot put the row back.
-    pub fn set_star(&self, chat: &str, id: &str, starred: bool, at: i64) -> Result<bool> {
+    /// An older event loses to the time already stored, so a response that
+    /// finished late cannot put the row back. `replayed` says the event came
+    /// from a history replay, which the phone may send again at any time:
+    /// with the times equal to the second, only a live event is allowed to
+    /// replace the row. A replay that carried the same second would otherwise
+    /// put back a star the user has already removed.
+    pub fn set_star(
+        &self,
+        chat: &str,
+        id: &str,
+        starred: bool,
+        at: i64,
+        replayed: bool,
+    ) -> Result<bool> {
         let changed = self.connection.execute(
             "INSERT INTO stars (chat, id, starred, starred_at) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(chat, id) DO UPDATE SET
                 starred = excluded.starred,
                 starred_at = excluded.starred_at
-             WHERE excluded.starred_at >= stars.starred_at",
-            params![chat, id, starred, at],
+             WHERE excluded.starred_at > stars.starred_at
+                OR (excluded.starred_at = stars.starred_at AND ?5 = 0)",
+            params![chat, id, starred, at, replayed],
         )?;
         Ok(changed > 0)
     }
 
-    /// Marks a message as starred, remembering when.
+    /// Marks a message as starred, remembering when. The callers here are
+    /// local writes and confirmed answers, so the event is never a replay.
     pub fn star(&self, chat: &str, id: &str, at: i64) -> Result<()> {
-        self.set_star(chat, id, true, at)?;
+        self.set_star(chat, id, true, at, false)?;
         Ok(())
     }
 
     pub fn unstar(&self, chat: &str, id: &str, at: i64) -> Result<()> {
-        self.set_star(chat, id, false, at)?;
+        self.set_star(chat, id, false, at, false)?;
         Ok(())
     }
 

@@ -1786,16 +1786,49 @@ pub(crate) mod tests {
         archive.star("1@s.whatsapp.net", "m1", 500).unwrap();
         assert!(
             !archive
-                .set_star("1@s.whatsapp.net", "m1", false, 400)
+                .set_star("1@s.whatsapp.net", "m1", false, 400, false)
                 .unwrap()
         );
         assert_eq!(archive.starred(50).unwrap().len(), 1);
         assert!(
             archive
-                .set_star("1@s.whatsapp.net", "m1", false, 700)
+                .set_star("1@s.whatsapp.net", "m1", false, 700, false)
                 .unwrap()
         );
         assert!(archive.starred(50).unwrap().is_empty());
+    }
+
+    /// A star and the unstar that follows it can share a second, and the
+    /// phone may replay the star later with that same second. The replay must
+    /// not put back a star the reader has already removed.
+    #[test]
+    fn a_replayed_star_in_the_same_second_does_not_come_back() {
+        let archive = Archive::in_memory().unwrap();
+        archive.ensure_chat("1@s.whatsapp.net", "Fixture").unwrap();
+        archive
+            .insert_message(&message("1@s.whatsapp.net", "m1", 100, false), None)
+            .unwrap();
+        archive.star("1@s.whatsapp.net", "m1", 500).unwrap();
+        assert!(
+            archive
+                .set_star("1@s.whatsapp.net", "m1", false, 500, false)
+                .unwrap(),
+            "the unstar of the same second is the newer one"
+        );
+        assert!(
+            !archive
+                .set_star("1@s.whatsapp.net", "m1", true, 500, true)
+                .unwrap(),
+            "the replay does not put the star back"
+        );
+        assert!(archive.starred(50).unwrap().is_empty());
+        // A live event of that same second still wins over the stored row.
+        assert!(
+            archive
+                .set_star("1@s.whatsapp.net", "m1", true, 500, false)
+                .unwrap()
+        );
+        assert_eq!(archive.starred(50).unwrap().len(), 1);
     }
 
     #[test]

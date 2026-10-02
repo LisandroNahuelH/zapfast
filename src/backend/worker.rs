@@ -1097,7 +1097,10 @@ impl Worker {
         // An older event loses to the stored time and must not cancel a
         // request that is still in flight. Only a row that actually changed
         // retires that request.
-        match self.archive.set_star(&chat, &id, starred, at) {
+        match self
+            .archive
+            .set_star(&chat, &id, starred, at, update.from_full_sync)
+        {
             Ok(true) => {
                 self.next_star_generation(&chat, &id);
                 self.emit(Event::StarChanged {
@@ -4509,7 +4512,7 @@ impl Worker {
                     // moment of this answer: an older phone event cannot undo it.
                     let written =
                         self.archive
-                            .set_star(&chat, &message, starred, crate::util::now());
+                            .set_star(&chat, &message, starred, crate::util::now(), false);
                     match written {
                         Ok(true) => self.emit(Event::StarChanged {
                             chat,
