@@ -250,6 +250,9 @@ pub enum Command {
         /// Which attempt this answer belongs to. A later click or a phone
         /// update wins, and this answer is ignored.
         generation: u64,
+        /// The account that asked. A request that outlives its account must
+        /// not write the next one, whose generations start over.
+        session: u64,
         result: Result<(), String>,
     },
     /// Creates an archive chat before its first message is sent.

@@ -2286,7 +2286,12 @@ impl App {
                     let in_starred = self.starred.iter().any(|entry| {
                         entry.message.chat == message.chat && entry.message.id == message.id
                     });
-                    if in_starred {
+                    if matches!(message.content, Content::Revoked) {
+                        // A revoke for everyone arrives as an update, not as a
+                        // deletion. The star it still holds would keep the row
+                        // in the open list with nothing left to unstar.
+                        self.forget_star(&message.chat, &message.id);
+                    } else if in_starred {
                         for entry in &mut self.starred {
                             if entry.message.chat == message.chat && entry.message.id == message.id
                             {
@@ -2410,11 +2415,8 @@ impl App {
                         self.editing = None;
                         self.composer.clear();
                     }
-                    if let Some(ids) = self.stars.get_mut(&chat) {
-                        ids.remove(&id);
-                    }
                     // A deleted message leaves the starred list.
-                    self.reload_lists();
+                    self.forget_star(&chat, &id);
                 }
                 Event::ChatRemoved { chat } => {
                     self.forget_chat(&chat);
@@ -3813,6 +3815,9 @@ impl App {
                     }
                 }
                 self.reply_to = None;
+                // A pending quote belongs to the chat being left, like the
+                // quote it would start.
+                self.reply_when_loaded = None;
                 self.emoji_start = None;
                 self.mention_start = None;
                 self.reaction_target = None;
@@ -4199,17 +4204,15 @@ impl App {
                 {
                     message.content = Content::Revoked;
                 }
+                self.forget_star(&chat, &id);
                 self.backend.send(Command::Revoke { chat, id });
             }
             Action::DeleteForMe { chat, id } => {
                 if let Some(conversation) = self.conversations.get_mut(&chat) {
                     conversation.messages.retain(|message| message.id != id);
                 }
-                if let Some(ids) = self.stars.get_mut(&chat) {
-                    ids.remove(&id);
-                }
+                self.forget_star(&chat, &id);
                 self.backend.send(Command::DeleteLocal { chat, id });
-                self.reload_lists();
             }
             Action::Attach => {
                 if let Some(chat) = self.open_chat.clone() {
@@ -5352,6 +5355,17 @@ impl App {
         if self.show_starred {
             self.backend.send(Command::LoadStarred);
         }
+    }
+
+    /// Drops the star of a message that no longer exists. A message deleted
+    /// here, and one revoked for everyone, keep no star: the mark would stay
+    /// in the conversation and the open list would hold a row with nothing
+    /// left to unstar.
+    fn forget_star(&mut self, chat: &str, id: &str) {
+        if let Some(ids) = self.stars.get_mut(chat) {
+            ids.remove(id);
+        }
+        self.reload_lists();
     }
 
     /// Chats pinned to the top, counted the way WhatsApp limits them.

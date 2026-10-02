@@ -384,7 +384,6 @@ fn macos_header(app: &mut App, ui: &mut egui::Ui) {
                     )
                     .clicked()
                     {
-                        app.sidebar_visible = true;
                         app.actions.push(Action::ToggleStarred);
                     }
                     if theme::icon_button(
@@ -1612,7 +1611,6 @@ pub fn compact_show(app: &mut App, ui: &mut egui::Ui) {
                 )
                 .clicked()
                 {
-                    app.sidebar_visible = true;
                     app.actions.push(Action::ToggleStarred);
                 }
             },

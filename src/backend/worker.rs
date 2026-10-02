@@ -475,6 +475,7 @@ pub async fn run(
         privacy_generation: 0,
         privacy_retry: Instant::now(),
         star_generation: HashMap::new(),
+        star_session: 0,
         withheld_pages: Vec::new(),
         dirs,
         events,
@@ -713,6 +714,11 @@ struct Worker {
     /// Latest star or unstar attempt per message. A finished request whose
     /// generation is older than this is dropped.
     star_generation: HashMap<(String, String), u64>,
+    /// The account the star requests in flight belong to. A task that keeps
+    /// the client of the account that left can finish after the next one has
+    /// linked, and the per-message generations start over there, so the
+    /// session has to be checked as well.
+    star_session: u64,
     /// Transcript pages asked for while private content was withheld. Their
     /// answers never reached the interface, which still waits for them, so
     /// they are read again once content is shown (#180).
@@ -1030,6 +1036,7 @@ impl Worker {
 
     fn set_star(&mut self, chat: ChatId, id: String, starred: bool) {
         let generation = self.next_star_generation(&chat, &id);
+        let session = self.star_session;
         let commands = self.commands.clone();
         let (Some(client), Some(jid)) = (self.client.clone(), Self::jid_of(&chat)) else {
             // The batch counts every attempt, so a refusal it never heard
@@ -1039,6 +1046,7 @@ impl Worker {
                 message: id,
                 starred,
                 generation,
+                session,
                 result: Err("Not connected to WhatsApp".to_owned()),
             });
             return;
@@ -1049,6 +1057,7 @@ impl Worker {
                 message: id,
                 starred,
                 generation,
+                session,
                 result: Err("This message is not on this computer".to_owned()),
             });
             return;
@@ -1073,6 +1082,7 @@ impl Worker {
                 message: id,
                 starred,
                 generation,
+                session,
                 result: result.map_err(|error| error.to_string()),
             });
         });
@@ -2728,8 +2738,10 @@ impl Worker {
         self.pending_older.clear();
         self.pending_avatars.clear();
         // A star request belongs to the account that just left. A task that
-        // finishes after logout must not write the next account.
+        // finishes after logout must not write the next account, whose
+        // generations start over.
         self.star_generation.clear();
+        self.star_session = self.star_session.wrapping_add(1);
         self.me_pn = None;
         self.me_lid = None;
         self.me_name = None;
@@ -4477,13 +4489,15 @@ impl Worker {
                 message,
                 starred,
                 generation,
+                session,
                 result,
             } => {
-                if self
-                    .star_generation
-                    .get(&(chat.clone(), message.clone()))
-                    .copied()
-                    != Some(generation)
+                if self.star_session != session
+                    || self
+                        .star_generation
+                        .get(&(chat.clone(), message.clone()))
+                        .copied()
+                        != Some(generation)
                 {
                     return;
                 }
@@ -11394,6 +11408,7 @@ mod receipt_tests {
             privacy_generation: 0,
             privacy_retry: Instant::now(),
             star_generation: HashMap::new(),
+            star_session: 0,
             withheld_pages: Vec::new(),
             dirs: AppDirs::under(&root),
             events,
@@ -13916,18 +13931,23 @@ mod chat_removal_tests {
     }
 
     #[tokio::test]
-    async fn a_star_answer_after_logout_does_not_write() {
+    async fn a_star_answer_from_the_previous_account_does_not_write() {
         let (mut worker, _events, _, _) = receipt_tests::worker();
         const CHAT: &str = "1@s.whatsapp.net";
         worker.archive.ensure_chat(CHAT, "Ada").unwrap();
-        worker.star_generation.insert((CHAT.into(), "m1".into()), 4);
-        worker.star_generation.clear();
+        // The request that is about to answer belongs to the account that
+        // left. The next account starts its own generations at one, so the
+        // generation alone cannot tell the two apart.
+        worker.star_session = 0;
+        worker.star_generation.insert((CHAT.into(), "m1".into()), 1);
+        worker.star_session = 1;
         worker
             .handle_command(Command::Starred {
                 chat: CHAT.into(),
                 message: "m1".into(),
                 starred: true,
-                generation: 4,
+                generation: 1,
+                session: 0,
                 result: Ok(()),
             })
             .await;
