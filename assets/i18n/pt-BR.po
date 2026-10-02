@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-02 03:23\n"
+"POT-Creation-Date: 2026-10-02 05:47\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Brazilian Portuguese\n"
@@ -159,7 +159,7 @@ msgstr "Novembro"
 msgid "December"
 msgstr "Dezembro"
 
-#: src/ui/chats.rs:139 src/ui/chats.rs:338 src/app.rs:2135
+#: src/ui/chats.rs:134 src/ui/chats.rs:333 src/app.rs:2152
 msgid "Starred"
 msgstr "Com estrela"
 
@@ -167,7 +167,7 @@ msgstr "Com estrela"
 msgid "Chats"
 msgstr "Conversas"
 
-#: src/ui/chats.rs:241 src/ui/chats.rs:388 src/ui/chats.rs:1616
+#: src/ui/chats.rs:236 src/ui/chats.rs:383 src/ui/chats.rs:1617
 msgid "Starred messages"
 msgstr "Mensagens com estrela"
 
@@ -183,13 +183,14 @@ msgstr "Arquivadas"
 msgid "Locked"
 msgstr "Trancadas"
 
-#: src/ui/chats.rs:598
+#: src/ui/chats.rs:593
 msgid "No starred messages"
 msgstr "Nenhuma mensagem com estrela"
 
-#: src/ui/chats.rs:601
+#: src/ui/chats.rs:596
 msgid "Right-click a message and choose Star to keep it here."
-msgstr "Clique com o botão direito em uma mensagem e escolha Marcar com estrela para mantê-la aqui."
+msgstr "Clique com o botão direito em uma mensagem e escolha Marcar com estrela "
+"para mantê-la aqui."
 
 #: src/ui/chats.rs:528
 msgid "No favorites yet"
@@ -226,11 +227,12 @@ msgstr "Sair do canal"
 msgid "Labels"
 msgstr "Etiquetas"
 
-#: src/ui/conversation.rs:131
+#: src/ui/conversation.rs:152
+#, rust-format
 msgid "Pinned message: {}"
 msgstr "Mensagem fixada: {}"
 
-#: src/ui/conversation.rs:152 src/ui/conversation.rs:154
+#: src/ui/conversation.rs:173 src/ui/conversation.rs:175
 msgid "Next pinned message"
 msgstr "Próxima mensagem fixada"
 
@@ -305,15 +307,16 @@ msgstr "Mensagem de voz ({duration}) não enviada"
 msgid "Discard voice message"
 msgstr "Descartar mensagem de voz"
 
-#: src/ui/conversation.rs:1844
+#: src/ui/conversation.rs:1865
 msgid "You pinned a message"
 msgstr "Você fixou uma mensagem"
 
-#: src/ui/conversation.rs:1847
+#: src/ui/conversation.rs:1868
 msgid "A message was pinned"
 msgstr "Uma mensagem foi fixada"
 
-#: src/ui/conversation.rs:1849
+#: src/ui/conversation.rs:1870
+#, rust-format
 msgid "{} pinned a message"
 msgstr "{} fixou uma mensagem"
 
@@ -333,19 +336,19 @@ msgstr "Abrir no player do sistema"
 msgid "Message info"
 msgstr "Dados da mensagem"
 
-#: src/ui/conversation.rs:4366
+#: src/ui/conversation.rs:4431
 msgid "Unstar"
 msgstr "Desmarcar estrela"
 
-#: src/ui/conversation.rs:4368
+#: src/ui/conversation.rs:4433
 msgid "Star"
 msgstr "Marcar com estrela"
 
-#: src/ui/conversation.rs:4382
+#: src/ui/conversation.rs:4447
 msgid "Unpin message"
 msgstr "Desafixar mensagem"
 
-#: src/ui/conversation.rs:4384
+#: src/ui/conversation.rs:4449
 msgid "Pin message"
 msgstr "Fixar mensagem"
 
@@ -1123,15 +1126,15 @@ msgstr "{name} (Você)"
 msgid "You"
 msgstr "Você"
 
-#: src/app.rs:2137
+#: src/app.rs:2154
 msgid "Star removed"
 msgstr "Estrela removida"
 
-#: src/app.rs:2189
+#: src/app.rs:2206
 msgid "Pinned for 7 days"
 msgstr "Fixada por 7 dias"
 
-#: src/app.rs:2191
+#: src/app.rs:2208
 msgid "Pin removed"
 msgstr "Fixação removida"
 
@@ -1139,7 +1142,7 @@ msgstr "Fixação removida"
 msgid "Could not use this image"
 msgstr "Não foi possível usar esta imagem"
 
-#: src/app.rs:4683
+#: src/app.rs:2718 src/app.rs:4774
 msgid "This chat already has three pinned messages"
 msgstr "Esta conversa já tem três mensagens fixadas"
 

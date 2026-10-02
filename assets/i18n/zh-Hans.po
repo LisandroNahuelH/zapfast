@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-02 03:23\n"
+"POT-Creation-Date: 2026-10-02 05:47\n"
 "PO-Revision-Date: 2026-09-25 23:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -159,7 +159,7 @@ msgstr "11月"
 msgid "December"
 msgstr "12月"
 
-#: src/ui/chats.rs:139 src/ui/chats.rs:338 src/app.rs:2135
+#: src/ui/chats.rs:134 src/ui/chats.rs:333 src/app.rs:2152
 msgid "Starred"
 msgstr "星标"
 
@@ -167,7 +167,7 @@ msgstr "星标"
 msgid "Chats"
 msgstr "聊天"
 
-#: src/ui/chats.rs:241 src/ui/chats.rs:388 src/ui/chats.rs:1616
+#: src/ui/chats.rs:236 src/ui/chats.rs:383 src/ui/chats.rs:1617
 msgid "Starred messages"
 msgstr "星标消息"
 
@@ -183,11 +183,11 @@ msgstr "已归档"
 msgid "Locked"
 msgstr "已锁定"
 
-#: src/ui/chats.rs:598
+#: src/ui/chats.rs:593
 msgid "No starred messages"
 msgstr "没有星标消息"
 
-#: src/ui/chats.rs:601
+#: src/ui/chats.rs:596
 msgid "Right-click a message and choose Star to keep it here."
 msgstr "右键点击消息并选择“加星标”，即可将其保留在这里。"
 
@@ -226,11 +226,12 @@ msgstr "退出频道"
 msgid "Labels"
 msgstr "标签"
 
-#: src/ui/conversation.rs:131
+#: src/ui/conversation.rs:152
+#, rust-format
 msgid "Pinned message: {}"
 msgstr "置顶消息：{}"
 
-#: src/ui/conversation.rs:152 src/ui/conversation.rs:154
+#: src/ui/conversation.rs:173 src/ui/conversation.rs:175
 msgid "Next pinned message"
 msgstr "下一条置顶消息"
 
@@ -302,15 +303,16 @@ msgstr "语音消息（{duration}）未发送"
 msgid "Discard voice message"
 msgstr "放弃语音消息"
 
-#: src/ui/conversation.rs:1844
+#: src/ui/conversation.rs:1865
 msgid "You pinned a message"
 msgstr "你置顶了一条消息"
 
-#: src/ui/conversation.rs:1847
+#: src/ui/conversation.rs:1868
 msgid "A message was pinned"
 msgstr "一条消息已被置顶"
 
-#: src/ui/conversation.rs:1849
+#: src/ui/conversation.rs:1870
+#, rust-format
 msgid "{} pinned a message"
 msgstr "{} 置顶了一条消息"
 
@@ -329,19 +331,19 @@ msgstr "用系统播放器打开"
 msgid "Message info"
 msgstr "消息信息"
 
-#: src/ui/conversation.rs:4366
+#: src/ui/conversation.rs:4431
 msgid "Unstar"
 msgstr "取消星标"
 
-#: src/ui/conversation.rs:4368
+#: src/ui/conversation.rs:4433
 msgid "Star"
 msgstr "加星标"
 
-#: src/ui/conversation.rs:4382
+#: src/ui/conversation.rs:4447
 msgid "Unpin message"
 msgstr "取消置顶"
 
-#: src/ui/conversation.rs:4384
+#: src/ui/conversation.rs:4449
 msgid "Pin message"
 msgstr "置顶消息"
 
@@ -1091,15 +1093,15 @@ msgstr "{name}（你）"
 msgid "You"
 msgstr "你"
 
-#: src/app.rs:2137
+#: src/app.rs:2154
 msgid "Star removed"
 msgstr "已取消星标"
 
-#: src/app.rs:2189
+#: src/app.rs:2206
 msgid "Pinned for 7 days"
 msgstr "已置顶 7 天"
 
-#: src/app.rs:2191
+#: src/app.rs:2208
 msgid "Pin removed"
 msgstr "已取消置顶"
 
@@ -1107,7 +1109,7 @@ msgstr "已取消置顶"
 msgid "Could not use this image"
 msgstr "无法使用此图片"
 
-#: src/app.rs:4683
+#: src/app.rs:2718 src/app.rs:4774
 msgid "This chat already has three pinned messages"
 msgstr "此聊天已有三条置顶消息"
 

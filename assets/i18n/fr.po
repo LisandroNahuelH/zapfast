@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-02 03:23\n"
+"POT-Creation-Date: 2026-10-02 05:47\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: French\n"
@@ -159,7 +159,7 @@ msgstr "Novembre"
 msgid "December"
 msgstr "Décembre"
 
-#: src/ui/chats.rs:139 src/ui/chats.rs:338 src/app.rs:2135
+#: src/ui/chats.rs:134 src/ui/chats.rs:333 src/app.rs:2152
 msgid "Starred"
 msgstr "Marqués"
 
@@ -167,7 +167,7 @@ msgstr "Marqués"
 msgid "Chats"
 msgstr "Discussions"
 
-#: src/ui/chats.rs:241 src/ui/chats.rs:388 src/ui/chats.rs:1616
+#: src/ui/chats.rs:236 src/ui/chats.rs:383 src/ui/chats.rs:1617
 msgid "Starred messages"
 msgstr "Messages marqués"
 
@@ -183,13 +183,14 @@ msgstr "Archivées"
 msgid "Locked"
 msgstr "Verrouillés"
 
-#: src/ui/chats.rs:598
+#: src/ui/chats.rs:593
 msgid "No starred messages"
 msgstr "Aucun message marqué"
 
-#: src/ui/chats.rs:601
+#: src/ui/chats.rs:596
 msgid "Right-click a message and choose Star to keep it here."
-msgstr "Faites un clic droit sur un message et choisissez Marquer pour le garder ici."
+msgstr "Faites un clic droit sur un message et choisissez Marquer pour le garder"
+" ici."
 
 #: src/ui/chats.rs:528
 msgid "No favorites yet"
@@ -226,11 +227,12 @@ msgstr "Quitter la chaîne"
 msgid "Labels"
 msgstr "Étiquettes"
 
-#: src/ui/conversation.rs:131
+#: src/ui/conversation.rs:152
+#, rust-format
 msgid "Pinned message: {}"
 msgstr "Message épinglé : {}"
 
-#: src/ui/conversation.rs:152 src/ui/conversation.rs:154
+#: src/ui/conversation.rs:173 src/ui/conversation.rs:175
 msgid "Next pinned message"
 msgstr "Message épinglé suivant"
 
@@ -305,15 +307,16 @@ msgstr "Message vocal ({duration}) non envoyé"
 msgid "Discard voice message"
 msgstr "Supprimer le message vocal"
 
-#: src/ui/conversation.rs:1844
+#: src/ui/conversation.rs:1865
 msgid "You pinned a message"
 msgstr "Vous avez épinglé un message"
 
-#: src/ui/conversation.rs:1847
+#: src/ui/conversation.rs:1868
 msgid "A message was pinned"
 msgstr "Un message a été épinglé"
 
-#: src/ui/conversation.rs:1849
+#: src/ui/conversation.rs:1870
+#, rust-format
 msgid "{} pinned a message"
 msgstr "{} a épinglé un message"
 
@@ -333,19 +336,19 @@ msgstr "Ouvrir dans le lecteur du système"
 msgid "Message info"
 msgstr "Infos du message"
 
-#: src/ui/conversation.rs:4366
+#: src/ui/conversation.rs:4431
 msgid "Unstar"
 msgstr "Ne plus marquer"
 
-#: src/ui/conversation.rs:4368
+#: src/ui/conversation.rs:4433
 msgid "Star"
 msgstr "Marquer"
 
-#: src/ui/conversation.rs:4382
+#: src/ui/conversation.rs:4447
 msgid "Unpin message"
 msgstr "Ne plus épingler"
 
-#: src/ui/conversation.rs:4384
+#: src/ui/conversation.rs:4449
 msgid "Pin message"
 msgstr "Épingler le message"
 
@@ -1134,15 +1137,15 @@ msgstr "{name} (Vous)"
 msgid "You"
 msgstr "Vous"
 
-#: src/app.rs:2137
+#: src/app.rs:2154
 msgid "Star removed"
 msgstr "Marque retirée"
 
-#: src/app.rs:2189
+#: src/app.rs:2206
 msgid "Pinned for 7 days"
 msgstr "Épinglé pour 7 jours"
 
-#: src/app.rs:2191
+#: src/app.rs:2208
 msgid "Pin removed"
 msgstr "Épinglage retiré"
 
@@ -1150,7 +1153,7 @@ msgstr "Épinglage retiré"
 msgid "Could not use this image"
 msgstr "Impossible d’utiliser cette image"
 
-#: src/app.rs:4683
+#: src/app.rs:2718 src/app.rs:4774
 msgid "This chat already has three pinned messages"
 msgstr "Cette discussion a déjà trois messages épinglés"
 
