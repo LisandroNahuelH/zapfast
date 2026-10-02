@@ -241,6 +241,10 @@ pub enum Command {
     /// opening and left out of the refresh that follows a download.
     StorageStats {
         messages: bool,
+        /// Which ask this is. An answer that arrives after a newer ask is
+        /// dropped, so the numbers, and the clock that dates them, are the
+        /// ones the reader last asked for.
+        token: u64,
     },
     /// Creates an archive chat before its first message is sent.
     EnsureChat {
@@ -765,6 +769,8 @@ pub enum Event {
     StorageStats {
         stats: Option<StorageStats>,
         counted: bool,
+        /// The ask this answers, so an older answer can be dropped.
+        token: u64,
     },
     ChatUpdated(Box<Chat>),
     /// Chat messages in ascending order. `older` prepends them; `complete`

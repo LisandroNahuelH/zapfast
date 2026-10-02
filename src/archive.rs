@@ -173,6 +173,21 @@ const MIGRATIONS: &[(&str, &str, &str)] = &[
 /// written before this column existed can hold one. The guard turns such a row
 /// into "not downloaded" instead: without it the `CREATE INDEX ... WHERE
 /// downloaded` below fails, and with it every later open of that archive.
+/// The carousel array of a row, as JSON, or an empty object when the row has
+/// no carousel or its content is not JSON at all.
+///
+/// `json_type` raises on a row whose content is not JSON, and the table-valued
+/// function that reads this expression runs before any `WHERE` clause can
+/// filter those rows out, so the guard has to live inside the expression.
+fn carousel_json(row: &str) -> String {
+    format!(
+        "CASE WHEN json_valid({row}) THEN
+             CASE WHEN json_type({row}, '$.card.carousel') = 'array'
+                 THEN {row} ELSE '{{}}' END
+         ELSE '{{}}' END"
+    )
+}
+
 const DOWNLOADED: &str = "CASE WHEN json_valid(content) THEN (
         json_extract(content, '$.media.path') IS NOT NULL
         OR json_extract(content, '$.card.image.path') IS NOT NULL
@@ -414,6 +429,7 @@ impl Archive {
             .is_some_and(|sql| {
                 sql.contains("WHEN json_type(content, '$.card.carousel') = 'array'")
             });
+        let mut rebuilt = false;
         if exists && !current {
             // `DROP COLUMN` rewrites the table and reads `downloaded`. That
             // read raises on the bad row. Copy the stored columns, then add
@@ -468,28 +484,48 @@ impl Archive {
                 stmt.query_map([], |row| row.get::<_, String>(0))?
                     .collect::<Result<Vec<_>>>()?
                     .into_iter()
-                    .filter(|sql| !sql.contains("downloaded"))
+                    // The two indexes this migration owns stay out of the
+                    // copy: `downloaded` is added after it, and
+                    // `messages_stickers` is recreated below in its guarded
+                    // form, which a plain copy of the old definition would
+                    // not give back.
+                    .filter(|sql| !sql.contains("downloaded") && !sql.contains("messages_stickers"))
                     .collect()
             };
             let listed = names.join(", ");
-            connection.execute_batch(&format!(
-                "DROP TABLE IF EXISTS messages_migrated;
-                 CREATE TABLE messages_migrated ({});
-                 INSERT INTO messages_migrated ({listed})
-                     SELECT {listed} FROM messages;",
-                defs.join(", ")
-            ))?;
-            connection.execute_batch(
-                "DROP TABLE messages;
-                 ALTER TABLE messages_migrated RENAME TO messages;",
-            )?;
-            for sql in extras {
-                connection.execute_batch(&sql)?;
+            // One transaction for the whole reconstruction. A crash, or an
+            // index that fails to rebuild, would otherwise leave the archive
+            // with no `messages` table at all and no way back to the old one.
+            connection.execute_batch("BEGIN IMMEDIATE")?;
+            let rebuilt_table = (|| -> Result<()> {
+                connection.execute_batch(&format!(
+                    "DROP TABLE IF EXISTS messages_migrated;
+                     CREATE TABLE messages_migrated ({});
+                     INSERT INTO messages_migrated ({listed})
+                         SELECT {listed} FROM messages;",
+                    defs.join(", ")
+                ))?;
+                connection.execute_batch(
+                    "DROP TABLE messages;
+                     ALTER TABLE messages_migrated RENAME TO messages;",
+                )?;
+                for sql in &extras {
+                    connection.execute_batch(sql)?;
+                }
+                connection.execute_batch(&format!(
+                    "ALTER TABLE messages ADD COLUMN downloaded INTEGER
+                         GENERATED ALWAYS AS ({DOWNLOADED}) VIRTUAL"
+                ))?;
+                Ok(())
+            })();
+            match rebuilt_table {
+                Ok(()) => connection.execute_batch("COMMIT")?,
+                Err(error) => {
+                    let _ = connection.execute_batch("ROLLBACK");
+                    return Err(error);
+                }
             }
-            connection.execute_batch(&format!(
-                "ALTER TABLE messages ADD COLUMN downloaded INTEGER
-                     GENERATED ALWAYS AS ({DOWNLOADED}) VIRTUAL"
-            ))?;
+            rebuilt = true;
         } else if !exists {
             connection.execute_batch(&format!(
                 "ALTER TABLE messages ADD COLUMN downloaded INTEGER
@@ -504,7 +540,8 @@ impl Archive {
         // The sticker index predates the guard, and `CREATE INDEX IF NOT
         // EXISTS` leaves an archive's own copy alone. One that still reads the
         // content unguarded is rebuilt, or the archive cannot be opened at all
-        // once it holds a row whose content is not JSON.
+        // once it holds a row whose content is not JSON. The reconstruction
+        // above dropped it with its table, so it is rebuilt then as well.
         let unguarded = connection
             .query_row(
                 "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'messages_stickers'",
@@ -514,9 +551,9 @@ impl Archive {
             .optional()?
             .flatten()
             .is_some_and(|sql| !sql.contains("json_valid"));
-        if unguarded {
+        if unguarded || rebuilt {
             connection.execute_batch(
-                "DROP INDEX messages_stickers;
+                "DROP INDEX IF EXISTS messages_stickers;
                  CREATE INDEX messages_stickers ON messages (from_me, timestamp)
                      WHERE CASE WHEN json_valid(content) THEN json_extract(content, '$.kind') = 'sticker'
                          ELSE 0 END;",
@@ -978,13 +1015,12 @@ impl Archive {
     /// Includes each carousel attachment separately so moves and cache cleanup
     /// never reuse one card's image for another.
     pub fn carousel_media_paths(&self) -> Result<Vec<(String, String, usize, std::path::PathBuf)>> {
-        let mut statement = self.connection.prepare(
+        let carousel = carousel_json("m.content");
+        let mut statement = self.connection.prepare(&format!(
             "SELECT m.chat, m.id, c.key, json_extract(c.value, '$.image.path') AS image_path
-             FROM messages m, json_each(
-                 CASE WHEN json_type(m.content, '$.card.carousel') = 'array'
-                     THEN m.content ELSE '{}' END,
-                 '$.card.carousel') c WHERE image_path IS NOT NULL",
-        )?;
+             FROM messages m, json_each({carousel}, '$.card.carousel') c
+             WHERE c.type = 'object' AND image_path IS NOT NULL",
+        ))?;
         let rows = statement.query_map([], |row| {
             Ok((
                 row.get(0)?,
@@ -1235,6 +1271,7 @@ impl Archive {
         } else {
             "0"
         };
+        let carousel = carousel_json("m.content");
         self.connection.query_row(
             &format!(
                 "WITH media(kind, size, present) AS (
@@ -1261,11 +1298,8 @@ impl Archive {
                     CAST(COALESCE(json_extract(c.value, '$.image.size'), 0) AS INTEGER),
                     json_extract(c.value, '$.image.path') IS NOT NULL
                         AND json_extract(c.value, '$.image.path') != ''
-                FROM messages m, json_each(
-                    CASE WHEN json_type(m.content, '$.card.carousel') = 'array'
-                        THEN m.content ELSE '{{}}' END,
-                    '$.card.carousel') c
-                WHERE m.downloaded AND json_valid(m.content)
+                FROM messages m, json_each({carousel}, '$.card.carousel') c
+                WHERE m.downloaded AND json_valid(m.content) AND c.type = 'object'
              )
              SELECT
                 {counted},
@@ -1624,6 +1658,7 @@ impl Archive {
     /// Attachment paths of the messages matching `filter` (over `messages m`),
     /// including an interactive card's image and each carousel card's image.
     fn cached_media(&self, filter: &str, params: impl rusqlite::Params) -> Result<Vec<PathBuf>> {
+        let carousel = carousel_json("m.content");
         let mut statement = self.connection.prepare(&format!(
             "SELECT file FROM (
                  SELECT json_extract(m.content, '$.media.path') AS file FROM messages m WHERE {filter}
@@ -1631,10 +1666,8 @@ impl Archive {
                  SELECT json_extract(m.content, '$.card.image.path') FROM messages m WHERE {filter}
                  UNION ALL
                  SELECT json_extract(c.value, '$.image.path')
-                 FROM messages m, json_each(
-                     CASE WHEN json_type(m.content, '$.card.carousel') = 'array'
-                         THEN m.content ELSE '{{}}' END,
-                     '$.card.carousel') c WHERE {filter}
+                 FROM messages m, json_each({carousel}, '$.card.carousel') c
+                 WHERE {filter} AND c.type = 'object'
              ) WHERE file IS NOT NULL"
         ))?;
         let rows =

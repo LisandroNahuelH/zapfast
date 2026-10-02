@@ -438,6 +438,10 @@ pub struct App {
     pub(crate) storage_stats_counted: bool,
     /// Whether a reading is already on its way to the worker.
     pub(crate) storage_stats_asked: bool,
+    /// Which storage-stats ask is current. An answer for an older one is
+    /// dropped: it would otherwise put its numbers over the newer read and
+    /// date them now.
+    pub(crate) storage_stats_token: u64,
     /// Whether the locked-chats folder is open.
     pub locked_folder: bool,
     /// The verifier authenticated for this window session, never the code.
@@ -984,6 +988,7 @@ impl App {
             storage_stats: None,
             storage_stats_at: None,
             storage_stats_asked: false,
+            storage_stats_token: 0,
             storage_stats_counted: false,
             locked_folder: false,
             chat_lock_session: None,
@@ -2216,25 +2221,34 @@ impl App {
                             .collect();
                     }
                 }
-                Event::StorageStats { stats, counted } => {
-                    // A failed read answers nothing and leaves the last good
-                    // numbers, or the blank row, in place. The attempt still
-                    // counts as one, so a broken archive is retried on the
-                    // same cadence instead of on every frame.
-                    if let Some(mut stats) = stats {
-                        if counted {
-                            self.storage_stats_counted = true;
-                        } else {
-                            // A sizes-only refresh carries a zero message
-                            // total. Keep the total from the counted read.
-                            stats.messages = self
-                                .storage_stats
-                                .map_or(stats.messages, |last| last.messages);
+                Event::StorageStats {
+                    stats,
+                    counted,
+                    token,
+                } => {
+                    // An answer to an older ask would put its numbers over
+                    // the newer ones and date them now, so it is dropped.
+                    if token == self.storage_stats_token {
+                        // A failed read answers nothing and leaves the last
+                        // good numbers, or the blank row, in place. The
+                        // attempt still counts as one, so a broken archive is
+                        // retried on the same cadence instead of on every
+                        // frame.
+                        if let Some(mut stats) = stats {
+                            if counted {
+                                self.storage_stats_counted = true;
+                            } else {
+                                // A sizes-only refresh carries a zero message
+                                // total. Keep the total from the counted read.
+                                stats.messages = self
+                                    .storage_stats
+                                    .map_or(stats.messages, |last| last.messages);
+                            }
+                            self.storage_stats = Some(stats);
                         }
-                        self.storage_stats = Some(stats);
+                        self.storage_stats_at = Some(Instant::now());
+                        self.storage_stats_asked = false;
                     }
-                    self.storage_stats_at = Some(Instant::now());
-                    self.storage_stats_asked = false;
                 }
                 Event::Incoming { chat, message } => self.maybe_notify(&chat, &message),
                 Event::Picked { chat, paths } => {
@@ -5674,8 +5688,10 @@ impl App {
             .storage_stats_at
             .is_none_or(|at| at.elapsed() >= STORAGE_STATS_TTL);
         if stale {
+            self.storage_stats_token = self.storage_stats_token.wrapping_add(1);
             self.backend.send(Command::StorageStats {
                 messages: !self.storage_stats_counted,
+                token: self.storage_stats_token,
             });
             self.storage_stats_asked = true;
         } else if let Some(at) = self.storage_stats_at {
@@ -6920,6 +6936,7 @@ mod tests {
                     ..crate::model::StorageStats::default()
                 }),
                 counted: false,
+                token: app.storage_stats_token,
             })
             .unwrap();
         app.handle_events();
@@ -6942,7 +6959,7 @@ mod tests {
         app.apply(Action::Open(Page::Settings), &ctx);
         app.refresh_storage_stats(&ctx);
         let asked = std::iter::from_fn(|| commands.try_recv().ok())
-            .any(|command| matches!(command, Command::StorageStats { messages: true }));
+            .any(|command| matches!(command, Command::StorageStats { messages: true, .. }));
         assert!(asked, "a new visit asks for the message total");
     }
 
