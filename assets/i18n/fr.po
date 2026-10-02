@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-02 03:35\n"
+"POT-Creation-Date: 2026-10-02 05:47\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: French\n"
@@ -817,31 +817,31 @@ msgstr "Modifier…"
 msgid "Use default"
 msgstr "Utiliser le dossier par défaut"
 
-#: src/ui/settings.rs:707 src/ui/settings.rs:1300
+#: src/ui/settings.rs:715 src/ui/settings.rs:1330
 msgid "Storage used"
 msgstr "Stockage utilisé"
 
-#: src/ui/settings.rs:709
+#: src/ui/settings.rs:717
 msgid "Space"
 msgstr "Espace"
 
-#: src/ui/settings.rs:710 src/ui/settings.rs:1348
+#: src/ui/settings.rs:718 src/ui/settings.rs:1378
 msgid "Images"
 msgstr "Images"
 
-#: src/ui/settings.rs:711 src/ui/settings.rs:1356
+#: src/ui/settings.rs:719 src/ui/settings.rs:1386
 msgid "Videos"
 msgstr "Vidéos"
 
-#: src/ui/settings.rs:712 src/ui/settings.rs:1364
+#: src/ui/settings.rs:720 src/ui/settings.rs:1394
 msgid "Stickers and GIFs"
 msgstr "Stickers et GIF"
 
-#: src/ui/settings.rs:713 src/ui/settings.rs:1373
+#: src/ui/settings.rs:721 src/ui/settings.rs:1403
 msgid "Other"
 msgstr "Autres"
 
-#: src/ui/settings.rs:714
+#: src/ui/settings.rs:722
 msgid "Messages"
 msgstr "Messages"
 
@@ -971,14 +971,16 @@ msgstr "Choisir une image…"
 msgid "Remove image"
 msgstr "Retirer l’image"
 
-#: src/ui/settings.rs:1318
+#: src/ui/settings.rs:1348
 msgid ""
 "Space taken by the pictures, videos, stickers, and GIFs ZapFast has "
 "downloaded. The size is the one WhatsApp declared. Documents and audio count "
 "under Other."
-msgstr "Espace occupé par les images, les vidéos, les stickers et les GIF que ZapFast a téléchargés. La taille est celle déclarée par WhatsApp. Les documents et l'audio comptent dans Autres."
+msgstr "Espace occupé par les images, les vidéos, les stickers et les GIF que Za"
+"pFast a téléchargés. La taille est celle déclarée par WhatsApp. Les docu"
+"ments et l'audio comptent dans Autres."
 
-#: src/ui/settings.rs:1336
+#: src/ui/settings.rs:1366
 #, rust-format
 msgid "{} message"
 msgid_plural "{} messages"
