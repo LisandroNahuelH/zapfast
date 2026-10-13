@@ -3383,6 +3383,8 @@ impl Worker {
         // finishes after logout must not write the next account, whose
         // generations start over.
         self.star_generation.clear();
+        self.pin_generation.clear();
+        // Pin answers carry the same session as star answers.
         self.star_session = self.star_session.wrapping_add(1);
         self.me_pn = None;
         self.me_lid = None;
@@ -6691,14 +6693,16 @@ impl Worker {
                 pinned,
                 at,
                 generation,
+                session,
                 expires_at,
                 result,
             } => {
-                if self
-                    .pin_generation
-                    .get(&(chat.clone(), message.clone()))
-                    .copied()
-                    != Some(generation)
+                if self.star_session != session
+                    || self
+                        .pin_generation
+                        .get(&(chat.clone(), message.clone()))
+                        .copied()
+                        != Some(generation)
                 {
                     return;
                 }
@@ -9194,6 +9198,7 @@ impl Worker {
 
     fn set_pin(&mut self, chat: ChatId, id: String, pinned: bool) {
         let generation = self.next_pin_generation(&chat, &id);
+        let session = self.star_session;
         let commands = self.commands.clone();
         let now = crate::util::now();
         if pinned && self.archive.pin_full(&chat, &id, now).unwrap_or(true) {
@@ -9209,6 +9214,7 @@ impl Worker {
                 pinned,
                 at: now,
                 generation,
+                session,
                 expires_at: now + PIN_SECS,
                 result: Err("Not connected to WhatsApp".to_owned()),
             });
@@ -9221,6 +9227,7 @@ impl Worker {
                 pinned,
                 at: now,
                 generation,
+                session,
                 expires_at: now + PIN_SECS,
                 result: Err("This message is not stored on this computer".to_owned()),
             });
@@ -9255,6 +9262,7 @@ impl Worker {
                 pinned,
                 at: now,
                 generation,
+                session,
                 expires_at,
                 result,
             });
@@ -19159,6 +19167,37 @@ mod chat_removal_tests {
             })
             .await;
         assert!(worker.archive.starred_ids(CHAT).unwrap().is_empty());
+    }
+
+    /// The same for a pin: an answer that outlives a logout belongs to the
+    /// account that left.
+    #[tokio::test]
+    async fn a_pin_answer_from_the_previous_account_does_not_write() {
+        let (mut worker, _events, _, _) = receipt_tests::worker();
+        const CHAT: &str = "1@s.whatsapp.net";
+        worker.archive.ensure_chat(CHAT, "Ada").unwrap();
+        worker
+            .archive
+            .insert_message(
+                &crate::archive::tests::message(CHAT, "m1", 100, false),
+                None,
+            )
+            .unwrap();
+        worker.star_session = 1;
+        worker.pin_generation.insert((CHAT.into(), "m1".into()), 1);
+        worker
+            .handle_command(Command::MessagePinned {
+                chat: CHAT.into(),
+                message: "m1".into(),
+                pinned: true,
+                at: 100,
+                generation: 1,
+                session: 0,
+                expires_at: i64::MAX,
+                result: Ok(()),
+            })
+            .await;
+        assert!(worker.archive.pinned_ids(CHAT, 200).unwrap().is_empty());
     }
 }
 

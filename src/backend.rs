@@ -685,6 +685,9 @@ pub enum Command {
         at: i64,
         /// Which attempt this answer belongs to.
         generation: u64,
+        /// The link the request was sent on: an answer that outlives a
+        /// logout must not write the next account's archive.
+        session: u64,
         expires_at: i64,
         result: Result<(), String>,
     },

@@ -98,6 +98,19 @@ document, or voice message shows the same label the chat list uses. Clicking a
 row opens the chat at that message, and right-clicking it offers the chat's own
 menu, including **Unstar**. Messages from locked chats stay out of the list.
 
+## Pinned messages
+
+**Development builds** can pin a message for everyone in the chat. Choose
+**Pin message** in a message's menu; WhatsApp keeps the pin for seven days. A
+chat holds three pins at a time, and ZapFast refuses a fourth instead of
+quietly replacing one. The chat's pins show as lines under its header: click a
+line to open its message, or the pin icon beside it to step to the next pin.
+A pinned message carries a pin beside its time, and the chat shows a notice
+where the pin was made, naming who made it. Pins made on your phone or by
+others arrive the same way. A pin leaves when it expires, and a message
+deleted here or for everyone stops being a pin, even if its pin arrives
+again later.
+
 ## Stickers
 
 The sticker tab works like WhatsApp's: a row of tabs holds **Recent**

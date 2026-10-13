@@ -73,7 +73,10 @@ impl Archive {
     ///
     /// An older event loses to the time already stored, so a replay or a
     /// response that finished late cannot put a pin back. The row stays after
-    /// an unpin so that time is not forgotten.
+    /// an unpin so that time is not forgotten. A message that is gone, deleted
+    /// here or revoked for everyone, takes no pin at all: its row went with
+    /// it, and a replayed pin would otherwise come back and hold one of the
+    /// chat's three slots with nothing to show for it.
     pub fn set_pin(
         &self,
         chat: &str,
@@ -83,6 +86,9 @@ impl Archive {
         expires_at: i64,
         by: &Pinner,
     ) -> Result<bool> {
+        if pinned && self.pin_target_gone(chat, id)? {
+            return Ok(false);
+        }
         let changed = self.connection.execute(
             "INSERT INTO message_pins (chat, id, pinned, pinned_at, expires_at, by_me, sender)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -129,20 +135,33 @@ impl Archive {
         Ok(())
     }
 
-    /// Active pins of one chat, newest first, at most three.
+    /// Whether a message can no longer carry a pin: the archive keeps a
+    /// deletion barrier for it, or it was revoked for everyone.
+    fn pin_target_gone(&self, chat: &str, id: &str) -> Result<bool> {
+        if self.message_removed(chat, id)? {
+            return Ok(true);
+        }
+        Ok(self
+            .message(chat, id)?
+            .is_some_and(|message| matches!(message.content, crate::model::Content::Revoked)))
+    }
+
+    /// Active pins of one chat, newest first, at most three. A pin whose
+    /// message is gone does not count toward the cap, even where an older
+    /// archive still holds its row.
     pub fn pinned_ids(&self, chat: &str, now: i64) -> Result<HashSet<String>> {
         let mut statement = self.connection.prepare(
             "SELECT id FROM message_pins
              WHERE chat = ?1 AND pinned = 1 AND expires_at > ?2
-             ORDER BY pinned_at DESC, rowid DESC
-             LIMIT ?3",
+             ORDER BY pinned_at DESC, rowid DESC",
         )?;
-        let rows = statement.query_map(params![chat, now, MAX_ACTIVE as i64], |row| {
-            row.get::<_, String>(0)
-        })?;
+        let rows = statement.query_map(params![chat, now], |row| row.get::<_, String>(0))?;
         let mut ids = HashSet::new();
         for row in rows {
-            ids.insert(row?);
+            let id = row?;
+            if ids.len() < MAX_ACTIVE && !self.pin_target_gone(chat, &id)? {
+                ids.insert(id);
+            }
         }
         Ok(ids)
     }

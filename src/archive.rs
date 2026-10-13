@@ -2893,6 +2893,57 @@ pub(crate) mod tests {
         assert_eq!(archive.chat_pins("1@s.whatsapp.net", 50).unwrap().len(), 1);
     }
 
+    /// History and reconnects replay old pins. A message deleted here keeps a
+    /// deletion barrier, so its replayed pin must not come back and take one
+    /// of the chat's three slots again; nor may one revoked for everyone.
+    #[test]
+    fn a_replayed_pin_of_a_deleted_message_stays_gone() {
+        let chat = "1@s.whatsapp.net";
+        let archive = Archive::in_memory().unwrap();
+        archive.ensure_chat(chat, "Fixture").unwrap();
+        for id in ["a", "b", "c", "d"] {
+            archive
+                .insert_message(&message(chat, id, 100, false), None)
+                .unwrap();
+        }
+        for id in ["a", "b", "c"] {
+            archive.pin(chat, id, 10, 9_000).unwrap();
+        }
+        archive.delete_message(chat, "c").unwrap();
+        archive
+            .set_content(chat, "b", &Content::Revoked, false)
+            .unwrap();
+
+        // The same pins arrive again, as a history replay sends them.
+        for id in ["b", "c"] {
+            let by = Pinner {
+                by_me: false,
+                sender: "2@s.whatsapp.net".into(),
+            };
+            assert!(
+                !archive.pin_from(chat, id, 10, 9_000, &by).unwrap(),
+                "{id} takes no pin back"
+            );
+        }
+        assert_eq!(
+            archive.pinned_ids(chat, 50).unwrap(),
+            std::collections::HashSet::from(["a".to_owned()]),
+            "only the message still here counts"
+        );
+        assert!(!archive.pin_full(chat, "d", 50).unwrap());
+        // A barrier from before the pin row existed counts the same.
+        archive.delete_message(chat, "a").unwrap();
+        archive
+            .connection
+            .execute(
+                "INSERT INTO message_pins (chat, id, pinned, pinned_at, expires_at)
+                 VALUES (?1, 'a', 1, 10, 9000)",
+                [chat],
+            )
+            .unwrap();
+        assert!(archive.pinned_ids(chat, 50).unwrap().is_empty());
+    }
+
     #[test]
     fn an_older_pin_does_not_undo_a_newer_unpin() {
         let archive = Archive::in_memory().unwrap();
