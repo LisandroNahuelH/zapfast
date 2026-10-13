@@ -2979,6 +2979,36 @@ impl App {
 
     fn apply_backend_event(&mut self, event: Event, live: bool) {
         match event {
+            Event::StorageStats {
+                stats,
+                token,
+                cleared,
+            } => {
+                if cleared {
+                    // The files are gone whichever measurement this answers:
+                    // what is on screen downloads again rather than drawing
+                    // as broken.
+                    let dir = self.account().dirs.media_cache_dir();
+                    for conversation in self.conversations.values_mut() {
+                        for message in &mut conversation.messages {
+                            message.content.forget_files_in(&dir);
+                        }
+                    }
+                    if live {
+                        let done = crate::i18n::gettext(self.locale, "Media cache cleared");
+                        self.toast(done.into_owned());
+                    }
+                }
+                if token == self.storage_token {
+                    if cleared {
+                        self.storage_clearing = false;
+                    }
+                    // A failed measurement leaves the last numbers in place.
+                    if stats.is_some() {
+                        self.storage_stats = stats;
+                    }
+                }
+            }
             Event::Link(status) => self.handle_link(status, live),
             Event::Me {
                 id,
@@ -5788,6 +5818,13 @@ impl App {
                 if page == Page::Settings && self.page != Page::Settings && self.is_connected() {
                     self.backend.send(Command::FetchAccountPrivacy);
                 }
+                // The cache grows with every download: measure it again
+                // whenever Settings opens.
+                if page == Page::Settings && self.page != Page::Settings {
+                    self.storage_token += 1;
+                    let token = self.storage_token;
+                    self.backend.send(Command::LoadStorageStats { token });
+                }
                 // The Calls page reads the account's calls as it opens.
                 if page == Page::Calls {
                     self.backend.send(Command::LoadCallLog);
@@ -7914,6 +7951,14 @@ impl App {
                 }
             }
             Action::RemoveAccount(id) => self.remove_account(id),
+            Action::ClearMediaCache(id) => {
+                if let Some(account) = self.accounts.iter_mut().find(|known| known.id == id) {
+                    account.storage_token += 1;
+                    account.storage_clearing = true;
+                    let token = account.storage_token;
+                    account.backend.send(Command::ClearMediaCache { token });
+                }
+            }
         }
     }
 
@@ -14999,6 +15044,75 @@ mod tests {
             forwarded: false,
             thumbnail: None,
         }
+    }
+
+    /// Settings measures the account's media cache as it opens; Clear empties
+    /// that account's cache, and the files on screen that lived there are
+    /// forgotten so they download again. An older measurement is dropped.
+    #[test]
+    fn the_media_cache_is_measured_in_settings_and_cleared_for_its_account() {
+        let root = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(AppDirs::under(root.path()), Settings::default());
+        let (backend, mut commands, events) = Backend::recording_with_events();
+        app.backend = backend;
+        let ctx = egui::Context::default();
+        app.apply(Action::Open(Page::Settings), &ctx);
+        let sent: Vec<_> = std::iter::from_fn(|| commands.try_recv().ok()).collect();
+        let Some(asked) = sent.iter().find_map(|command| match command {
+            Command::LoadStorageStats { token } => Some(*token),
+            _ => None,
+        }) else {
+            panic!("opening Settings measures the cache: {sent:?}");
+        };
+        let cache = app.account().dirs.media_cache_dir();
+        let chat = "fixture@s.whatsapp.net";
+        let mut photo = message(chat, "photo", 1);
+        photo.content = Content::Image {
+            caption: None,
+            motion: None,
+            media: Media {
+                mime: "image/jpeg".into(),
+                size: 1,
+                width: None,
+                height: None,
+                album: None,
+                path: Some(cache.join("photo.jpg")),
+                state: MediaState::Idle,
+            },
+        };
+        app.conversations
+            .entry(chat.into())
+            .or_default()
+            .messages
+            .push(photo);
+        let id = app.account().id.clone();
+        app.apply(Action::ClearMediaCache(id), &ctx);
+        assert!(app.storage_clearing);
+        let token = match commands.try_recv() {
+            Ok(Command::ClearMediaCache { token }) => token,
+            other => panic!("the account's backend empties its cache: {other:?}"),
+        };
+        assert!(token > asked);
+        // The measurement asked for before the clear arrives late and is dropped.
+        let stats = |images| crate::model::StorageStats {
+            images,
+            image_bytes: images,
+            ..Default::default()
+        };
+        for (stats, token, cleared) in [(stats(5), asked, false), (stats(0), token, true)] {
+            events
+                .send(Event::StorageStats {
+                    stats: Some(stats),
+                    token,
+                    cleared,
+                })
+                .unwrap();
+        }
+        app.handle_events();
+        assert_eq!(app.storage_stats, Some(stats(0)));
+        assert!(!app.storage_clearing);
+        let shown = &app.conversations[chat].messages[0];
+        assert_eq!(shown.content.media().unwrap().path, None);
     }
 
     /// Checks that incoming replacements retain local downloaded media paths and transfer state.
