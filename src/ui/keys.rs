@@ -12,11 +12,8 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         return;
     }
     if app.image_preview.is_some() {
-        preview_keys(app, ctx);
-        return;
-    }
-    if app.video_expanded {
         video_keys(app, ctx);
+        preview_keys(app, ctx);
         return;
     }
     if app.sticker_view.is_some() {
@@ -402,8 +399,15 @@ fn preview_keys(app: &mut App, ctx: &egui::Context) {
         }
         let copy_shortcut = input.consume_key(Modifiers::COMMAND, Key::C)
             || input.consume_key(Modifiers::CTRL, Key::C);
-        if copy_shortcut && let Some(preview) = &app.image_preview {
-            actions.push(Action::CopyImage(preview.path().to_owned()));
+        // The header leaves the copy action out while a clip is on screen, so
+        // the shortcut does the same: copying a clip would decode a video as an
+        // image and fail.
+        if copy_shortcut
+            && let Some(preview) = &app.image_preview
+            && let Some(path) = preview.path()
+            && !preview.shows_video(&app.viewer_media)
+        {
+            actions.push(Action::CopyImage(path.to_owned()));
         }
         let mut event_actions = Vec::new();
         for event in &input.events {
@@ -416,6 +420,22 @@ fn preview_keys(app: &mut App, ctx: &egui::Context) {
             {
                 event_actions.extend(crate::image_preview::preview_action(*key, *modifiers));
             }
+        }
+        // A clip has no zoom, as its header has no zoom controls.
+        let clip = app
+            .image_preview
+            .as_ref()
+            .is_some_and(|preview| preview.shows_video(&app.viewer_media));
+        if clip {
+            event_actions.retain(|action| {
+                !matches!(
+                    action,
+                    Action::ZoomImageIn
+                        | Action::ZoomImageOut
+                        | Action::FitImage
+                        | Action::ImageActualSize
+                )
+            });
         }
         actions.extend(event_actions);
         input
@@ -440,10 +460,10 @@ fn editor_keys(app: &mut App, ctx: &egui::Context) {
     app.actions.extend(actions);
 }
 
-/// Handles keys while a video covers the window: Escape puts it back, Space
-/// plays or pauses, M mutes, S changes the speed, and the arrows jump five
-/// seconds. No chat shortcut runs and nothing is typed into the composer
-/// under it.
+/// Handles a playing clip's keys while the viewer shows it: Space plays or
+/// pauses, M mutes, S changes the speed, and the arrows jump five seconds, as
+/// they step through the album only while a picture is on the stage. Escape
+/// closes the viewer, which puts a video back in its message.
 fn video_keys(app: &mut App, ctx: &egui::Context) {
     let Some((message, path)) = app
         .video
@@ -453,6 +473,15 @@ fn video_keys(app: &mut App, ctx: &egui::Context) {
     else {
         return;
     };
+    // Only the clip on the viewer: anything else was stopped as it opened.
+    let on_screen = app.image_preview.as_ref().is_some_and(|preview| {
+        preview.message() == message
+            && preview.shows_video(&app.viewer_media)
+            && preview.clip_path() == Some(path.as_path())
+    });
+    if !on_screen {
+        return;
+    }
     let status = app.video.status(&message);
     let jump = |seconds: f32| {
         let status = status.as_ref()?;
@@ -464,9 +493,6 @@ fn video_keys(app: &mut App, ctx: &egui::Context) {
     };
     let mut actions = Vec::new();
     ctx.input_mut(|input| {
-        if input.consume_key(Modifiers::NONE, Key::Escape) {
-            actions.push(Action::CollapseVideo);
-        }
         if input.consume_key(Modifiers::NONE, Key::Space) {
             actions.push(Action::PlayVideo {
                 message: message.clone(),
@@ -485,12 +511,6 @@ fn video_keys(app: &mut App, ctx: &egui::Context) {
         if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
             actions.extend(jump(5.0));
         }
-        input.events.retain(|event| {
-            !matches!(
-                event,
-                egui::Event::Key { .. } | egui::Event::Text(_) | egui::Event::Paste(_)
-            )
-        });
     });
     app.actions.extend(actions);
 }
@@ -590,7 +610,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+,", "Settings"),
     ("Ctrl++ / Ctrl+-", "Zoom in / out"),
     ("Ctrl+0", "Reset zoom"),
-    ("← / →", "Previous / next image in the image viewer"),
+    ("← / →", "Previous / next item in the media viewer"),
     ("? / Ctrl+/", "Keyboard shortcuts (? when not typing)"),
     ("Ctrl+Shift+L", "Lock ZapFast (with an app lock password)"),
     ("Ctrl+W", "Close the window (ZapFast remains in the tray)"),
@@ -731,6 +751,50 @@ mod tests {
             Some(crate::calls::CallPhase::Active),
             "Escape never ends the call"
         );
+    }
+
+    /// Copy is for a picture. The header leaves the action out while a clip is
+    /// on screen, and the shortcut follows the same rule rather than decoding a
+    /// video as an image and failing.
+    #[test]
+    fn ctrl_c_does_not_copy_a_clip_from_the_viewer() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = App::headless(
+            crate::paths::AppDirs::under(root.path()),
+            crate::settings::Settings::default(),
+        )
+        .0;
+        let ctx = egui::Context::default();
+        let copy = |app: &mut App, ctx: &egui::Context| {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events: vec![egui::Event::Key {
+                        key: Key::C,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: Modifiers::CTRL,
+                    }],
+                    ..Default::default()
+                },
+                |ui| handle(app, ui.ctx()),
+            );
+            output.textures_delta.clear();
+        };
+        let showing = |path: &str, message: &str| {
+            Some(crate::image_preview::PreviewState::new(
+                Some(std::path::PathBuf::from(path)),
+                "fixture".into(),
+                message.into(),
+            ))
+        };
+        app.image_preview = showing("/cache/photo.png", "m1");
+        copy(&mut app, &ctx);
+        assert!(matches!(app.actions.as_slice(), [Action::CopyImage(_)]));
+        app.actions.clear();
+        app.image_preview = showing("/cache/clip.mp4", "m2");
+        copy(&mut app, &ctx);
+        assert!(app.actions.is_empty(), "a clip is played, not copied");
     }
 
     fn escape(app: &mut App, ctx: &egui::Context) {

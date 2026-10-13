@@ -59,7 +59,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             let (wide, tall) = edit.displayed_size();
             let inner =
                 Rect::from_min_max(pos2(room.min.x, top.max.y), pos2(room.max.x, bottom.min.y));
-            let picture = super::video_preview::fitted(vec2(wide as f32, tall as f32), inner);
+            let picture = fitted(vec2(wide as f32, tall as f32), inner);
             let scale = picture.width() / wide.max(1) as f32;
             if let Some(id) = texture(ui, &source, pasted.as_ref(), picture.size()) {
                 paint_turned(ui, id, picture, edit.turns);
@@ -177,6 +177,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
     app.picture_edit = Some(edit);
     app.actions.extend(actions);
+}
+
+/// The largest rectangle of `shape`'s proportions centred in `room`.
+fn fitted(shape: Vec2, room: Rect) -> Rect {
+    let scale = (room.width() / shape.x.max(1.0)).min(room.height() / shape.y.max(1.0));
+    Rect::from_center_size(room.center(), shape * scale)
 }
 
 /// The texture to draw a pasted picture with, built from its buffer when the
@@ -372,6 +378,17 @@ fn shade_outside(ui: &egui::Ui, palette: theme::Palette, picture: Rect, crop: Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_picture_fills_the_room_in_one_direction() {
+        let room = Rect::from_min_size(egui::pos2(10.0, 10.0), vec2(1000.0, 500.0));
+        let wide = fitted(vec2(1920.0, 1080.0), room);
+        assert!((wide.height() - 500.0).abs() < 0.01);
+        assert!((wide.width() - 500.0 * 16.0 / 9.0).abs() < 0.01);
+        assert_eq!(wide.center(), room.center());
+        let tall = fitted(vec2(100.0, 1000.0), room);
+        assert!((tall.height() - 500.0).abs() < 0.01 && tall.width() < 60.0);
+    }
 
     #[test]
     fn a_quarter_turn_clockwise_puts_the_top_left_at_the_top_right() {

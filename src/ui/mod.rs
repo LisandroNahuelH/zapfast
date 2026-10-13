@@ -21,7 +21,6 @@ pub mod picker;
 pub mod polls;
 pub mod settings;
 pub mod update;
-pub mod video_preview;
 pub mod widgets;
 
 use egui::{Align2, CornerRadius, Frame, Margin, Stroke, vec2};
@@ -55,7 +54,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         && app.reaction_target.is_none()
         && app.recording.is_none()
         && app.image_preview.is_none()
-        && !app.video_expanded
         && app.picture_edit.is_none()
         && app.sticker_view.is_none()
         && app.emoji_start.is_none()
@@ -108,7 +106,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     dialogs::show(app, ctx);
     image_preview::show(app, ctx);
     image_preview::show_sticker(app, ctx);
-    video_preview::show(app, ctx);
     call::show(app, ctx);
     image_editor::show(app, ctx);
     drop_target(app, ctx);
@@ -299,12 +296,11 @@ fn central_frame(app: &App) -> Frame {
 /// Steps through the window's history with the mouse's side buttons, as a
 /// browser does: `Extra1` (Back) goes back, `Extra2` (Forward) forward.
 /// Overlays are not places, and the buttons stay out of them while one is
-/// open, as the keyboard's own shortcuts do: the image preview, an expanded
-/// video, a dialog, the update screen, a picker, a reaction, a recording, a
-/// message selection, or a menu.
+/// open, as the keyboard's own shortcuts do: the media viewer, a dialog, the
+/// update screen, a picker, a reaction, a recording, a message selection, or
+/// a menu.
 fn history_buttons(app: &mut App, ctx: &egui::Context) {
     if app.image_preview.is_some()
-        || app.video_expanded
         || app.dialog.is_some()
         || app.show_update
         || app.picker.is_some()
@@ -801,10 +797,14 @@ mod idle_tests {
             press(&mut app, egui::PointerButton::Extra2).contains(&Action::NavigateForward),
             "the forward side button steps forward"
         );
-        // An expanded video owns the screen, as it does for the keyboard.
-        app.video_expanded = true;
+        // The media viewer owns the screen, as it does for the keyboard.
+        app.image_preview = Some(crate::image_preview::PreviewState::new(
+            None,
+            "1@s.whatsapp.net".into(),
+            "m1".into(),
+        ));
         assert!(press(&mut app, egui::PointerButton::Extra1).is_empty());
-        app.video_expanded = false;
+        app.image_preview = None;
         // A dialog is not a place, and the buttons stay out of it.
         app.dialog = Some(crate::model::Dialog::NewChat);
         assert!(press(&mut app, egui::PointerButton::Extra1).is_empty());

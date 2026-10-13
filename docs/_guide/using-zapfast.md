@@ -372,26 +372,29 @@ play from their local file. Playback
 waits for the download to finish; videos over the
 [64 MiB automatic download limit](#attachments) download when you click them.
 Double-click one, or use the button at the end of its
-controls, to play it over the whole window:
+controls, to play it in the full-window viewer:
 Space plays and pauses, the arrows jump five seconds, M mutes, S changes the
-speed, and Escape puts it back. The built-in player supports H.264 video in MP4 files; other formats
-open in your system player.
+speed, and Escape closes the viewer and stops the video. The built-in player
+supports H.264 video in MP4 files; other formats open in your system player.
 
-Click a downloaded photo to preview it, with zoom (wheel, Ctrl+wheel, or a
-pinch) and **Copy image**. Hover over the photo to show previous and next
-arrows at its sides; click them or use the Left/Right arrow keys to browse
-downloaded photos and interactive-card images in the loaded conversation.
-Navigation skips unavailable files and stops at either end; it does not
-download attachments or fetch older history. The preview closes when its chat
-is removed, becomes locked outside the unlocked folder, or when you close the
-locked folder. **Save as…** in a downloaded attachment's
+Click a downloaded JPEG, PNG, or WebP photo to open it in the full-window
+viewer, with zoom (wheel, Ctrl+wheel, or a pinch, and a double-click between
+fitting the window and the original size) and **Copy image**. **Open in the
+viewer** in a photo's or a video's menu does the same. The chat's photos,
+videos and interactive-card images run along the bottom: click one, press the
+Left and Right arrow keys, or hover over the picture and click the previous and
+next arrows at its sides to move between them. The header replies, reacts,
+forwards, saves or downloads, and shows the message in the chat. A click on the
+empty space around the picture, or Escape, closes the viewer. It also closes
+when its chat is removed, becomes locked outside the unlocked folder, or when
+you close the locked folder. **Save as…** in a downloaded attachment's
 right-click menu keeps a copy wherever you choose.
 
 A motion photo has a play button in its corner. Click it to download the short
 clip to the local cache and play it over the photo, muted and in a loop; click
-again to return to the photo. In the photo's preview, the play button in the
-header plays the clip over the whole window with sound. Clips over 64 MiB are
-not downloaded.
+again to return to the photo. In the viewer, the play button in the header
+plays the clip over the photo with sound, and the photo button beside it goes
+back. Clips over 64 MiB are not downloaded.
 
 ## Polls
 

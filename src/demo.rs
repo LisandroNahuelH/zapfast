@@ -1896,6 +1896,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             }
             "carousel" => carousel_sample(app, 3),
             "carousel-pair" => carousel_sample(app, 2),
+            // A carousel card's picture in the viewer, among the chat's album.
+            "carousel-viewer" => {
+                carousel_sample(app, 3);
+                let chat = SAMPLES[0].id.to_owned();
+                let card = app.conversations[&chat].messages[0].clone();
+                app.viewer_media = crate::model::MediaItem::of_message(&card);
+                app.viewer_media_chat = Some(chat.clone());
+                let path = app.viewer_media.get(1).and_then(|item| item.path.clone());
+                app.image_preview = Some(
+                    crate::image_preview::PreviewState::new(path, chat, card.id).with_card(Some(1)),
+                );
+            }
             "poll-empty" => poll_sample(app, false, false),
             "poll-voted" => poll_sample(app, true, false),
             "poll-results" => poll_sample(app, true, true),
@@ -1915,9 +1927,20 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "motion-playing" => motion_sample(app, true),
             "motion-preview" => {
                 motion_sample(app, false);
-                app.actions.push(crate::model::Action::PreviewImage(
-                    app.dirs.media_cache_dir().join(stock::LAUNCH.name),
-                ));
+                app.actions.push(crate::model::Action::PreviewImage {
+                    path: app.dirs.media_cache_dir().join(stock::LAUNCH.name),
+                    chat: SAMPLES[0].id.into(),
+                    message: "demo-motion".into(),
+                    card: None,
+                });
+            }
+            // The motion photo's clip playing over the photo in the viewer.
+            "motion-viewer" => {
+                motion_sample(app, false);
+                app.actions.push(crate::model::Action::ExpandVideo {
+                    message: "demo-motion".into(),
+                    path: app.dirs.media_cache_dir().join("demo-video.mp4"),
+                });
             }
             "video" => video_sample(app, None),
             "video-playing" => video_sample(app, Some("demo-video")),
@@ -3145,6 +3168,8 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
             "recording" => app.recording = Some(crate::audio::Recorder::rehearsal()),
             // Shows the native image preview over the demo chat.
             "preview" => {
+                // Three photos with a text between the second and the third,
+                // the viewer open on the second over the chat's album.
                 let chat = app.open_chat.clone().expect("demo chat");
                 let photos = [stock::ENGINE, stock::LAUNCH, stock::SPACEWALK];
                 let now = crate::util::now();
@@ -3183,10 +3208,18 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                         Content::text("One more photo below."),
                     ),
                 );
-                let selected = rows[1].content.media().unwrap().path.clone().unwrap();
+                let selected = rows[1].content.media().unwrap().path.clone();
+                app.viewer_media = rows
+                    .iter()
+                    .flat_map(crate::model::MediaItem::of_message)
+                    .collect();
                 app.conversations.get_mut(&chat).unwrap().messages = rows;
-                app.actions
-                    .push(crate::model::Action::PreviewImage(selected));
+                app.viewer_media_chat = Some(chat.clone());
+                app.image_preview = Some(crate::image_preview::PreviewState::new(
+                    selected,
+                    chat,
+                    "preview-1".to_owned(),
+                ));
             }
             "compose-emoji" => {
                 app.composer = "Andiamo 😊 con due 👍🏽 e poi testo normale".to_owned();
@@ -5553,6 +5586,7 @@ mod tests {
             "app-lock-setup",
             "new-chat",
             "new-contact-number",
+            "carousel-viewer",
             "media-album",
             "media-album-before",
             "media-album-oversized",
@@ -5578,6 +5612,7 @@ mod tests {
             "motion",
             "motion-playing",
             "motion-preview",
+            "motion-viewer",
             "video",
             "video-playing",
             "video-expanded",
@@ -7749,7 +7784,12 @@ mod tests {
         assert_eq!(app.composer, "draft");
 
         let (photo, _) = sample_files(&app);
-        app.actions.push(crate::model::Action::PreviewImage(photo));
+        app.actions.push(crate::model::Action::PreviewImage {
+            card: None,
+            path: photo,
+            chat: crate::demo::SAMPLES[0].id.to_owned(),
+            message: "ada-photo".to_owned(),
+        });
         // Enter in the very frame the preview opens, before egui knows about
         // the modal layer.
         frame_with(
@@ -7792,19 +7832,38 @@ mod tests {
         apply_flags(&mut app, Some("preview"));
         app.composer = "unsent draft".into();
         render(&mut app, &ctx);
-        let initial = app.image_preview.as_ref().unwrap().path().to_owned();
+        let initial = app
+            .image_preview
+            .as_ref()
+            .unwrap()
+            .path()
+            .map(std::path::Path::to_owned);
         frame_with(
             &mut app,
             &ctx,
             vec![key(egui::Key::ArrowRight, egui::Modifiers::NONE)],
         );
-        assert_ne!(app.image_preview.as_ref().unwrap().path(), initial);
+        assert_ne!(
+            app.image_preview
+                .as_ref()
+                .unwrap()
+                .path()
+                .map(std::path::Path::to_owned),
+            initial
+        );
         frame_with(
             &mut app,
             &ctx,
             vec![key(egui::Key::ArrowLeft, egui::Modifiers::NONE)],
         );
-        assert_eq!(app.image_preview.as_ref().unwrap().path(), initial);
+        assert_eq!(
+            app.image_preview
+                .as_ref()
+                .unwrap()
+                .path()
+                .map(std::path::Path::to_owned),
+            initial
+        );
         frame_with(
             &mut app,
             &ctx,
@@ -7945,6 +8004,57 @@ mod tests {
         assert!(app.open_chat.is_some(), "the chat stays open");
     }
 
+    /// "Show in the chat" closes the viewer and brings the message it was
+    /// showing into view. Closing alone left the chat where it was, so after
+    /// stepping back through the album the message the button names stayed out
+    /// of sight.
+    #[test]
+    fn showing_the_previewed_message_in_the_chat_scrolls_to_it() {
+        use egui::accesskit::Role;
+        let mut app = app();
+        // The demo page that opens the viewer over the sample chat's album:
+        // the header's message actions only exist when the viewer has an item.
+        apply_flags(&mut app, Some("preview"));
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        app.attach(&ctx);
+        render(&mut app, &ctx);
+        assert!(app.image_preview.is_some(), "the viewer is open");
+        assert!(
+            !app.viewer_media.is_empty(),
+            "the album the actions belong to is loaded"
+        );
+
+        let at = accessible_nodes(&mut app, &ctx, Vec::new())
+            .into_iter()
+            .find(|(label, role, _)| label == "Show in the chat" && *role == Role::Button)
+            .map(|(_, _, centre)| centre)
+            .expect("the viewer offers Show in the chat");
+        let press = |pressed| egui::Event::PointerButton {
+            pos: at,
+            pressed,
+            button: egui::PointerButton::Primary,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame_with(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerMoved(at), press(true)],
+        );
+        frame_with(&mut app, &ctx, vec![press(false)]);
+        render(&mut app, &ctx);
+
+        assert!(app.image_preview.is_none(), "the viewer closes");
+        // The anchor itself is consumed by the frame that scrolls to it, so
+        // the highlight is what still names the message here.
+        let highlight = app
+            .jump_highlight
+            .as_ref()
+            .expect("the chat is brought to the message the viewer was showing");
+        assert_eq!(highlight.message, "preview-1");
+        assert_eq!(highlight.chat, crate::demo::SAMPLES[0].id);
+    }
+
     /// Ctrl++ zooms the picture, not the whole interface, including when the
     /// layout needs Shift to type the plus.
     #[test]
@@ -8009,7 +8119,15 @@ mod tests {
         let (photo, _) = sample_files(&app);
         let long = photo.with_file_name(name);
         std::fs::copy(&photo, &long).unwrap();
-        app.actions.push(crate::model::Action::PreviewImage(long));
+        // A chat with no name, so the viewer's title is the file's name. The
+        // viewer shows the open chat's media and closes when it is left.
+        app.open_chat = Some("unknown@s.whatsapp.net".into());
+        app.actions.push(crate::model::Action::PreviewImage {
+            card: None,
+            path: long,
+            chat: "unknown@s.whatsapp.net".into(),
+            message: "long-name".into(),
+        });
         let mut narrow = |time: f64| {
             let mut output = ctx.run_ui(
                 egui::RawInput {
@@ -8128,7 +8246,12 @@ mod tests {
         render(&mut app, &ctx);
         app.composer = "unsent draft".into();
         let picture = preview_frame(&mut app, &ctx, vec![]);
-        let initial = app.image_preview.as_ref().unwrap().path().to_owned();
+        let initial = app
+            .image_preview
+            .as_ref()
+            .unwrap()
+            .path()
+            .map(std::path::Path::to_owned);
         let hidden = frame_sized(
             &mut app,
             &ctx,
@@ -8176,7 +8299,14 @@ mod tests {
         );
         frame_sized(&mut app, &ctx, 780.0, vec![primary(next, true)]);
         frame_sized(&mut app, &ctx, 780.0, vec![primary(next, false)]);
-        assert_ne!(app.image_preview.as_ref().unwrap().path(), initial);
+        assert_ne!(
+            app.image_preview
+                .as_ref()
+                .unwrap()
+                .path()
+                .map(std::path::Path::to_owned),
+            initial
+        );
         assert!(app.image_preview.as_ref().unwrap().is_fit());
         let other = preview_frame(
             &mut app,
@@ -8199,7 +8329,14 @@ mod tests {
         );
         frame_sized(&mut app, &ctx, 780.0, vec![primary(previous, true)]);
         frame_sized(&mut app, &ctx, 780.0, vec![primary(previous, false)]);
-        assert_eq!(app.image_preview.as_ref().unwrap().path(), initial);
+        assert_eq!(
+            app.image_preview
+                .as_ref()
+                .unwrap()
+                .path()
+                .map(std::path::Path::to_owned),
+            initial
+        );
         assert_eq!(app.composer, "unsent draft");
         app.actions.push(crate::model::Action::ImageActualSize);
         preview_frame(
@@ -8227,7 +8364,12 @@ mod tests {
         render(app, ctx);
         let (photo, _) = sample_files(app);
         let uri = crate::util::image_uri(&photo);
-        app.actions.push(crate::model::Action::PreviewImage(photo));
+        app.actions.push(crate::model::Action::PreviewImage {
+            card: None,
+            path: photo,
+            chat: crate::demo::SAMPLES[0].id.to_owned(),
+            message: "ada-photo".to_owned(),
+        });
         for _ in 0..200 {
             render(app, ctx);
             if matches!(
