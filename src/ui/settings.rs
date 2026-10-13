@@ -409,13 +409,13 @@ fn sections(app: &App) -> Vec<Section> {
         ),
         |settings| &mut settings.auto_download,
     );
-    chats.row(
+    chats.account_toggle(
         translated(locale, "Download older history in the background"),
         translated(
             locale,
-            "Slowly fetch older messages, one chat every twenty seconds, so scrolling up does not hit WhatsApp's rate limit.",
+            "Slowly asks your phone for older messages in the open, pinned and ten most recent chats.",
         ),
-        history_prefetch_control,
+        |settings| &mut settings.history_prefetch,
     );
     // macOS has no public API to pause other apps' media.
     if crate::media_pause::SUPPORTED {
@@ -1767,19 +1767,6 @@ fn sound_control(ui: &mut egui::Ui, app: &mut App, mention: bool) {
             }
         });
     theme::reveal_focus(&response.response);
-}
-
-/// The background history switch. One switch rather than a set of modes: the
-/// open chat is asked first and the pinned and recent ones follow.
-fn history_prefetch_control(ui: &mut egui::Ui, app: &mut App) {
-    let palette = app.palette;
-    let mut on = app.settings.history_prefetch;
-    let response = widgets::switch(ui, &palette, &mut on);
-    theme::reveal_focus(&response);
-    response.on_hover_text(crate::settings::history_prefetch_hint(app.locale));
-    if on != app.settings.history_prefetch {
-        app.actions.push(Action::SetHistoryPrefetch(on));
-    }
 }
 
 /// One account privacy category's picker: what the phone holds, and the

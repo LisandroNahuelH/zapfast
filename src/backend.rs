@@ -270,9 +270,17 @@ pub enum Command {
         chat: ChatId,
         name: String,
     },
+    /// Internal: the id a phone-history request went out under, which the
+    /// phone's answer names. `serial` is the worker's number for the request.
+    OlderSent {
+        chat: ChatId,
+        serial: u64,
+        request: String,
+    },
     /// Internal result for a failed phone-history request.
     OlderFailed {
         chat: ChatId,
+        serial: u64,
         error: String,
     },
     /// Internal group-metadata failure.

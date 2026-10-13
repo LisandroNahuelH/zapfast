@@ -1,12 +1,9 @@
 //! User preferences stored in JSON.
 
-use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-
-use crate::i18n::{Locale, gettext};
 
 /// Verifying the locked-chat code costs about 20 ms, paid once per distinct
 /// typed string. ponytail: fixed cost, revisit if it lags the search field.
@@ -70,16 +67,6 @@ impl FontChoice {
             Self::Inter => "Inter",
         }
     }
-}
-
-/// What the background history switch does, shown while the pointer rests on
-/// it. A single switch, not a set of modes: the open chat is asked first and
-/// the pinned and recent ones follow, which is what a reader wants either way.
-pub fn history_prefetch_hint(locale: Locale) -> Cow<'static, str> {
-    gettext(
-        locale,
-        "Fetch older history for the open chat, the pinned chats and the ten most recent ones.",
-    )
 }
 
 /// Background colours offered by WhatsApp's wallpaper picker, after the
@@ -503,11 +490,6 @@ pub struct Settings {
     pub window_y: Option<f32>,
     /// Whether the window was maximized when it last closed.
     pub window_maximized: bool,
-    /// Whether older phone history is fetched in the background. Off by
-    /// default: prefetching asks the phone for history nobody asked for, so an
-    /// install that has never opened Settings does not do it. Local: nothing
-    /// here reaches WhatsApp.
-    pub history_prefetch: bool,
 }
 
 impl Default for Settings {
@@ -561,7 +543,6 @@ impl Default for Settings {
             window_x: None,
             window_y: None,
             window_maximized: false,
-            history_prefetch: false,
         }
     }
 }
@@ -761,6 +742,10 @@ pub struct AccountSettings {
     pub save_contacts_to_phone: bool,
     /// This account's copy of the chosen chat wallpaper image.
     pub wallpaper_image: Option<std::path::PathBuf>,
+    /// Whether this account's phone is asked for older history in the
+    /// background. Off by default: it asks the phone for history nobody
+    /// scrolled to, so an account that has never turned it on does not.
+    pub history_prefetch: bool,
 }
 
 impl Default for AccountSettings {
@@ -773,6 +758,7 @@ impl Default for AccountSettings {
             notifications: true,
             save_contacts_to_phone: true,
             wallpaper_image: None,
+            history_prefetch: false,
         }
     }
 }
@@ -787,6 +773,7 @@ impl AccountSettings {
             notifications: settings.notifications,
             save_contacts_to_phone: settings.save_contacts_to_phone,
             wallpaper_image: settings.wallpaper_image.clone(),
+            history_prefetch: false,
         }
     }
 
@@ -919,10 +906,6 @@ mod tests {
         assert_eq!(parsed.window_x, None);
         assert_eq!(parsed.window_y, None);
         assert!(!parsed.window_maximized);
-        assert!(
-            !parsed.history_prefetch,
-            "an install that has never opened Settings does not prefetch"
-        );
     }
 
     #[test]
@@ -1046,14 +1029,6 @@ mod tests {
         assert!(merged(r#"{"pause_media_while_recording":true}"#));
         assert!(merged("{}"), "on by default");
         assert!(!merged(r#"{"pause_other_media":false}"#));
-    }
-
-    #[test]
-    fn the_history_switch_hint_names_what_it_fetches() {
-        let hint = history_prefetch_hint(Locale::English);
-        assert!(hint.contains("open chat"), "{hint}");
-        assert!(hint.contains("pinned"), "{hint}");
-        assert!(hint.contains("ten most recent"), "{hint}");
     }
 
     #[test]

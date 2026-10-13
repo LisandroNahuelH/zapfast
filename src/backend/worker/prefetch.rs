@@ -1,6 +1,6 @@
 //! Serial background phone-history prefetch.
 
-use crate::model::{Chat, ChatId};
+use crate::model::{Chat, ChatId, ChatKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -53,10 +53,9 @@ impl State {
 
     /// After reconnect, phone history may be available again.
     ///
-    /// An in-flight request keeps `history_chat`. The worker still holds that
-    /// request in `pending_older` and its `prefetch_older` mark. Clearing the
-    /// chat here makes the later timeout miss `fail_history`, so the mark
-    /// stays and `fetch_older` refuses the queue head from then on.
+    /// An in-flight request keeps `history_chat`: the worker still waits for
+    /// it in `pending_older`, and its answer or its timeout is what frees the
+    /// turn and rotates the chat.
     pub fn on_connected(&mut self) {
         self.exhausted.clear();
         self.history_failures = 0;
@@ -216,10 +215,17 @@ impl State {
         *pages = pages.saturating_add(1);
     }
 
-    /// The front chat still has an outstanding background request, so it
-    /// cannot be asked again yet. Move it behind the others.
+    /// The front chat could not be asked this turn (the phone is offline, or
+    /// the reader's own request for it is out). Move it behind the others.
     pub fn defer(&mut self, chat: &str) {
         self.rotate(chat);
+    }
+
+    /// The phone has said this chat has nothing older: it leaves the queue
+    /// until the link reconnects.
+    pub fn exhaust(&mut self, chat: &str) {
+        self.exhausted.insert(chat.to_owned());
+        self.leave(chat);
     }
 
     /// Moves a chat to the back of the queue, or drops it once it has had the
@@ -238,10 +244,16 @@ impl State {
 
 /// Open chat first, then pinned (top first), then the ten most recently active
 /// unpinned chats that are not archived. Empty while the switch is off.
+/// Channels and broadcast lists are never asked: the phone keeps no history
+/// for them that it would send.
 pub(super) fn targets(chats: &[Chat], on: bool, focused: Option<&str>) -> Vec<ChatId> {
     if !on {
         return Vec::new();
     }
+    let chats: Vec<&Chat> = chats
+        .iter()
+        .filter(|chat| ChatKind::from_id(&chat.id) != ChatKind::Broadcast)
+        .collect();
     let mut out = Vec::new();
     // The chat that was open can be gone: it was deleted while it was focused,
     // and the pump must not keep asking for it.
@@ -250,13 +262,14 @@ pub(super) fn targets(chats: &[Chat], on: bool, focused: Option<&str>) -> Vec<Ch
     {
         out.push(id.to_owned());
     }
-    let mut pinned: Vec<&Chat> = chats.iter().filter(|chat| chat.pinned).collect();
+    let mut pinned: Vec<&Chat> = chats.iter().copied().filter(|chat| chat.pinned).collect();
     pinned.sort_by_key(|chat| std::cmp::Reverse(chat.pinned_at));
     for chat in pinned {
         push_unique(&mut out, &chat.id);
     }
     let mut recent: Vec<&Chat> = chats
         .iter()
+        .copied()
         .filter(|chat| !chat.pinned && !chat.archived)
         .collect();
     recent.sort_by_key(|chat| std::cmp::Reverse(chat.last_activity));
@@ -683,10 +696,10 @@ mod tests {
             "the chat that is open is asked first"
         );
     }
-    /// A chat whose background request may still answer cannot be asked
-    /// again. It has to leave the front so the queue keeps moving.
+    /// A chat that cannot be asked this turn leaves the front, so the queue
+    /// keeps moving.
     #[test]
-    fn defer_moves_a_marked_head_behind_the_others() {
+    fn defer_moves_the_head_behind_the_others() {
         let mut state = State::default();
         state.configure(true, None);
         state.set_chats(&[
@@ -697,5 +710,32 @@ mod tests {
         assert_eq!(state.next_history(now, false).as_deref(), Some("a"));
         state.defer("a");
         assert_eq!(state.next_history(now, false).as_deref(), Some("b"));
+    }
+
+    /// A chat the phone has said holds nothing older leaves the queue.
+    #[test]
+    fn an_exhausted_chat_leaves_the_queue() {
+        let mut state = State::default();
+        state.configure(true, None);
+        state.set_chats(&[chat("a", 2, false, 0, false), chat("b", 1, false, 0, false)]);
+        state.exhaust("a");
+        let now = Instant::now();
+        assert_eq!(state.next_history(now, false).as_deref(), Some("b"));
+        state.set_chats(&[chat("a", 2, false, 0, false), chat("b", 1, false, 0, false)]);
+        assert!(!state.holds("a"), "a new chat list does not bring it back");
+    }
+
+    /// Channels and broadcast lists have no history the phone would send.
+    #[test]
+    fn channels_are_never_asked() {
+        let chats = vec![
+            chat("1@newsletter", 9, true, 9, false),
+            chat("status@broadcast", 8, false, 0, false),
+            chat("a@s.whatsapp.net", 1, false, 0, false),
+        ];
+        assert_eq!(
+            targets(&chats, true, Some("1@newsletter")),
+            vec!["a@s.whatsapp.net".to_owned()]
+        );
     }
 }

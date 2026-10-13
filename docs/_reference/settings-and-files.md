@@ -16,7 +16,7 @@ On Linux:
 | Account list | `~/.config/zapfast/accounts.json` | Which numbers are linked here and which one is showing |
 | Session keys | `~/.local/state/zapfast/accounts/<id>/session.db` | Deleting it unlinks that number |
 | Message archive | `~/.local/state/zapfast/accounts/<id>/archive.db` | Encrypted; the only copy of history WhatsApp will not send again |
-| Per-number settings | `~/.local/state/zapfast/accounts/<id>/settings.json` | Notifications, receipts, typing, automatic downloads, the last open chat, and the wallpaper |
+| Per-number settings | `~/.local/state/zapfast/accounts/<id>/settings.json` | Notifications, receipts, typing, automatic downloads, background history, the last open chat, and the wallpaper |
 | Stickers and packs | `~/.local/state/zapfast/accounts/<id>/stickers/` | Plain WebP files; each pack is a folder |
 | Wallpaper image | `~/.local/state/zapfast/accounts/<id>/wallpaper.jpg` | Copy of the chosen picture (or `.png`, `.webp`, `.gif`) |
 | Attachments, avatars | `~/.cache/zapfast/accounts/<id>/` | Safe to delete; available files download again when viewed |
@@ -106,6 +106,15 @@ name or description, in the interface language or in English.
 - **Download files automatically**: attachments up to 64 MiB download as they
   come into view. When off, click one to download it. Visible stickers still
   download automatically. The same 64 MiB limit applies to manual downloads.
+- **Download older history in the background**: off by default, and set for
+  each number. When on, ZapFast asks the phone for older messages without you
+  scrolling: the open chat first, then pinned chats and the ten most recently
+  active ones (never channels). It sends at most one request every twenty
+  seconds, and only while no other history request is waiting. Each chat is
+  asked for at most five pages each time ZapFast runs, and a chat the phone
+  does not answer goes to the back of the queue. Pages fetched this way go into
+  the archive without moving the view. A chat the phone says has nothing older
+  is not asked again.
 - **Keep chats archived** (development builds): on by default. When off, a new
   message, received or sent, brings an archived chat back to the list. Applies
   to all accounts here; it does not read or change the phone's own setting.

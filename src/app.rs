@@ -1190,7 +1190,6 @@ impl App {
         // A hand-edited speed snaps to a supported one, so a speed control
         // always shows the speed that plays.
         app.settings.voice_speed = app.player.set_speed(app.settings.voice_speed);
-        app.sync_prefetch();
         app
     }
 
@@ -4063,7 +4062,6 @@ impl App {
             self.account_mut().settings.last_chat = Some(id);
             self.account_mut().mark_settings_dirty();
         }
-        self.sync_prefetch();
     }
 
     /// Returns keyboard focus to the open conversation when no search or
@@ -4445,15 +4443,28 @@ impl App {
         self.settings_dirty = true;
     }
 
-    /// Tells the worker whether the background may fetch older history, and
-    /// which chat is open so it goes first. Only the open chat counts: the one
-    /// that was last open is not open any more, and asking for it first would
-    /// spend the turn on a chat nobody is reading.
+    /// Tells each account's worker whether it may fetch older history in the
+    /// background, and which chat is on screen so it goes first. Only the
+    /// account on screen has one: a hidden account's remembered chat is not
+    /// being read. Sent only when it changes, so it can run every frame and
+    /// follow every way a chat opens, closes or disappears.
     fn sync_prefetch(&mut self) {
-        self.backend.send(Command::SetHistoryPrefetch {
-            on: self.settings.history_prefetch,
-            focused: self.open_chat.clone(),
-        });
+        let active = self.active;
+        for (index, account) in self.accounts.iter_mut().enumerate() {
+            let wanted = (
+                account.settings.history_prefetch,
+                (index == active)
+                    .then(|| account.open_chat.clone())
+                    .flatten(),
+            );
+            if account.prefetch_sent.as_ref() != Some(&wanted) {
+                account.backend.send(Command::SetHistoryPrefetch {
+                    on: wanted.0,
+                    focused: wanted.1.clone(),
+                });
+                account.prefetch_sent = Some(wanted);
+            }
+        }
     }
 
     fn save_settings(&mut self) {
@@ -4817,7 +4828,6 @@ impl App {
                 self.reaction_target = None;
                 self.reaction_anchor = None;
                 self.emoji_jump = None;
-                self.sync_prefetch();
             }
             Action::SendText {
                 chat,
@@ -6069,11 +6079,6 @@ impl App {
                 self.locale = crate::i18n::resolve(choice);
                 self.mark_settings_dirty();
             }
-            Action::SetHistoryPrefetch(on) => {
-                self.settings.history_prefetch = on;
-                self.mark_settings_dirty();
-                self.sync_prefetch();
-            }
             Action::SetCustomTheme(filename) => {
                 if let Some(theme) = self.custom_themes.find(&filename) {
                     self.settings.custom_theme_cache = Some(theme.clone());
@@ -6511,6 +6516,7 @@ impl App {
         self.tick_audio(ctx);
         self.tick_video(ctx);
         self.apply_actions(ctx);
+        self.sync_prefetch();
         self.hold_media();
         self.follow_receipts();
         self.sync_badge();
@@ -8225,6 +8231,43 @@ mod tests {
         app.accounts.push(second);
         app.active = 0;
         (app, commands)
+    }
+
+    /// Background history is each account's own switch. Only the account on
+    /// screen names a chat to ask first, and the worker hears only changes.
+    #[test]
+    fn background_history_follows_each_accounts_switch_and_the_screen() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, mut commands) = two_accounts(directory.path());
+        let mut sent = || -> Vec<(bool, Option<ChatId>)> {
+            std::iter::from_fn(|| commands.try_recv().ok())
+                .filter_map(|command| match command {
+                    Command::SetHistoryPrefetch { on, focused } => Some((on, focused)),
+                    _ => None,
+                })
+                .collect()
+        };
+        app.accounts[1].open_chat = Some("hidden@s.whatsapp.net".into());
+        app.sync_prefetch();
+        assert_eq!(sent(), [(false, None)], "off by default, and hidden");
+        app.sync_prefetch();
+        assert!(sent().is_empty(), "nothing changed, nothing sent");
+
+        app.accounts[1].settings.history_prefetch = true;
+        app.sync_prefetch();
+        assert_eq!(sent(), [(true, None)]);
+
+        app.active = 1;
+        app.sync_prefetch();
+        assert_eq!(
+            sent(),
+            [(true, Some("hidden@s.whatsapp.net".into()))],
+            "on screen, its open chat goes first"
+        );
+        assert!(
+            !app.accounts[0].settings.history_prefetch,
+            "the other account keeps its own switch"
+        );
     }
 
     #[test]
@@ -11332,7 +11375,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: path.map(PathBuf::from),
-                ..Default::default()
+                state: MediaState::Idle,
             },
             seconds: Some(3),
             voice_note: true,
@@ -11539,9 +11582,10 @@ mod tests {
                 media: Media {
                     mime: "image/jpeg".into(),
                     size: 100,
+                    width: None,
+                    height: None,
                     path,
                     state,
-                    ..Default::default()
                 },
             },
             ..message(chat, "picture", 1)
@@ -11596,7 +11640,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: None,
-                ..Default::default()
+                state: MediaState::Idle,
             },
             seconds: Some(3),
             gif: false,
@@ -11721,7 +11765,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: None,
-                ..Default::default()
+                state: MediaState::Idle,
             },
         };
         app.conversations
@@ -11783,7 +11827,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: None,
-                ..Default::default()
+                state: MediaState::Idle,
             }),
             ..Default::default()
         };
@@ -12301,7 +12345,7 @@ mod tests {
                 width: None,
                 height: None,
                 path: None,
-                ..Default::default()
+                state: MediaState::Idle,
             },
         };
         app.conversations
