@@ -11641,7 +11641,7 @@ mod tests {
     /// pointer: the row opens its message and the pin beside it steps to the
     /// next pin, and both are labelled buttons.
     #[test]
-    fn the_pinned_line_exposes_a_button_per_row_and_a_step_control() {
+    fn the_pinned_line_is_one_button_that_names_its_place() {
         let mut app = app();
         apply_flags(&mut app, Some("pinned"));
         let ctx = egui::Context::default();
@@ -11672,16 +11672,15 @@ mod tests {
             .iter()
             .filter_map(|(_, node)| node.label())
             .collect();
-        let rows = labels
+        let lines: Vec<&&str> = labels
             .iter()
-            .filter(|label| label.starts_with("Pinned message: "))
-            .count();
-        assert_eq!(rows, 3, "one button per pin: {labels:?}");
-        let steps = labels
-            .iter()
-            .filter(|label| **label == "Next pinned message")
-            .count();
-        assert_eq!(steps, 3, "one step control per pin: {labels:?}");
+            .filter(|label| label.starts_with("Pinned message "))
+            .collect();
+        assert_eq!(lines.len(), 1, "one line for all the pins: {labels:?}");
+        assert!(
+            lines[0].starts_with("Pinned message 1 of 3: "),
+            "it names the newest pin and the count: {lines:?}"
+        );
     }
 
     /// Voice controls keep their width and order in right-aligned bubbles.

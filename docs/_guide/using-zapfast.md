@@ -103,8 +103,10 @@ menu, including **Unstar**. Messages from locked chats stay out of the list.
 **Development builds** can pin a message for everyone in the chat. Choose
 **Pin message** in a message's menu; WhatsApp keeps the pin for seven days. A
 chat holds three pins at a time, and ZapFast refuses a fourth instead of
-quietly replacing one. The chat's pins show as lines under its header: click a
-line to open its message, or the pin icon beside it to step to the next pin.
+quietly replacing one. A line under the chat's header shows the newest pin,
+with a small bar at its left marking how many pins there are and which one is
+shown. Click the line to open that message; the line then moves on to the next
+pin, so repeated clicks walk through them all.
 A pinned message carries a pin beside its time, and the chat shows a notice
 where the pin was made, naming who made it. Pins made on your phone or by
 others arrive the same way. A pin leaves when it expires, and a message

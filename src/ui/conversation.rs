@@ -74,25 +74,50 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// Height of one pinned-message row. A pin is one plain line under the header,
-/// so the banner adds a row per pin instead of wrapping or clipping a bubble.
-const PIN_ROW_HEIGHT: f32 = 30.0;
-/// Gap between the banner edge and the pin icon, and the icon's own box.
+/// Height of the pinned-message line under the header. It is one line
+/// whatever the number of pins, as on WhatsApp: it shows one pin at a time.
+const PIN_ROW_HEIGHT: f32 = 44.0;
+/// Gap between the banner edge and the pin count bar, and the icon's own box.
 const PIN_ROW_INSET: f32 = 12.0;
 const PIN_ICON: f32 = 16.0;
+/// The bar at the line's left edge: one segment per pin, the shown one lit.
+const PIN_BAR_WIDTH: f32 = 3.0;
+const PIN_BAR_GAP: f32 = 2.0;
 
-/// The pin a click opens: the row it landed on, or the next pin when it landed
-/// on the pin beside that row, wrapping around the chat's pins.
-fn pin_banner_target(rows: usize, index: usize, on_pin: bool) -> usize {
-    if on_pin { (index + 1) % rows } else { index }
+/// Which pin the line shows: the one it showed last, or the newest pin when
+/// that one is gone. `rows` is newest first.
+fn shown_pin(rows: &[crate::archive::Pinned], cursor: Option<&str>) -> usize {
+    cursor
+        .and_then(|id| rows.iter().position(|row| row.id == id))
+        .unwrap_or(0)
 }
 
-/// Pinned messages under the chat header: plain text, one line each, with the
-/// message's own words cut off with an ellipsis when they do not fit.
-///
-/// Clicking a row opens the message it names. The pin beside it steps to the
-/// next pin and wraps around, so clicking it walks the chat's pins one after
-/// another.
+/// The pin a click leaves on the line: the next older one, back to the
+/// newest after the oldest, so repeated clicks walk every pin.
+fn next_pin(rows: usize, shown: usize) -> usize {
+    if rows == 0 { 0 } else { (shown + 1) % rows }
+}
+
+/// Where each segment of the pin count bar goes, top to bottom, for `count`
+/// pins in a bar `height` tall. The newest pin is the bottom segment, as on
+/// WhatsApp.
+fn pin_bar_segments(top: f32, height: f32, count: usize) -> Vec<(f32, f32)> {
+    let count = count.max(1);
+    let gaps = PIN_BAR_GAP * (count - 1) as f32;
+    let segment = ((height - gaps) / count as f32).max(1.0);
+    (0..count)
+        .map(|index| {
+            let start = top + (segment + PIN_BAR_GAP) * index as f32;
+            (start, start + segment)
+        })
+        .collect()
+}
+
+/// The chat's pinned messages under its header, one line like WhatsApp's: it
+/// shows one pin, the newest first, with the message's own words cut off with
+/// an ellipsis when they do not fit. Clicking it opens that message and moves
+/// the line on to the next pin, so repeated clicks walk the chat's pins. A bar
+/// at its left has a segment per pin and lights the one shown.
 fn pin_banner(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
     let now = crate::util::now();
     if let Some(wait) = app.chat_pins.get(&chat.id).and_then(|rows| {
@@ -112,86 +137,82 @@ fn pin_banner(app: &mut App, ui: &mut egui::Ui, chat: &Chat) {
     if rows.is_empty() {
         return;
     }
+    // Which pin is shown is the view's own state, kept per chat.
+    let cursor_id = pin_cursor_id(&chat.id);
+    let cursor = ui.ctx().data(|data| data.get_temp::<String>(cursor_id));
+    let shown = shown_pin(&rows, cursor.as_deref());
+    let row = &rows[shown];
     let palette = app.palette;
-    let height = PIN_ROW_HEIGHT * rows.len() as f32;
-    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-    ui.painter().rect_filled(bar, 0.0, palette.panel);
-    let icon_left = bar.left() + PIN_ROW_INSET;
+    let (bar, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), PIN_ROW_HEIGHT), Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    ui.painter().rect_filled(
+        bar,
+        0.0,
+        if response.hovered() {
+            palette.surface_hover
+        } else {
+            palette.panel
+        },
+    );
+    // Newest pin at the bottom, so the bar fills upward as pins are added.
+    let segments = pin_bar_segments(bar.top() + 8.0, bar.height() - 16.0, rows.len());
+    let left = bar.left() + PIN_ROW_INSET;
+    for (index, (top, bottom)) in segments.iter().enumerate() {
+        let pin = rows.len() - 1 - index;
+        let colour = if pin == shown {
+            palette.accent
+        } else {
+            palette.dim
+        };
+        ui.painter().rect_filled(
+            Rect::from_x_y_ranges(left..=left + PIN_BAR_WIDTH, *top..=*bottom),
+            PIN_BAR_WIDTH / 2.0,
+            colour,
+        );
+    }
+    let icon_left = left + PIN_BAR_WIDTH + 10.0;
+    let icon = Rect::from_center_size(
+        pos2(icon_left + PIN_ICON / 2.0, bar.center().y),
+        Vec2::splat(PIN_ICON),
+    );
+    theme::paint_icon(ui, Icon::Pin, icon, 14.0, palette.accent);
     let text_left = icon_left + PIN_ICON + 8.0;
     let text_width = (bar.right() - PIN_ROW_INSET - text_left).max(1.0);
-    let mut opened: Option<String> = None;
-    for (index, row) in rows.iter().enumerate() {
-        let top = bar.top() + PIN_ROW_HEIGHT * index as f32;
-        let center_y = top + PIN_ROW_HEIGHT / 2.0;
-        let icon = Rect::from_center_size(
-            pos2(icon_left + PIN_ICON / 2.0, center_y),
-            Vec2::splat(PIN_ICON),
-        );
-        theme::paint_icon(ui, Icon::Pin, icon, 14.0, palette.accent);
-        let label = widgets::line(
-            ui,
-            &crate::markup::plain(&app.resolve_mention_tokens(&row.text), &[]),
-            theme::regular(13.0),
-            palette.text,
-            text_width,
-            1,
-        );
-        label.paint(
-            ui,
-            pos2(text_left, center_y - label.size().y / 2.0),
-            palette.text,
-        );
-        // The row opens its own message, and is a control of its own: the pin
-        // beside it is the next one, so neither takes the other's click.
-        let response = ui
-            .interact(
-                Rect::from_min_size(
-                    pos2(text_left - 4.0, top),
-                    vec2(bar.right() - text_left + 4.0, PIN_ROW_HEIGHT),
-                ),
-                ui.id().with(("pin-row", index)),
-                Sense::click(),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
-        theme::reveal_focus(&response);
-        let described =
-            crate::i18n::gettext(app.locale, "Pinned message: {}").replace("{}", &row.text);
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &described)
-        });
-        if response.hovered() {
-            ui.painter().rect_filled(
-                Rect::from_min_size(pos2(bar.left(), top), vec2(bar.width(), PIN_ROW_HEIGHT)),
-                0.0,
-                palette.surface_hover.gamma_multiply(0.4),
-            );
-        }
-        if response.clicked() {
-            opened = Some(row.id.clone());
-        }
-        let next = ui
-            .interact(
-                icon.expand(3.0),
-                ui.id().with(("pin-next", index)),
-                Sense::click(),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text(crate::i18n::gettext(app.locale, "Next pinned message"));
-        theme::reveal_focus(&next);
-        let described = crate::i18n::gettext(app.locale, "Next pinned message");
-        next.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &described)
-        });
-        if next.clicked() {
-            opened = Some(rows[pin_banner_target(rows.len(), index, true)].id.clone());
-        }
-    }
-    if let Some(message) = opened {
+    let label = widgets::line(
+        ui,
+        &crate::markup::plain(&app.resolve_mention_tokens(&row.text), &[]),
+        theme::regular(13.0),
+        palette.text,
+        text_width,
+        1,
+    );
+    label.paint(
+        ui,
+        pos2(text_left, bar.center().y - label.size().y / 2.0),
+        palette.text,
+    );
+    theme::reveal_focus(&response);
+    let described = crate::i18n::gettext(app.locale, "Pinned message {index} of {count}: {text}")
+        .replace("{index}", &(shown + 1).to_string())
+        .replace("{count}", &rows.len().to_string())
+        .replace("{text}", &row.text);
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &described)
+    });
+    if response.clicked() {
         app.actions.push(Action::OpenMessage {
             chat: chat.id.clone(),
-            message,
+            message: row.id.clone(),
         });
+        let next = rows[next_pin(rows.len(), shown)].id.clone();
+        ui.ctx().data_mut(|data| data.insert_temp(cursor_id, next));
     }
+}
+
+/// Where the pin line keeps the id of the pin it shows, per chat.
+fn pin_cursor_id(chat: &str) -> egui::Id {
+    egui::Id::new(("pin-cursor", chat))
 }
 
 fn empty(app: &mut App, ui: &mut egui::Ui) {
@@ -8903,18 +8924,91 @@ mod tests {
     }
 
     #[test]
-    fn the_pin_beside_a_row_steps_to_the_next_pin_and_wraps() {
-        // Clicking a row opens the pin it names, whatever row it is.
-        for index in 0..3 {
-            assert_eq!(pin_banner_target(3, index, false), index);
+    fn the_pin_line_shows_the_newest_pin_and_a_click_walks_the_rest() {
+        let rows = vec![
+            pinned("1@s.whatsapp.net", "newest"),
+            pinned("1@s.whatsapp.net", "middle"),
+            pinned("1@s.whatsapp.net", "oldest"),
+        ];
+        // Nothing shown yet, or the shown pin gone: the newest.
+        assert_eq!(shown_pin(&rows, None), 0);
+        assert_eq!(shown_pin(&rows, Some("unpinned")), 0);
+        assert_eq!(shown_pin(&rows, Some("middle")), 1);
+        // Each click moves on to the next older pin and wraps to the newest.
+        assert_eq!(next_pin(3, 0), 1);
+        assert_eq!(next_pin(3, 1), 2);
+        assert_eq!(next_pin(3, 2), 0);
+        // One pin is its own next pin.
+        assert_eq!(next_pin(1, 0), 0);
+    }
+
+    #[test]
+    fn the_pin_bar_has_a_segment_per_pin_inside_the_line() {
+        for count in 1..=3 {
+            let segments = pin_bar_segments(10.0, 28.0, count);
+            assert_eq!(segments.len(), count);
+            assert!((segments[0].0 - 10.0).abs() < 0.01);
+            assert!((segments[count - 1].1 - 38.0).abs() < 0.01, "{segments:?}");
+            for pair in segments.windows(2) {
+                assert!(pair[1].0 > pair[0].1, "segments do not touch: {segments:?}");
+            }
         }
-        // The pin beside a row opens the next one, and the last one wraps
-        // around, so repeated clicks walk every pin in the chat.
-        assert_eq!(pin_banner_target(3, 0, true), 1);
-        assert_eq!(pin_banner_target(3, 1, true), 2);
-        assert_eq!(pin_banner_target(3, 2, true), 0);
-        // One pin is its own next pin, rather than nothing at all.
-        assert_eq!(pin_banner_target(1, 0, true), 0);
+    }
+
+    #[test]
+    fn a_click_on_the_pin_line_opens_the_pin_and_shows_the_next() {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut app, _) = App::headless(
+            crate::paths::AppDirs::under(directory.path()),
+            crate::settings::Settings::default(),
+        );
+        let chat = Chat::new("1@s.whatsapp.net".into(), "Ada".into());
+        app.chat_pins.insert(
+            chat.id.clone(),
+            vec![pinned(&chat.id, "newest"), pinned(&chat.id, "older")],
+        );
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(600.0, 400.0));
+        // Clicks a second apart, so none of them counts as a double click.
+        let clock = std::cell::Cell::new(0.0);
+        let frame = |events: Vec<egui::Event>, app: &mut App, step: f64| {
+            clock.set(clock.get() + step);
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    time: Some(clock.get()),
+                    events,
+                    ..Default::default()
+                },
+                |ui| pin_banner(app, ui, &chat),
+            );
+            output.textures_delta.clear();
+        };
+        let at = pos2(300.0, PIN_ROW_HEIGHT / 2.0);
+        let press = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        // The line has to be laid out once before it can take a click.
+        frame(vec![egui::Event::PointerMoved(at)], &mut app, 1.0);
+        let mut opened = Vec::new();
+        for _ in 0..3 {
+            frame(
+                vec![egui::Event::PointerMoved(at), press(true)],
+                &mut app,
+                1.0,
+            );
+            frame(vec![press(false)], &mut app, 0.05);
+            for action in app.actions.drain(..) {
+                if let Action::OpenMessage { message, .. } = action {
+                    opened.push(message);
+                }
+            }
+        }
+        assert_eq!(opened, ["newest", "older", "newest"]);
     }
 
     #[test]
