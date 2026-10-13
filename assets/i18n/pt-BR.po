@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-13 18:38+0200\n"
+"POT-Creation-Date: 2026-10-13 19:11+0200\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Brazilian Portuguese\n"
@@ -672,13 +672,13 @@ msgid "Files up to 64 MiB download as they come into view."
 msgstr "Arquivos de até 64 MiB são baixados quando aparecem na tela."
 
 #: src/ui/settings.rs:413
-msgid "Download older history in the background"
-msgstr "Baixar o histórico mais antigo em segundo plano"
+msgid "Fetch older history"
+msgstr "Buscar histórico anterior"
 
 #: src/ui/settings.rs:416
 msgid ""
-"Slowly asks your phone for older messages in the open, pinned and ten most "
-"recent chats."
+"Asks your phone in the background for older messages in the open, pinned and "
+"ten most recent chats."
 msgstr ""
 
 #: src/ui/settings.rs:423

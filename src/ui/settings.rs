@@ -410,10 +410,10 @@ fn sections(app: &App) -> Vec<Section> {
         |settings| &mut settings.auto_download,
     );
     chats.account_toggle(
-        translated(locale, "Download older history in the background"),
+        translated(locale, "Fetch older history"),
         translated(
             locale,
-            "Slowly asks your phone for older messages in the open, pinned and ten most recent chats.",
+            "Asks your phone in the background for older messages in the open, pinned and ten most recent chats.",
         ),
         |settings| &mut settings.history_prefetch,
     );

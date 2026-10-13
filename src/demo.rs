@@ -13017,4 +13017,45 @@ mod bubble_detail_tests {
         frames(&mut app, &ctx, egui::vec2(900.0, 900.0));
         assert!(column(&ctx).span() < 640.0, "{:?}", column(&ctx));
     }
+
+    /// The background history row's title fits on its line in every
+    /// language, instead of ending in an ellipsis. Checked in a window
+    /// narrower than the default (where the longer earlier title was already
+    /// cut short here), so a wider system font still has room.
+    #[test]
+    fn the_older_history_title_fits_in_every_language() {
+        /// Every text drawn, and whether it was cut short with an ellipsis.
+        fn texts(shape: &egui::Shape, out: &mut Vec<(String, bool)>) {
+            match shape {
+                egui::Shape::Text(text) => {
+                    out.push((text.galley.text().to_owned(), text.galley.elided))
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| texts(shape, out)),
+                _ => {}
+            }
+        }
+        for locale in crate::i18n::Locale::ALL {
+            let mut app = app();
+            let ctx = egui::Context::default();
+            app.attach(&ctx);
+            let title = crate::i18n::gettext(locale, "Fetch older history").into_owned();
+            apply_flags(&mut app, Some("settings"));
+            app.locale = locale;
+            app.settings_search = title.clone();
+            let mut drawn = Vec::new();
+            for clipped in &frames(&mut app, &ctx, egui::vec2(900.0, 780.0)) {
+                texts(&clipped.shape, &mut drawn);
+            }
+            let titles: Vec<bool> = drawn
+                .iter()
+                .filter(|(text, _)| *text == title)
+                .map(|(_, elided)| *elided)
+                .collect();
+            assert!(!titles.is_empty(), "{locale:?}: {title:?} is not drawn");
+            assert!(
+                !titles.contains(&true),
+                "{locale:?}: {title:?} is cut short"
+            );
+        }
+    }
 }
