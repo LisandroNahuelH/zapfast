@@ -870,11 +870,13 @@ pub enum Event {
         chat: ChatId,
         ids: Vec<String>,
     },
-    /// A star the server accepted, or refused, for one message.
+    /// A star that changed in the archive: one the server accepted for a
+    /// click here (`local`), or one made on the phone or another device.
     StarChanged {
         chat: ChatId,
         message: String,
         starred: bool,
+        local: bool,
     },
     /// The starred messages, newest star first.
     StarredList(Vec<crate::archive::Starred>),

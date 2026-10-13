@@ -1449,6 +1449,7 @@ impl Worker {
                     chat,
                     message: id,
                     starred,
+                    local: false,
                 });
             }
             Ok(false) => {}
@@ -5662,6 +5663,7 @@ impl Worker {
                             chat,
                             message,
                             starred,
+                            local: true,
                         }),
                         Ok(false) => {}
                         Err(error) => self.emit(Event::Error(error.to_string())),

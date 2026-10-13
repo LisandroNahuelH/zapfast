@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-13 18:40+0200\n"
+"POT-Creation-Date: 2026-10-13 18:42+0200\n"
 "PO-Revision-Date: 2026-09-25 23:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -165,7 +165,7 @@ msgstr "11月"
 msgid "December"
 msgstr "12月"
 
-#: src/ui/chats.rs:151 src/ui/chats.rs:327 src/app.rs:2593
+#: src/ui/chats.rs:151 src/ui/chats.rs:327 src/app.rs:2596
 msgid "Starred"
 msgstr "已加星标"
 
@@ -1140,33 +1140,33 @@ msgstr "已存在名为“{name}”的标签。"
 msgid "{name} (You)"
 msgstr "{name}（你）"
 
-#: src/app.rs:2595
+#: src/app.rs:2598
 msgid "Star removed"
 msgstr "已取消星标"
 
-#: src/app.rs:3034
+#: src/app.rs:3038
 msgid "Could not use this image"
 msgstr "无法使用此图片"
 
-#: src/app.rs:3586
+#: src/app.rs:3590
 msgid "Not sent: ZapFast is not connected to WhatsApp."
 msgstr "未发送：ZapFast 未连接到 WhatsApp。"
 
-#: src/app.rs:3590
+#: src/app.rs:3594
 msgid ""
 "Not sent: the message you’re replying to isn’t available on this computer. "
 "Cancel the reply to send without a quote."
 msgstr "未发送：你要回复的消息不在这台电脑上。取消回复即可不带引用发送。"
 
-#: src/app.rs:5415
+#: src/app.rs:5419
 msgid "Added to favorites"
 msgstr "已添加到收藏"
 
-#: src/app.rs:5490
+#: src/app.rs:5494
 msgid "Sending the sticker pack…"
 msgstr "正在发送贴图包…"
 
-#: src/app.rs:5800 src/ui/labels.rs:253
+#: src/app.rs:5804 src/ui/labels.rs:253
 #, rust-format
 msgid "You have {limit} labels, the most ZapFast keeps."
 msgstr "你已有 {limit} 个标签，这是 ZapFast 的上限。"
@@ -1179,15 +1179,15 @@ msgstr "应用锁密码已保存"
 msgid "App lock turned off"
 msgstr "应用锁已关闭"
 
-#: src/app.rs:6726
+#: src/app.rs:6730
 msgid "This video opens in your system player"
 msgstr "此视频将用系统播放器打开"
 
-#: src/app.rs:7153
+#: src/app.rs:7157
 msgid "Copied image"
 msgstr "已复制图片"
 
-#: src/app.rs:7156 src/app.rs:7161
+#: src/app.rs:7160 src/app.rs:7165
 msgid "Failed to copy image"
 msgstr "复制图片失败"
 

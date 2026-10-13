@@ -2832,6 +2832,7 @@ impl App {
                 chat,
                 message,
                 starred,
+                local,
             } => {
                 let ids = self.stars.entry(chat).or_default();
                 if starred {
@@ -2839,12 +2840,15 @@ impl App {
                 } else {
                     ids.remove(&message);
                 }
-                // The list shows a star as soon as WhatsApp confirmed it,
-                // so a refused one never appears there.
-                if starred {
-                    self.toast(crate::i18n::gettext(self.locale, "Starred"));
-                } else {
-                    self.toast(crate::i18n::gettext(self.locale, "Star removed"));
+                // Only a click here that WhatsApp confirmed says so. Stars
+                // synced from the phone arrive in bursts at link time and
+                // would stack a toast each.
+                if local && live {
+                    if starred {
+                        self.toast(crate::i18n::gettext(self.locale, "Starred"));
+                    } else {
+                        self.toast(crate::i18n::gettext(self.locale, "Star removed"));
+                    }
                 }
                 // The open list would otherwise show the old state.
                 if self.show_starred {
@@ -13826,6 +13830,38 @@ mod tests {
         locked.locked = true;
         app.handle_chat_updated(locked, true);
         assert!(app.starred.is_empty());
+    }
+
+    /// Stars synced from the phone arrive in a burst at link time; only a
+    /// click here that WhatsApp confirmed says so with a toast.
+    #[test]
+    fn only_a_confirmed_local_star_toasts() {
+        let mut app = app();
+        let chat = "fixture@s.whatsapp.net";
+        for id in ["m1", "m2", "m3"] {
+            app.apply_backend_event(
+                Event::StarChanged {
+                    chat: chat.into(),
+                    message: id.into(),
+                    starred: true,
+                    local: false,
+                },
+                true,
+            );
+        }
+        assert!(app.toasts.is_empty(), "phone stars stay quiet");
+        assert_eq!(app.stars[chat].len(), 3, "but still mark the messages");
+        app.apply_backend_event(
+            Event::StarChanged {
+                chat: chat.into(),
+                message: "m4".into(),
+                starred: true,
+                local: true,
+            },
+            true,
+        );
+        assert_eq!(app.toasts.len(), 1);
+        assert_eq!(app.toasts[0].message, "Starred");
     }
 
     #[test]

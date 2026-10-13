@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: ZapFast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/zapfast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-13 18:40+0200\n"
+"POT-Creation-Date: 2026-10-13 18:42+0200\n"
 "PO-Revision-Date: 2026-09-22 00:00-0300\n"
 "Last-Translator: ZapFast contributors\n"
 "Language-Team: Spanish\n"
@@ -165,7 +165,7 @@ msgstr "Noviembre"
 msgid "December"
 msgstr "Diciembre"
 
-#: src/ui/chats.rs:151 src/ui/chats.rs:327 src/app.rs:2593
+#: src/ui/chats.rs:151 src/ui/chats.rs:327 src/app.rs:2596
 msgid "Starred"
 msgstr "Destacados"
 
@@ -1175,19 +1175,19 @@ msgstr "Ya existe una etiqueta llamada «{name}»."
 msgid "{name} (You)"
 msgstr "{name} (Tú)"
 
-#: src/app.rs:2595
+#: src/app.rs:2598
 msgid "Star removed"
 msgstr "Destacado quitado"
 
-#: src/app.rs:3034
+#: src/app.rs:3038
 msgid "Could not use this image"
 msgstr "No se pudo usar esta imagen"
 
-#: src/app.rs:3586
+#: src/app.rs:3590
 msgid "Not sent: ZapFast is not connected to WhatsApp."
 msgstr "No enviado: ZapFast no está conectado a WhatsApp."
 
-#: src/app.rs:3590
+#: src/app.rs:3594
 msgid ""
 "Not sent: the message you’re replying to isn’t available on this computer. "
 "Cancel the reply to send without a quote."
@@ -1195,36 +1195,36 @@ msgstr ""
 "No enviado: el mensaje al que respondes no está disponible en este equipo. "
 "Cancela la respuesta para enviarlo sin cita."
 
-#: src/app.rs:5415
+#: src/app.rs:5419
 msgid "Added to favorites"
 msgstr "Añadido a favoritos"
 
-#: src/app.rs:5490
+#: src/app.rs:5494
 msgid "Sending the sticker pack…"
 msgstr "Enviando el paquete de stickers…"
 
-#: src/app.rs:5800 src/ui/labels.rs:253
+#: src/app.rs:5804 src/ui/labels.rs:253
 #, rust-format
 msgid "You have {limit} labels, the most ZapFast keeps."
 msgstr "Tienes {limit} etiquetas, el máximo que guarda ZapFast."
 
-#: src/app.rs:6594
+#: src/app.rs:6598
 msgid "App lock password saved"
 msgstr ""
 
-#: src/app.rs:6602
+#: src/app.rs:6606
 msgid "App lock turned off"
 msgstr ""
 
-#: src/app.rs:6726
+#: src/app.rs:6730
 msgid "This video opens in your system player"
 msgstr "Este vídeo se abre en el reproductor del sistema"
 
-#: src/app.rs:7153
+#: src/app.rs:7157
 msgid "Copied image"
 msgstr "Imagen copiada"
 
-#: src/app.rs:7156 src/app.rs:7161
+#: src/app.rs:7160 src/app.rs:7165
 msgid "Failed to copy image"
 msgstr "Error al copiar la imagen"
 

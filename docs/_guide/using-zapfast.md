@@ -86,6 +86,18 @@ no box. If a selected message is deleted, it leaves the selection automatically.
 Keyboard focus outlines the box; screen readers identify its message
 by sender, time, and a short summary.
 
+## Starred messages
+
+**Development builds** can star messages. Right-click a message and choose
+**Star**; once WhatsApp confirms it, a small star shows beside the message's
+time. Stars made on your phone or another linked device show up here too, and
+the other way round. The star button in the chat-list header opens
+**Starred**, which lists every starred message, newest star first, with its
+chat's name and when it was starred. Text shows as written; a photo, video,
+document, or voice message shows the same label the chat list uses. Clicking a
+row opens the chat at that message, and right-clicking it offers the chat's own
+menu, including **Unstar**. Messages from locked chats stay out of the list.
+
 ## Stickers
 
 The sticker tab works like WhatsApp's: a row of tabs holds **Recent**
